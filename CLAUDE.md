@@ -34,8 +34,8 @@ Classical RAG lacks deep contextual understanding and cannot follow inter-docume
 | Component | Technology |
 |-----------|------------|
 | Framework | LangChain v1.0+, LangGraph v1.0+ |
-| LLM | Ollama (qwen3:14b, llama3.1:8b fallback) |
-| Embeddings | Qwen3-Embedding-0.6B via Ollama |
+| LLM | Ollama (qwen3:14b, qwen3:8b fallback) |
+| Embeddings | Qwen/Qwen3-Embedding-0.6B via HuggingFace |
 | Vector DB | ChromaDB (local persistent) |
 | Orchestration | LangGraph StateGraph (TypedDict state) |
 | Structured Output | `llm.with_structured_output(Model, method="json_mode")` |
@@ -49,15 +49,33 @@ Classical RAG lacks deep contextual understanding and cannot follow inter-docume
 # Setup
 uv venv && source .venv/bin/activate
 uv pip install -e ".[dev]"
-cp .env.example .env
+cp .env.example .env  # Edit .env if needed
 
-# Pull models
-ollama pull qwen3:14b
-ollama pull qwen3:0.6b
+# Pull required Ollama models (for LLM generation)
+ollama pull qwen3:14b           # Primary model (14B)
+ollama pull qwen3:8b            # Fallback model
+# Note: Embeddings use Qwen/Qwen3-Embedding-0.6B via HuggingFace
+# (downloaded automatically on first run, requires GPU)
 
-# Run
+# Run Streamlit UI
 streamlit run src/ui/app.py --server.port 8511
+
+# Or run via CLI
+python -m src.main --ui --port 8511
+
+# Run single query (non-interactive)
+python -m src.main --query "Was sind die Grenzwerte für Strahlenexposition?"
+
+# Run tests
+pytest tests/ -v
 ```
+
+## Key Configuration
+
+Edit `.env` for your setup:
+- `OLLAMA_NUM_CTX=131072`: 128K context for dual 4090s (adjust if needed)
+- `OLLAMA_SAFE_LIMIT=0.9`: Stop at 90% to prevent OOM
+- `QUALITY_THRESHOLD=300`: Minimum quality score (0-400)
 
 ## Directory Structure
 
@@ -106,3 +124,26 @@ KB_BS_local-hybrid-researcher/
 | [docs/configuration.md](docs/configuration.md) | Environment variables, pyproject.toml |
 | [docs/implementation.md](docs/implementation.md) | Implementation phases, coding standards |
 | [docs/references.md](docs/references.md) | External repos, LangGraph docs, examples |
+
+## Implementation Status
+
+### Baseline Complete (Week 1)
+- [x] Core infrastructure (config, models, services)
+- [x] Pydantic models for all data structures
+- [x] ChromaDB multi-collection search
+- [x] Ollama client with structured output + retry
+- [x] HITL service (clarification + approval)
+- [x] LangGraph StateGraph with 5 phases
+- [x] Reference detection and following (depth=2)
+- [x] Relevance filtering (threshold=0.6)
+- [x] Streamlit UI with HITL panels
+- [x] Safe exit button
+- [x] Basic tests
+
+### Deferred to Week 2+
+- [ ] Progressive disclosure / knowledge pyramid
+- [ ] Three-tier memory architecture
+- [ ] Orchestrator-worker parallelization
+- [ ] RAG Triad automated validation
+- [ ] CI/CD integration
+- [ ] Security hardening (PII redaction)

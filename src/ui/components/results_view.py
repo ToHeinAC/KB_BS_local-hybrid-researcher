@@ -1,0 +1,176 @@
+"""Results view component."""
+
+import json
+from pathlib import Path
+
+import streamlit as st
+
+from src.models.results import FinalReport
+from src.ui.state import get_session_state
+
+
+def render_results_view() -> None:
+    """Render the final results view."""
+    session = get_session_state()
+
+    if not session.final_report:
+        return
+
+    report = FinalReport.model_validate(session.final_report)
+
+    st.subheader("Research Results")
+
+    # Quality score
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.metric("Quality Score", f"{report.quality_score}/400")
+    with col2:
+        st.metric("Tasks Completed", report.todo_items_completed)
+    with col3:
+        st.metric("Iterations", report.research_iterations)
+
+    st.divider()
+
+    # Main answer
+    st.markdown("### Answer")
+    st.markdown(report.answer)
+
+    st.divider()
+
+    # Key findings
+    if report.findings:
+        st.markdown("### Key Findings")
+        for i, finding in enumerate(report.findings, 1):
+            with st.expander(f"Finding {i}: {finding.claim[:100]}..."):
+                st.markdown(f"**Claim:** {finding.claim}")
+                st.markdown(f"**Evidence:** {finding.evidence}")
+                st.markdown(f"**Confidence:** {finding.confidence}")
+
+                if finding.sources:
+                    st.markdown("**Sources:**")
+                    for source in finding.sources:
+                        st.markdown(f"- {source.doc_name} (p. {source.page_number or 'N/A'})")
+
+    st.divider()
+
+    # Sources
+    if report.sources:
+        st.markdown("### Sources")
+        _render_sources(report)
+
+    st.divider()
+
+    # Quality breakdown
+    if report.quality_breakdown:
+        st.markdown("### Quality Breakdown")
+        cols = st.columns(4)
+        for i, (dimension, score) in enumerate(report.quality_breakdown.items()):
+            with cols[i % 4]:
+                st.metric(dimension.replace("_", " ").title(), f"{score}/100")
+
+    # Export options
+    st.divider()
+    st.markdown("### Export")
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+        # JSON export
+        json_str = json.dumps(report.model_dump(), ensure_ascii=False, indent=2)
+        st.download_button(
+            label="Download JSON",
+            data=json_str,
+            file_name="research_report.json",
+            mime="application/json",
+        )
+
+    with col2:
+        # Markdown export
+        md_content = _generate_markdown(report)
+        st.download_button(
+            label="Download Markdown",
+            data=md_content,
+            file_name="research_report.md",
+            mime="text/markdown",
+        )
+
+
+def _render_sources(report: FinalReport) -> None:
+    """Render source list with links."""
+    # Group by document
+    docs = {}
+    for linked_source in report.sources:
+        doc_name = linked_source.source.doc_name
+        if doc_name not in docs:
+            docs[doc_name] = []
+        docs[doc_name].append(linked_source)
+
+    for doc_name, sources in docs.items():
+        with st.expander(f"{doc_name} ({len(sources)} chunks)"):
+            for source in sources:
+                page = source.source.page_number
+                score = source.source.relevance_score
+
+                st.markdown(
+                    f"- Page {page or 'N/A'} | "
+                    f"Relevance: {score:.2f} | "
+                    f"[Open PDF]({source.resolved_path})"
+                )
+
+                # Show snippet
+                snippet = source.source.chunk_text[:200]
+                st.caption(f"Preview: {snippet}...")
+
+
+def _generate_markdown(report: FinalReport) -> str:
+    """Generate markdown export of report."""
+    lines = [
+        f"# Research Report",
+        f"",
+        f"**Query:** {report.query}",
+        f"",
+        f"**Quality Score:** {report.quality_score}/400",
+        f"**Tasks Completed:** {report.todo_items_completed}",
+        f"**Research Iterations:** {report.research_iterations}",
+        f"",
+        f"## Answer",
+        f"",
+        report.answer,
+        f"",
+        f"## Key Findings",
+        f"",
+    ]
+
+    for i, finding in enumerate(report.findings, 1):
+        lines.extend([
+            f"### Finding {i}",
+            f"",
+            f"**Claim:** {finding.claim}",
+            f"",
+            f"**Evidence:** {finding.evidence}",
+            f"",
+            f"**Confidence:** {finding.confidence}",
+            f"",
+            f"**Sources:** {', '.join(s.doc_name for s in finding.sources)}",
+            f"",
+        ])
+
+    lines.extend([
+        f"## Sources",
+        f"",
+    ])
+
+    for linked_source in report.sources:
+        source = linked_source.source
+        lines.append(
+            f"- **{source.doc_name}** (p. {source.page_number or 'N/A'}): "
+            f"Relevance {source.relevance_score:.2f}"
+        )
+
+    lines.extend([
+        f"",
+        f"---",
+        f"*Generated by Rabbithole-Agent*",
+    ])
+
+    return "\n".join(lines)
