@@ -1,0 +1,238 @@
+# Data Sources
+
+## PDF Document Corpus
+
+### Overview
+
+| Property | Value |
+|----------|-------|
+| Source Folders | `kb/{category}__db_inserted/` (one per collection) |
+| Total Count | ~761 PDF documents across all collections |
+| Language | German |
+| Domain | Technical/regulatory documentation |
+| Topics | Construction, engineering, nuclear safety, radiation protection |
+
+### Folder Structure
+
+```
+kb/
+├── GLageKon__db_inserted/     # PDFs for GLageKon collection (~450 docs)
+├── NORM__db_inserted/         # PDFs for NORM collection (~50 docs)
+├── StrlSch__db_inserted/      # PDFs for StrlSch collection (~100 docs)
+├── StrlSchExt__db_inserted/   # PDFs for StrlSchExt collection (~150 docs)
+└── insert_data/               # Initial import folder (ignore at runtime)
+```
+
+**Note:** `kb/insert_data/` is only used for initial vector DB population and should be ignored at runtime. The `*__db_inserted/` folders contain the actual source PDFs corresponding to each ChromaDB collection.
+
+### Document Naming Convention
+
+Files follow sequential numbering with descriptive names:
+```
+003_EG_025_K1,_Verw.-_u._Sozialgebäude.pdf
+010_StrlSchG.pdf
+015_StrlSchV.pdf
+```
+
+### Use Case Example
+
+German radiation protection legislation with complex cross-references:
+- **StrlSchG** (Strahlenschutzgesetz) ↔ **StrlSchV** (Strahlenschutzverordnung)
+- Documents reference each other: "gemäß § 18 StrlSchV", "siehe Abschnitt 3"
+
+---
+
+## ChromaDB Collections
+
+### Pre-populated Collections
+
+| Collection | PDF Folder | Chunk Size | Overlap | ~Docs | Purpose |
+|------------|------------|------------|---------|-------|---------|
+| `GLageKon__Qwen--Qwen3-Embedding-0.6B--10000--2000` | `kb/GLageKon__db_inserted/` | 10000 | 2000 | 450 | General layout/construction |
+| `NORM__Qwen--Qwen3-Embedding-0.6B--3000--600` | `kb/NORM__db_inserted/` | 3000 | 600 | 50 | Standards/norms |
+| `StrlSch__Qwen--Qwen3-Embedding-0.6B--3000--600` | `kb/StrlSch__db_inserted/` | 3000 | 600 | 100 | Radiation protection |
+| `StrlSchExt__Qwen--Qwen3-Embedding-0.6B--3000--600` | `kb/StrlSchExt__db_inserted/` | 3000 | 600 | 150 | Extended radiation protection |
+
+### Naming Convention
+
+```
+{category}__{embedding_model}--{chunk_size}--{overlap}
+```
+
+Example breakdown:
+- `GLageKon`: Category (General Layout/Construction)
+- `Qwen--Qwen3-Embedding-0.6B`: Embedding model used
+- `10000--2000`: 10000 char chunks with 2000 char overlap
+
+### Database Location
+
+```
+kb/database/
+├── GLageKon__Qwen--Qwen3-Embedding-0.6B--10000--2000/
+├── NORM__Qwen--Qwen3-Embedding-0.6B--3000--600/
+├── StrlSch__Qwen--Qwen3-Embedding-0.6B--3000--600/
+└── StrlSchExt__Qwen--Qwen3-Embedding-0.6B--3000--600/
+```
+
+### Collection ↔ PDF Folder Mapping
+
+Each ChromaDB collection has a corresponding PDF folder:
+
+| Collection Prefix | PDF Source Folder |
+|-------------------|-------------------|
+| `GLageKon__*` | `kb/GLageKon__db_inserted/` |
+| `NORM__*` | `kb/NORM__db_inserted/` |
+| `StrlSch__*` | `kb/StrlSch__db_inserted/` |
+| `StrlSchExt__*` | `kb/StrlSchExt__db_inserted/` |
+
+---
+
+## Embedding Model
+
+### Qwen3-Embedding-0.6B
+
+| Property | Value |
+|----------|-------|
+| Model | Qwen3-Embedding-0.6B |
+| Provider | Ollama |
+| RAM Required | ~1GB |
+| Dimensions | 1024 |
+
+### Usage via Ollama
+
+```bash
+# Pull embedding model
+ollama pull qwen3:0.6b
+```
+
+```python
+from langchain_ollama import OllamaEmbeddings
+
+embeddings = OllamaEmbeddings(
+    model="qwen3:0.6b",
+    base_url="http://localhost:11434",
+)
+
+# Generate embedding
+vector = embeddings.embed_query("What are the dose limits?")
+# vector: list[float] with 1024 dimensions
+```
+
+---
+
+## ChromaDB Client Usage
+
+### Connection
+
+```python
+import chromadb
+
+# Connect to persistent storage
+client = chromadb.PersistentClient(
+    path="kb/database/GLageKon__Qwen--Qwen3-Embedding-0.6B--10000--2000"
+)
+
+# Get collection
+collection = client.get_collection("GLageKon")
+
+# Query
+results = collection.query(
+    query_texts=["Strahlenschutz Grenzwerte"],
+    n_results=5,
+)
+```
+
+### List Collections
+
+```bash
+python -c "
+import chromadb
+c = chromadb.PersistentClient('kb/database/GLageKon__Qwen--Qwen3-Embedding-0.6B--10000--2000')
+print([col.name for col in c.list_collections()])
+"
+```
+
+### Multi-Collection Search
+
+```python
+from src.services.chromadb_client import ChromaDBClient
+
+client = ChromaDBClient(base_path="kb/database")
+
+# Search across multiple collections
+results = client.search_all(
+    query="Dosisgrenzwerte",
+    collections=["GLageKon", "StrlSch", "NORM"],
+    top_k=5,
+)
+```
+
+---
+
+## Document Mapping
+
+For reference resolution, maintain a mapping file:
+
+### document_mapping.json
+
+```json
+{
+  "StrlSchG": "kb/StrlSch__db_inserted/010_StrlSchG.pdf",
+  "StrlSchV": "kb/StrlSch__db_inserted/015_StrlSchV.pdf",
+  "Strahlenschutzgesetz": "kb/StrlSch__db_inserted/010_StrlSchG.pdf",
+  "Strahlenschutzverordnung": "kb/StrlSch__db_inserted/015_StrlSchV.pdf"
+}
+```
+
+### Usage in Reference Resolution
+
+```python
+def resolve_document_reference(ref_name: str, mapping: dict) -> str | None:
+    """Resolve document reference to file path."""
+
+    # Direct match
+    if ref_name in mapping:
+        return mapping[ref_name]
+
+    # Partial match (case-insensitive)
+    ref_lower = ref_name.lower()
+    for key, path in mapping.items():
+        if ref_lower in key.lower() or key.lower() in ref_lower:
+            return path
+
+    # Fallback: grep all *__db_inserted folders for similar filenames
+    return grep_for_document(ref_name)
+```
+
+---
+
+## Source Path Resolution
+
+Map ChromaDB collection to source PDF folder:
+
+```python
+def resolve_source_directory(collection_name: str) -> str:
+    """Map collection name to source PDF folder.
+
+    Each collection has a corresponding *__db_inserted folder.
+
+    Example:
+        'GLageKon__Qwen--Qwen3-Embedding-0.6B--10000--2000'
+        → 'kb/GLageKon__db_inserted/'
+    """
+    # Extract category prefix (before first '__')
+    category = collection_name.split("__")[0]
+    return f"kb/{category}__db_inserted/"
+
+def resolve_source_path(doc_name: str, collection: str) -> str:
+    """Get full path to source document."""
+    base_dir = resolve_source_directory(collection)
+    return f"{base_dir}{doc_name}"
+
+# Example usage:
+# resolve_source_directory("GLageKon__Qwen--Qwen3-Embedding-0.6B--10000--2000")
+# → "kb/GLageKon__db_inserted/"
+#
+# resolve_source_path("003_EG_025_K1.pdf", "GLageKon__Qwen--...")
+# → "kb/GLageKon__db_inserted/003_EG_025_K1.pdf"
+```
