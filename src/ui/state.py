@@ -44,6 +44,7 @@ class SessionState:
     # Results
     final_report: dict | None = None
     messages: list[str] = field(default_factory=list)
+    hitl_result: dict | None = None  # Store HITL phase results for display
 
     # UI state
     show_debug: bool = False

@@ -13,7 +13,9 @@ from src.services.chromadb_client import ChromaDBClient
 from src.ui.components import (
     render_chat_hitl,
     render_hitl_panel,
+    render_hitl_summary,
     render_query_input,
+    render_research_status,
     render_results_view,
     render_safe_exit,
     render_todo_approval,
@@ -44,20 +46,57 @@ logger = logging.getLogger(__name__)
 ASSETS_DIR = Path(__file__).parent.parent.parent / "assets"
 HEADER_IMAGE = ASSETS_DIR / "Header_fuer_Chatbot.png"
 
+# Version info
+VERSION = "V2.2"
+
+# License text
+LICENSE_TEXT = """
+MIT License
+
+Copyright (c) 2025 BrAIn
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+"""
+
+
+def get_license_content() -> str:
+    """Return license text for tooltip."""
+    return LICENSE_TEXT.strip()
+
 
 def render_header():
-    """Render the BrAIn header with image."""
+    """Render the BrAIn header with image, version, and license."""
     col1, col2 = st.columns([0.5, 0.5])
 
     with col1:
+        # Title with version tooltip
         st.markdown(
-            '<h1 style="margin-bottom: 0;">Br<span style="color:darkorange;"><b>AI</b></span>n</h1>',
+            f'<h1 style="margin-bottom: 0;" title="Version {VERSION}">Br<span style="color:darkorange;"><b>AI</b></span>n <sup style="font-size: 0.4em; color: gray;">{VERSION}</sup></h1>',
             unsafe_allow_html=True,
         )
         st.markdown("## Wissensdatenbank-Konnektor")
         st.caption("Local Hybrid Researcher mit Deep Reference-Following")
 
     with col2:
+        # License indicator (right-aligned)
+        license_col1, license_col2 = st.columns([3, 1])
+        with license_col2:
+            st.markdown(
+                f'<p style="text-align: right; color: darkorange; font-size: 0.8em;" title="{get_license_content()[:200]}...">MIT License</p>',
+                unsafe_allow_html=True,
+            )
         if HEADER_IMAGE.exists():
             st.image(str(HEADER_IMAGE), use_container_width=True)
         else:
@@ -173,7 +212,7 @@ def main():
     """Main Streamlit application entry point."""
     # Page config
     st.set_page_config(
-        page_title="BrAIn - Wissensdatenbank",
+        page_title=f"BrAIn {VERSION} - Wissensdatenbank",
         page_icon=":brain:",
         layout="wide",
         initial_sidebar_state="expanded",
@@ -207,6 +246,10 @@ def main():
         # Research in progress
         phase = get_current_phase()
 
+        # Show HITL summary if available (after HITL phase completes)
+        if session.hitl_result:
+            render_hitl_summary()
+
         # HITL checkpoints during research
         if session.hitl_pending:
             checkpoint_type = (
@@ -226,6 +269,9 @@ def main():
                 if decision:
                     _resume_with_decision(decision.model_dump())
                     st.rerun()
+
+        # Progress status (spinner-based)
+        render_research_status()
 
         # Progress display
         if phase not in ["idle", "analyze"]:
@@ -254,6 +300,9 @@ def _start_research_from_hitl(hitl_result: dict) -> None:
         hitl_result: Dict with research_queries and analysis from HITL
     """
     session = get_session_state()
+
+    # Store HITL result for display
+    session.hitl_result = hitl_result
 
     try:
         # Generate thread ID for HITL resume capability

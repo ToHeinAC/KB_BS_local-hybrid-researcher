@@ -4,6 +4,19 @@ import streamlit as st
 
 from src.ui.state import get_current_phase, get_session_state, get_todo_list
 
+# Phase labels and descriptions for info banner
+PHASE_INFO = {
+    "analyze": ("Analysiere Anfrage", "Extrahiere Schluesselwoerter und Entitaeten aus Ihrer Anfrage"),
+    "hitl_clarify": ("Warte auf Klaerung", "Benutzer-Feedback wird benoetigt"),
+    "generate_todo": ("Erstelle Aufgabenliste", "Plane die Forschungsschritte"),
+    "hitl_approve_todo": ("Warte auf Genehmigung", "Bitte pruefen und genehmigen Sie die Aufgabenliste"),
+    "execute_tasks": ("Fuehre Recherche durch", "Durchsuche die Wissensdatenbank"),
+    "synthesize": ("Synthesisiere Ergebnisse", "Erstelle eine Zusammenfassung der Erkenntnisse"),
+    "quality_check": ("Pruefe Qualitaet", "Validiere Vollstaendigkeit und Relevanz"),
+    "attribute_sources": ("Fuege Quellen hinzu", "Generiere Zitationen und Quellenangaben"),
+    "complete": ("Abgeschlossen", "Recherche erfolgreich beendet"),
+}
+
 
 def render_todo_display() -> None:
     """Render the ToDo list progress display."""
@@ -14,7 +27,14 @@ def render_todo_display() -> None:
     if not todo_list:
         return
 
-    st.subheader("Research Progress")
+    st.subheader("Forschungsfortschritt")
+
+    # Phase banner with description
+    phase_label, phase_desc = PHASE_INFO.get(phase, (phase, ""))
+    if phase != "complete":
+        st.info(f"**{phase_label}**: {phase_desc}")
+    else:
+        st.success(f"**{phase_label}**: {phase_desc}")
 
     # Calculate progress
     completed = sum(1 for item in todo_list if item.get("completed"))
@@ -22,22 +42,7 @@ def render_todo_display() -> None:
     progress = completed / total if total > 0 else 0
 
     # Progress bar
-    st.progress(progress, text=f"Completed: {completed}/{total} tasks")
-
-    # Current phase indicator
-    phase_labels = {
-        "analyze": "Analyzing Query",
-        "hitl_clarify": "Awaiting Clarification",
-        "generate_todo": "Generating Tasks",
-        "hitl_approve_todo": "Awaiting Task Approval",
-        "execute_tasks": "Executing Research",
-        "synthesize": "Synthesizing Findings",
-        "quality_check": "Checking Quality",
-        "attribute_sources": "Adding Citations",
-        "complete": "Complete",
-    }
-    phase_label = phase_labels.get(phase, phase)
-    st.caption(f"Current phase: **{phase_label}**")
+    st.progress(progress, text=f"Abgeschlossen: {completed}/{total} Aufgaben")
 
     # Task list
     with st.expander("Task Details", expanded=True):

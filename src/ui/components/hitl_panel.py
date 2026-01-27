@@ -276,3 +276,42 @@ def create_hitl_result(hitl_state: dict) -> dict:
         "user_query": hitl_state.get("user_query", ""),
         "analysis": hitl_state.get("analysis", {}),
     }
+
+
+def render_hitl_summary() -> None:
+    """Render HITL results summary in an expander.
+
+    Shows after HITL phase completes: original query, research queries, entities.
+    """
+    session = get_session_state()
+
+    hitl_result = session.hitl_result
+    if not hitl_result:
+        return
+
+    with st.expander("HITL Zusammenfassung", expanded=False):
+        # Original query
+        user_query = hitl_result.get("user_query", "")
+        if user_query:
+            st.markdown("**Urspruengliche Anfrage:**")
+            st.write(user_query)
+
+        # Research queries
+        research_queries = hitl_result.get("research_queries", [])
+        if research_queries:
+            st.markdown("**Forschungsabfragen:**")
+            for i, q in enumerate(research_queries, 1):
+                st.write(f"{i}. {q}")
+
+        # Analysis entities
+        analysis = hitl_result.get("analysis", {})
+        entities = analysis.get("entities", [])
+        if entities:
+            st.markdown("**Erkannte Entitaeten:**")
+            st.write(", ".join(entities))
+
+        # Scope
+        scope = analysis.get("scope", "")
+        if scope:
+            st.markdown("**Umfang:**")
+            st.write(scope)
