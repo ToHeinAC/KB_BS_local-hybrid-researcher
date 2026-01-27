@@ -53,10 +53,6 @@ MAX_ITERATIONS_PER_TASK=3        # Prevent loops per task
 MAX_DOCS=5                       # Documents to analyze per task
 DOC_WORD_LIMIT=5000              # Max words per document
 
-# Relevance scoring weights
-KEYWORD_DENSITY_WEIGHT=0.7
-DOC_FREQUENCY_WEIGHT=0.3
-
 # =============================================================================
 # PHASE 4: QUALITY ASSURANCE
 # =============================================================================
@@ -84,16 +80,18 @@ description = "Local hybrid researcher with deep reference-following using Ollam
 readme = "README.md"
 requires-python = ">=3.10"  # LangChain v1.0 dropped Python 3.9
 license = { text = "Apache-2.0" }
-authors = [
-    { name = "Rabbithole-Agent Team" }
-]
+authors = [{ name = "Rabbithole-Agent Team" }]
 dependencies = [
     # LangChain v1.0+ ecosystem
     "langchain>=1.0.0",
     "langchain-core>=1.0.0",
     "langchain-ollama>=0.3.0",
     "langchain-chroma>=0.2.0",
+    "langchain-huggingface>=1.0.0",
     "langgraph>=1.0.0",
+    # Embeddings (Qwen3-Embedding-0.6B via HuggingFace)
+    "sentence-transformers>=3.0.0",
+    "torch>=2.0.0",
     # Data & Storage
     "chromadb>=0.5.0",
     "pydantic>=2.0.0",
@@ -102,6 +100,8 @@ dependencies = [
     "streamlit>=1.28.0",
     "pymupdf>=1.24.0",
     "python-dotenv>=1.0.0",
+    # Retry logic
+    "tenacity>=8.2.0",
 ]
 
 [project.optional-dependencies]
@@ -184,8 +184,6 @@ class Settings(BaseSettings):
     max_iterations_per_task: int = 3
     max_docs: int = 5
     doc_word_limit: int = 5000
-    keyword_density_weight: float = 0.7
-    doc_frequency_weight: float = 0.3
 
     # Phase 4
     enable_quality_checker: bool = True

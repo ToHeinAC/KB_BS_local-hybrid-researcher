@@ -15,7 +15,7 @@ from src.agents.tools import (
     vector_search,
 )
 from src.config import settings
-from src.models.hitl import HITLCheckpoint, HITLDecision
+from src.models.hitl import HITLDecision
 from src.models.query import QueryAnalysis, ToDoItem, ToDoList
 from src.models.research import (
     ChunkWithInfo,
@@ -359,14 +359,16 @@ def execute_task(state: AgentState) -> dict:
         # Detect and follow references
         if chunk.extracted_info:
             refs = detect_references(chunk.extracted_info)
+            current_depth = state.get("current_depth", 0)
             for ref in refs:
                 ref_key = f"{ref.type}:{ref.target}"
                 if not context.has_visited_ref(ref_key):
+                    # Pass depth+1 since we're following a reference from the initial search
                     nested = resolve_reference(
                         ref,
                         chunk.document,
                         visited=set(context.metadata.visited_refs),
-                        depth=state.get("current_depth", 0),
+                        depth=current_depth + 1,
                     )
                     ref.nested_chunks = nested
                     ref.found = len(nested) > 0
@@ -388,10 +390,11 @@ def execute_task(state: AgentState) -> dict:
     context.search_queries.append(search_result)
     context.metadata.total_iterations += 1
 
-    # Mark task completed
-    for item in todo_list:
-        if item.get("id") == task_id:
-            item["completed"] = True
+    # Mark task completed (use list comprehension to avoid mutating during iteration)
+    todo_list = [
+        {**item, "completed": True} if item.get("id") == task_id else item
+        for item in todo_list
+    ]
 
     # Get next task
     next_task_id = None
@@ -404,6 +407,7 @@ def execute_task(state: AgentState) -> dict:
         "research_context": context.model_dump(),
         "todo_list": todo_list,
         "current_task_id": next_task_id,
+        "current_depth": 0,  # Reset depth after each task
         "phase": "execute_tasks" if next_task_id else "synthesize",
         "messages": [f"Completed task {task_id}: found {len(chunks)} relevant chunks"],
     }
@@ -451,8 +455,9 @@ def synthesize(state: AgentState) -> dict:
             "messages": ["No information to synthesize"],
         }
 
-    # Truncate if too long
-    info_text = json.dumps(all_info[:20], ensure_ascii=False, indent=2)
+    # Truncate if too long (use config setting for max docs in synthesis)
+    max_synthesis_docs = settings.max_docs * 4  # 4x for synthesis context
+    info_text = json.dumps(all_info[:max_synthesis_docs], ensure_ascii=False, indent=2)
 
     prompt = f"""Synthesize these research findings into a coherent answer.
 
@@ -561,16 +566,19 @@ Also list any issues_found as a list of strings."""
 
     except Exception as e:
         logger.warning(f"Quality check failed: {e}")
+        # On failure, set passes_quality=False and overall_score=0
         assessment = QualityAssessment(
-            overall_score=300,
-            factual_accuracy=75,
-            semantic_validity=75,
-            structural_integrity=75,
-            citation_correctness=75,
-            passes_quality=True,
+            overall_score=0,
+            factual_accuracy=0,
+            semantic_validity=0,
+            structural_integrity=0,
+            citation_correctness=0,
+            passes_quality=False,
+            issues_found=[f"Quality check failed: {e}"],
         )
 
     return {
+        "quality_assessment": assessment.model_dump(),
         "phase": "attribute_sources",
         "messages": [f"Quality score: {assessment.overall_score}/400"],
     }
@@ -612,7 +620,6 @@ def attribute_sources(state: AgentState) -> dict:
 
     # Get synthesis
     answer = ""
-    key_findings = []
     for sq in context.search_queries:
         if sq.summary:
             answer = sq.summary
@@ -643,18 +650,33 @@ def attribute_sources(state: AgentState) -> dict:
     todo_list = state.get("todo_list", [])
     completed_count = sum(1 for item in todo_list if item.get("completed"))
 
+    # Get quality assessment from state (or use defaults if not available)
+    qa = state.get("quality_assessment")
+    if qa:
+        quality_score = qa.get("overall_score", 0)
+        quality_breakdown = {
+            "factual_accuracy": qa.get("factual_accuracy", 0),
+            "semantic_validity": qa.get("semantic_validity", 0),
+            "structural_integrity": qa.get("structural_integrity", 0),
+            "citation_correctness": qa.get("citation_correctness", 0),
+        }
+    else:
+        # Default values if quality checker was disabled or not run
+        quality_score = 0
+        quality_breakdown = {
+            "factual_accuracy": 0,
+            "semantic_validity": 0,
+            "structural_integrity": 0,
+            "citation_correctness": 0,
+        }
+
     report = FinalReport(
         query=analysis.original_query,
         answer=answer or "No synthesis available",
         findings=findings[:10],  # Limit findings
-        sources=sources[:20],  # Limit sources
-        quality_score=300,  # Default if not checked
-        quality_breakdown={
-            "factual_accuracy": 75,
-            "semantic_validity": 75,
-            "structural_integrity": 75,
-            "citation_correctness": 75,
-        },
+        sources=sources[:settings.max_docs * 4],  # Use config for limit
+        quality_score=quality_score,
+        quality_breakdown=quality_breakdown,
         todo_items_completed=completed_count,
         research_iterations=context.metadata.total_iterations,
         metadata={

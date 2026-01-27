@@ -3,61 +3,61 @@
 ## Implementation Phases
 
 ### Phase 1: Core Infrastructure
-- [ ] Project setup: pyproject.toml, directory structure
-- [ ] Config management with pydantic-settings
-- [ ] Pydantic models: QueryAnalysis, ToDoList, ResearchContext
-- [ ] Pydantic models: VectorResult, DocumentFinding, WebResult
-- [ ] Pydantic models: QualityAssessment, FinalReport
-- [ ] ChromaDB client service
-- [ ] Ollama LLM client service (with `json_mode` structured output)
-- [ ] PDF reader service (PyMuPDF)
-- [ ] Basic tests for services and models
+- [x] Project setup: pyproject.toml, directory structure
+- [x] Config management with pydantic-settings
+- [x] Pydantic models: QueryAnalysis, ToDoList, ResearchContext
+- [x] Pydantic models: VectorResult, DocumentFinding, WebResult
+- [x] Pydantic models: QualityAssessment, FinalReport
+- [x] ChromaDB client service
+- [x] Ollama LLM client service (with `json_mode` structured output)
+- [x] PDF reader service (PyMuPDF)
+- [x] Basic tests for services and models
 
 ### Phase 2: HITL + ToDoList (Research Phase 1-2)
-- [ ] Query analysis with NER/keyword extraction
-- [ ] HITL conversational interface for refinement
-- [ ] ToDoList generation (3-5 tasks)
-- [ ] HITL checkpoint for task approval/modification
-- [ ] Tests for HITL flow
+- [x] Query analysis with NER/keyword extraction
+- [x] HITL conversational interface for refinement
+- [x] ToDoList generation (3-5 tasks)
+- [x] HITL checkpoint for task approval/modification
+- [x] Tests for HITL flow
 
 ### Phase 3: LangGraph Agent (Research Phase 3)
-- [ ] LangGraph StateGraph setup with TypedDict state (v1.0 pattern)
-- [ ] State serialization helpers (Pydantic <-> dict)
-- [ ] `vector_search` tool implementation
-- [ ] `extract_references` tool
-- [ ] `resolve_reference` tool
-- [ ] Reference following with depth tracking
-- [ ] Relevance filtering (threshold 0.6)
-- [ ] ToDoList re-evaluation after each task
-- [ ] Loop prevention (visited refs, max iterations)
-- [ ] Tests for agent and tools
+- [x] LangGraph StateGraph setup with TypedDict state (v1.0 pattern)
+- [x] State serialization helpers (Pydantic <-> dict)
+- [x] `vector_search` tool implementation
+- [x] `extract_references` tool
+- [x] `resolve_reference` tool
+- [x] Reference following with depth tracking
+- [x] Relevance filtering (threshold 0.6)
+- [x] ToDoList re-evaluation after each task
+- [x] Loop prevention (visited refs, max iterations)
+- [x] Tests for agent and tools
 
 ### Phase 4: Synthesis + Quality (Research Phase 4)
-- [ ] `synthesize` node (LLM synthesis from extracted findings)
-- [ ] `quality_check` node (optional, 0-400 scoring)
-- [ ] Tests for synthesis + QA
+- [x] `synthesize` node (LLM synthesis from extracted findings)
+- [x] `quality_check` node (optional, 0-400 scoring)
+- [x] Tests for synthesis + QA
 
 ### Phase 5: Source Attribution (Research Phase 5)
-- [ ] `attribute_sources` node (FinalReport assembly)
-- [ ] Source list generation (linked sources)
-- [ ] Tests for attribution
+- [x] `attribute_sources` node (FinalReport assembly)
+- [x] Source list generation (linked sources)
+- [x] Tests for attribution
 
 ### Phase 6: Streamlit UI
-- [ ] Basic app layout with query input
-- [ ] HITL panel (clarification questions)
-- [ ] ToDoList component (real-time updates)
-- [ ] Live progress updates via LangGraph streaming
-- [ ] Results view with linked sources
-- [ ] Session state management
-- [ ] Safe exit button (port-aware kill)
-- [ ] Source inspection view
+- [x] Basic app layout with query input
+- [x] HITL panel (clarification questions)
+- [x] ToDoList component (real-time updates)
+- [x] Live progress updates via LangGraph streaming
+- [x] Results view with linked sources
+- [x] Session state management
+- [x] Safe exit button (port-aware kill)
+- [x] Source inspection view
 
 ### Phase 7: Polish
-- [ ] Multi-collection search
+- [x] Multi-collection search
 - [ ] Query history and caching
 - [ ] Export results (JSON, Markdown)
-- [ ] Error handling and recovery
-- [ ] Logging and observability
+- [x] Error handling and recovery
+- [x] Logging and observability
 
 ---
 

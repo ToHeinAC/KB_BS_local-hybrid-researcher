@@ -319,17 +319,6 @@ class PDFMetadata(BaseModel):
     file_size_bytes: int
 ```
 
-### DocumentChunk
-
-```python
-class DocumentChunk(BaseModel):
-    """A chunk of text from a PDF."""
-    text: str
-    page: int
-    bbox: tuple[float, float, float, float] | None = None
-    metadata: PDFMetadata
-```
-
 ### GrepMatch
 
 ```python

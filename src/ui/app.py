@@ -6,7 +6,7 @@ from pathlib import Path
 
 import streamlit as st
 
-from src.agents.graph import create_research_graph, resume_research
+from src.agents.graph import create_research_graph
 from src.agents.state import create_initial_state
 from src.config import settings
 from src.services.chromadb_client import ChromaDBClient
@@ -14,7 +14,6 @@ from src.ui.components import (
     render_chat_hitl,
     render_hitl_panel,
     render_hitl_summary,
-    render_query_input,
     render_research_status,
     render_results_view,
     render_safe_exit,

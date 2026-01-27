@@ -2,7 +2,6 @@
 
 import logging
 from datetime import datetime
-from typing import Any
 
 from src.models.hitl import (
     ClarificationQuestion,
@@ -10,7 +9,7 @@ from src.models.hitl import (
     HITLDecision,
     HITLState,
 )
-from src.models.query import QueryAnalysis, ToDoItem, ToDoList
+from src.models.query import QueryAnalysis, ToDoList
 from src.services.ollama_client import OllamaClient
 
 logger = logging.getLogger(__name__)

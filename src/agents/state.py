@@ -30,6 +30,9 @@ class AgentState(TypedDict, total=False):
     visited_refs: set[str]
     current_depth: int
 
+    # Quality assessment from quality_check phase
+    quality_assessment: dict | None
+
     # HITL fields
     hitl_pending: bool
     hitl_checkpoint: dict | None  # Serialized HITLCheckpoint
@@ -77,6 +80,7 @@ def create_initial_state(query: str) -> AgentState:
         iteration=0,
         visited_refs=set(),
         current_depth=0,
+        quality_assessment=None,
         hitl_pending=False,
         hitl_checkpoint=None,
         hitl_history=[],

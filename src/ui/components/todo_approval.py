@@ -3,7 +3,6 @@
 import streamlit as st
 
 from src.models.hitl import HITLDecision
-from src.models.query import ToDoItem
 from src.ui.state import clear_hitl_state, get_session_state
 
 

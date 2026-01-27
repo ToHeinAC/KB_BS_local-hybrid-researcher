@@ -66,6 +66,13 @@ class AgentState(TypedDict):
     phase: str
     messages: Annotated[list, add]  # Accumulated messages
 
+    # Reference tracking
+    visited_refs: set[str]        # Visited reference keys (loop prevention)
+    current_depth: int            # Current recursion depth
+
+    # Quality assessment
+    quality_assessment: dict | None  # Serialized QualityAssessment
+
     # HITL checkpoint support
     hitl_pending: bool
     hitl_checkpoint: dict | None

@@ -9,9 +9,7 @@ from src.ui.state import (
     clear_hitl_state,
     get_hitl_answers,
     get_session_state,
-    reset_hitl_conversation,
     set_hitl_answer,
-    set_workflow_phase,
 )
 
 
@@ -210,9 +208,11 @@ def render_chat_hitl() -> dict | None:
                     analysis = hitl_service.analyse_user_feedback(session.hitl_state)
                     session.hitl_state["analysis"] = analysis
 
+                    # Get language before the conditional
+                    language = session.hitl_state.get("language", "de")
+
                     # Generate follow-up questions if we haven't had many exchanges
                     if session.input_counter < 4:
-                        language = session.hitl_state.get("language", "de")
                         questions = hitl_service.generate_follow_up_questions(
                             session.hitl_state,
                             language=language,
