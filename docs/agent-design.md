@@ -25,6 +25,7 @@ class AgentState(TypedDict):
     query_analysis: dict  # Serialized QueryAnalysis
     todo_list: list[dict]  # Serialized ToDoItems
     research_context: dict  # Serialized ResearchContext
+    final_report: dict  # Serialized FinalReport
     current_task_id: int | None
     phase: str
     messages: Annotated[list, add]  # For message accumulation
@@ -32,26 +33,19 @@ class AgentState(TypedDict):
 # Build graph
 graph = StateGraph(AgentState)
 
-# Add nodes for each phase
-graph.add_node("analyze_query", analyze_query_node)
-graph.add_node("hitl_refinement", hitl_refinement_node)
-graph.add_node("generate_todo", generate_todo_node)
-graph.add_node("hitl_approve_todo", hitl_approve_todo_node)
-graph.add_node("extract_context", extract_context_node)
-graph.add_node("synthesize", synthesize_node)
-graph.add_node("quality_check", quality_check_node)
-graph.add_node("source_attribution", source_attribution_node)
+# Nodes (as implemented in src/agents/graph.py)
+graph.add_node("analyze_query", analyze_query)
+graph.add_node("hitl_clarify", hitl_clarify)
+graph.add_node("process_hitl_clarify", process_hitl_clarify)
+graph.add_node("generate_todo", generate_todo)
+graph.add_node("hitl_approve_todo", hitl_approve_todo)
+graph.add_node("process_hitl_todo", process_hitl_todo)
+graph.add_node("execute_task", execute_task)
+graph.add_node("synthesize", synthesize)
+graph.add_node("quality_check", quality_check)
+graph.add_node("attribute_sources", attribute_sources)
 
-# Add edges with conditional routing
-graph.add_edge("analyze_query", "hitl_refinement")
-graph.add_conditional_edges(
-    "hitl_refinement",
-    should_continue_hitl,
-    {"continue": "hitl_refinement", "done": "generate_todo"}
-)
-# ... more edges
-
-# Compile
+# Compile (with checkpointer for HITL resume)
 app = graph.compile()
 ```
 
@@ -246,17 +240,33 @@ def reevaluate_todo(
 
 ```python
 @tool
-def vector_search(query: str, collection: str, top_k: int = 5) -> list[VectorResult]:
+def vector_search(
+    query: str,
+    collections: list[str] | None = None,
+    top_k: int | None = None,
+    selected_database: str | None = None,
+) -> list[VectorResult]:
     """Search ChromaDB collection for relevant chunks.
 
     Args:
         query: Search query text
-        collection: ChromaDB collection name
-        top_k: Number of results to return
+        collections: Collections to search (defaults to all)
+        top_k: Number of results per collection
+        selected_database: Specific database directory name to search
 
     Returns:
         List of matching chunks with metadata
     """
+```
+
+## Streamlit UI Execution Model
+
+The Streamlit UI runs the graph using LangGraph streaming so the user sees live progress updates and preliminary results:
+
+```python
+for state in graph.stream(input_state, config, stream_mode="values"):
+    update_agent_state(state)
+    render_research_status()
 ```
 
 ### Extract References Tool
@@ -342,64 +352,27 @@ def web_search(query: str, max_results: int = 2) -> list[WebResult]:
     """
 ```
 
+**Note:** Web search is currently not wired into the baseline graph/UI in this repository.
+
 ## HITL Integration Points
 
-### 1. Query Refinement (Phase 1)
+### 1. Query Clarification (Phase 1)
 
-```python
-def hitl_refinement_node(state: AgentState) -> AgentState:
-    """Present clarification questions, collect answers."""
+The graph emits a HITL checkpoint when clarification is needed:
 
-    # Generate questions based on QueryAnalysis
-    questions = generate_clarification_questions(state["query_analysis"])
+- **Node:** `hitl_clarify`
+- **State:** `hitl_pending=True` and `hitl_checkpoint` populated
 
-    # Display in Streamlit, await response
-    answers = st.form("clarification")
-    for q in questions:
-        answers[q.id] = st.text_input(q.text)
-
-    # Merge answers into QueryAnalysis
-    state["query_analysis"] = merge_clarifications(
-        state["query_analysis"],
-        answers,
-    )
-
-    return state
-```
+The Streamlit UI renders the checkpoint and resumes the graph with a `hitl_decision`.
 
 ### 2. ToDoList Approval (Phase 2)
 
-```python
-def hitl_approve_todo_node(state: AgentState) -> AgentState:
-    """User approves or modifies ToDoList before research."""
+The graph emits a checkpoint for ToDo approval:
 
-    # Display ToDoList in editable form
-    edited_tasks = st.data_editor(state["todo_list"])
+- **Node:** `hitl_approve_todo`
+- **State:** `hitl_pending=True` and `hitl_checkpoint` populated
 
-    if st.button("Approve"):
-        state["todo_list"] = edited_tasks
-        state["phase"] = "extract"
-
-    return state
-```
-
-### 3. Source Verification (Phase 5)
-
-```python
-def source_verification_node(state: AgentState) -> AgentState:
-    """User can inspect and filter sources before final report."""
-
-    sources = state["research_context"].all_sources
-
-    # Display sources with checkboxes
-    verified = []
-    for src in sources:
-        if st.checkbox(f"{src.doc_name}: {src.excerpt[:100]}..."):
-            verified.append(src)
-
-    state["verified_sources"] = verified
-    return state
-```
+The Streamlit UI uses the ToDo approval component and resumes with `process_hitl_todo`.
 
 ## Loop Prevention
 

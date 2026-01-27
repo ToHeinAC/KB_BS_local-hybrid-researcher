@@ -33,25 +33,20 @@
 - [ ] Tests for agent and tools
 
 ### Phase 4: Synthesis + Quality (Research Phase 4)
-- [ ] `generate_summary` tool (per-query)
-- [ ] Reranking by relevance
-- [ ] `quality_check` tool (0-400 scoring)
-- [ ] Reflection loop if quality fails
-- [ ] Optional web search integration
-- [ ] Draft report generation
-- [ ] Tests for synthesis pipeline
+- [ ] `synthesize` node (LLM synthesis from extracted findings)
+- [ ] `quality_check` node (optional, 0-400 scoring)
+- [ ] Tests for synthesis + QA
 
 ### Phase 5: Source Attribution (Research Phase 5)
-- [ ] Citation insertion (`[Source_filename.pdf]`)
-- [ ] Path resolution (collection → folder mapping)
-- [ ] Clickable link generation
-- [ ] FinalReport assembly
+- [ ] `attribute_sources` node (FinalReport assembly)
+- [ ] Source list generation (linked sources)
 - [ ] Tests for attribution
 
 ### Phase 6: Streamlit UI
 - [ ] Basic app layout with query input
 - [ ] HITL panel (clarification questions)
 - [ ] ToDoList component (real-time updates)
+- [ ] Live progress updates via LangGraph streaming
 - [ ] Results view with linked sources
 - [ ] Session state management
 - [ ] Safe exit button (port-aware kill)

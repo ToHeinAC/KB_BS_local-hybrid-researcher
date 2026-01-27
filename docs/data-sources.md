@@ -94,28 +94,24 @@ Each ChromaDB collection has a corresponding PDF folder:
 | Property | Value |
 |----------|-------|
 | Model | Qwen3-Embedding-0.6B |
-| Provider | Ollama |
+| Provider | HuggingFace |
 | RAM Required | ~1GB |
 | Dimensions | 1024 |
 
-### Usage via Ollama
+### Usage via HuggingFace (as implemented)
 
-```bash
-# Pull embedding model
-ollama pull qwen3:0.6b
-```
+The application uses `langchain_huggingface.HuggingFaceEmbeddings` with the model `Qwen/Qwen3-Embedding-0.6B` and runs embeddings on CUDA:
 
 ```python
-from langchain_ollama import OllamaEmbeddings
+from langchain_huggingface import HuggingFaceEmbeddings
 
-embeddings = OllamaEmbeddings(
-    model="qwen3:0.6b",
-    base_url="http://localhost:11434",
+embeddings = HuggingFaceEmbeddings(
+    model_name="Qwen/Qwen3-Embedding-0.6B",
+    model_kwargs={"device": "cuda"},
+    encode_kwargs={"normalize_embeddings": True},
 )
 
-# Generate embedding
 vector = embeddings.embed_query("What are the dose limits?")
-# vector: list[float] with 1024 dimensions
 ```
 
 ---

@@ -66,6 +66,13 @@ def reset_session_state() -> None:
 def update_agent_state(state: dict) -> None:
     """Update agent state in session."""
     session = get_session_state()
+    previous_agent_state = session.agent_state
+    previous_messages = (
+        previous_agent_state.get("messages", [])
+        if isinstance(previous_agent_state, dict)
+        else []
+    )
+
     session.agent_state = state
 
     # Check for HITL pending
@@ -79,7 +86,12 @@ def update_agent_state(state: dict) -> None:
 
     # Accumulate messages
     if state.get("messages"):
-        session.messages.extend(state["messages"])
+        new_messages = state.get("messages", [])
+        if isinstance(new_messages, list) and isinstance(previous_messages, list):
+            start_idx = min(len(previous_messages), len(new_messages))
+            session.messages.extend(new_messages[start_idx:])
+        else:
+            session.messages.extend(list(new_messages))
 
 
 def get_current_phase() -> str:

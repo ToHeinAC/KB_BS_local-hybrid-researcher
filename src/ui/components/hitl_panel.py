@@ -161,7 +161,6 @@ def render_chat_hitl() -> dict | None:
 
             session.waiting_for_human_input = True
             session.input_counter += 1
-            st.rerun()
 
     # Feedback loop
     elif session.waiting_for_human_input and not session.conversation_ended:
@@ -176,6 +175,7 @@ def render_chat_hitl() -> dict | None:
             if feedback_lower == "/end":
                 # Finalize conversation
                 session.conversation_ended = True
+                session.waiting_for_human_input = False
 
                 # Analyze accumulated feedback
                 if session.hitl_state:
@@ -194,10 +194,6 @@ def render_chat_hitl() -> dict | None:
                         summary += f"{i}. {q}\n"
 
                     add_hitl_message("assistant", summary)
-
-                    # Transition to research phase
-                    set_workflow_phase("research")
-                    st.rerun()
 
                     return result
 

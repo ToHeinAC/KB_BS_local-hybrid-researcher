@@ -1,10 +1,10 @@
 [project]
 name = "kb-bs-local-hybrid-researcher"
-version = "0.1.0"
+version = "2.2.0"
 description = "Local hybrid researcher with deep reference-following using Ollama and ChromaDB"
 readme = "README.md"
 requires-python = ">=3.10"
-license = { text = "MIT" }
+license = { text = "Apache-2.0" }
 authors = [{ name = "Rabbithole-Agent Team" }]
 dependencies = [
     # LangChain v1.0+ ecosystem

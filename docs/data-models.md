@@ -66,6 +66,7 @@ class DetectedReference(BaseModel):
     """A reference detected within text."""
     type: Literal["section", "document", "external"]
     target: str
+    original_text: str = ""
     found: bool = False
     nested_chunks: list[NestedChunk] = []
 
@@ -73,8 +74,10 @@ class ChunkWithInfo(BaseModel):
     """A chunk from vector DB with extracted info and references."""
     chunk: str
     document: str
+    page: int | None = None
     extracted_info: str | None = None
     references: list[DetectedReference] = []
+    relevance_score: float = 0.0
 
 class SearchQueryResult(BaseModel):
     """Results for a single search query."""
@@ -90,6 +93,7 @@ class ResearchContextMetadata(BaseModel):
     total_iterations: int = 0
     documents_referenced: list[str] = []
     external_sources_used: bool = False
+    visited_refs: list[str] = []
 
 class ResearchContext(BaseModel):
     """Growing JSON accumulating all research findings."""

@@ -49,31 +49,15 @@ HEADER_IMAGE = ASSETS_DIR / "Header_fuer_Chatbot.png"
 # Version info
 VERSION = "V2.2"
 
-# License text
-LICENSE_TEXT = """
-MIT License
-
-Copyright (c) 2025 BrAIn
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
-"""
+LICENSE_FILE = Path(__file__).parent.parent.parent / "LICENSE"
 
 
 def get_license_content() -> str:
     """Return license text for tooltip."""
-    return LICENSE_TEXT.strip()
+    try:
+        return LICENSE_FILE.read_text(encoding="utf-8").strip()
+    except Exception:
+        return ""
 
 
 def render_header():
@@ -89,18 +73,76 @@ def render_header():
         st.markdown("## Wissensdatenbank-Konnektor")
         st.caption("Local Hybrid Researcher mit Deep Reference-Following")
 
+        st.markdown(
+            '<p style="text-align: right; font-size:12px; font-weight:bold; color:darkorange; margin-top:0px;">Apache 2.0</p>',
+            unsafe_allow_html=True,
+            help=get_license_content(),
+        )
+
     with col2:
-        # License indicator (right-aligned)
-        license_col1, license_col2 = st.columns([3, 1])
-        with license_col2:
-            st.markdown(
-                f'<p style="text-align: right; color: darkorange; font-size: 0.8em;" title="{get_license_content()[:200]}...">MIT License</p>',
-                unsafe_allow_html=True,
-            )
         if HEADER_IMAGE.exists():
             st.image(str(HEADER_IMAGE), use_container_width=True)
         else:
             st.warning("Header image not found")
+
+
+def _render_preliminary_results() -> None:
+    session = get_session_state()
+    state = session.agent_state or {}
+
+    if not isinstance(state, dict):
+        return
+
+    research_context = state.get("research_context", {})
+    todo_list = state.get("todo_list", [])
+    phase = state.get("phase", "")
+
+    if not research_context and not todo_list and not session.messages:
+        return
+
+    with st.expander("Preliminary Results", expanded=False):
+        if todo_list:
+            completed = sum(1 for t in todo_list if t.get("completed"))
+            total = len(todo_list)
+            st.write(f"Tasks: {completed}/{total}")
+
+        metadata = research_context.get("metadata", {}) if isinstance(research_context, dict) else {}
+        referenced = metadata.get("documents_referenced", []) if isinstance(metadata, dict) else []
+        if referenced:
+            st.write(f"Referenced documents: {len(referenced)}")
+
+        if phase == "execute_tasks":
+            if session.messages:
+                st.write("Latest updates:")
+                for msg in reversed(session.messages[-5:]):
+                    st.text(msg)
+
+
+def _run_graph_stream(graph, input_state: dict, config: dict) -> None:
+    status_placeholder = st.empty()
+    todo_placeholder = st.empty()
+    messages_placeholder = st.empty()
+    prelim_placeholder = st.empty()
+
+    last_state: dict | None = None
+    for state in graph.stream(input_state, config, stream_mode="values"):
+        last_state = state
+        update_agent_state(state)
+
+        with status_placeholder.container():
+            render_research_status()
+
+        phase = get_current_phase()
+        if phase not in ["idle", "analyze"]:
+            with todo_placeholder.container():
+                render_todo_display()
+            with messages_placeholder.container():
+                render_messages()
+            with prelim_placeholder.container():
+                _render_preliminary_results()
+
+    if last_state:
+        update_agent_state(last_state)
 
 
 def render_sidebar():
@@ -304,6 +346,8 @@ def _start_research_from_hitl(hitl_result: dict) -> None:
     # Store HITL result for display
     session.hitl_result = hitl_result
 
+    set_workflow_phase("research")
+
     try:
         # Generate thread ID for HITL resume capability
         thread_id = str(uuid.uuid4())
@@ -337,13 +381,11 @@ def _start_research_from_hitl(hitl_result: dict) -> None:
 
         config = {"configurable": {"thread_id": thread_id}}
 
-        # Run graph until HITL checkpoint or completion
-        result = graph.invoke(initial_state, config)
+        _run_graph_stream(graph, initial_state, config)
 
-        # Update session state
-        update_agent_state(result)
+        add_message(f"Phase: {get_current_phase()}")
 
-        add_message(f"Phase: {result.get('phase', 'unknown')}")
+        st.rerun()
 
     except Exception as e:
         logger.exception("Research failed")
@@ -359,6 +401,8 @@ def _start_research(query: str) -> None:
     session = get_session_state()
 
     try:
+        set_workflow_phase("research")
+
         # Generate thread ID for HITL resume capability
         thread_id = str(uuid.uuid4())
         session.thread_id = thread_id
@@ -376,13 +420,9 @@ def _start_research(query: str) -> None:
 
         config = {"configurable": {"thread_id": thread_id}}
 
-        # Run graph until HITL checkpoint or completion
-        result = graph.invoke(initial_state, config)
+        _run_graph_stream(graph, initial_state, config)
 
-        # Update session state
-        update_agent_state(result)
-
-        add_message(f"Phase: {result.get('phase', 'unknown')}")
+        add_message(f"Phase: {get_current_phase()}")
 
     except Exception as e:
         logger.exception("Research failed")
@@ -410,13 +450,9 @@ def _resume_with_decision(decision: dict) -> None:
         current_state["hitl_decision"] = decision
         current_state["hitl_pending"] = False
 
-        # Resume from current state
-        result = graph.invoke(current_state, config)
+        _run_graph_stream(graph, current_state, config)
 
-        # Update session state
-        update_agent_state(result)
-
-        add_message(f"Phase: {result.get('phase', 'unknown')}")
+        add_message(f"Phase: {get_current_phase()}")
 
     except Exception as e:
         logger.exception("Resume failed")

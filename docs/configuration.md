@@ -8,8 +8,8 @@
 # =============================================================================
 OLLAMA_BASE_URL=http://localhost:11434
 OLLAMA_MODEL=qwen3:14b
-OLLAMA_FALLBACK_MODEL=llama3.1:8b
-OLLAMA_EMBEDDING_MODEL=qwen3:0.6b
+OLLAMA_FALLBACK_MODEL=qwen3:8b
+OLLAMA_EMBEDDING_MODEL=qwen3-embedding:0.6b
 
 # =============================================================================
 # CHROMADB CONFIGURATION
@@ -79,13 +79,13 @@ WEB_RESULTS_PER_QUERY=2
 ```toml
 [project]
 name = "kb-bs-local-hybrid-researcher"
-version = "0.1.0"
-description = "AI-LLM agentic researcher with hybrid document and vector search"
+version = "2.2.0"
+description = "Local hybrid researcher with deep reference-following using Ollama and ChromaDB"
 readme = "README.md"
 requires-python = ">=3.10"  # LangChain v1.0 dropped Python 3.9
-license = { text = "MIT" }
+license = { text = "Apache-2.0" }
 authors = [
-    { name = "Your Name", email = "you@example.com" }
+    { name = "Rabbithole-Agent Team" }
 ]
 dependencies = [
     # LangChain v1.0+ ecosystem
@@ -155,8 +155,10 @@ class Settings(BaseSettings):
     # Ollama
     ollama_base_url: str = "http://localhost:11434"
     ollama_model: str = "qwen3:14b"
-    ollama_fallback_model: str = "llama3.1:8b"
-    ollama_embedding_model: str = "qwen3:0.6b"
+    ollama_fallback_model: str = "qwen3:8b"
+    ollama_embedding_model: str = "qwen3-embedding:0.6b"
+    ollama_num_ctx: int = 131072
+    ollama_safe_limit: float = 0.9
 
     # ChromaDB
     chromadb_path: str = "./kb/database"
@@ -226,8 +228,7 @@ cp .env.example .env
 ```bash
 # Pull required models
 ollama pull qwen3:14b
-ollama pull llama3.1:8b
-ollama pull qwen3:0.6b
+ollama pull qwen3:8b
 
 # Check models
 ollama list
