@@ -58,7 +58,7 @@ ollama pull qwen3:8b            # Fallback model
 # (downloaded automatically on first run, requires GPU)
 
 # Run Streamlit UI
-streamlit run src/ui/app.py --server.port 8511
+uv run streamlit run src/ui/app.py --server.port 8511 --server.headless false
 
 # Or run via CLI
 python -m src.main --ui --port 8511
