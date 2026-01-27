@@ -18,10 +18,28 @@ class SessionState:
     agent_state: dict = field(default_factory=dict)
     thread_id: str = ""
 
-    # HITL state
+    # HITL state (legacy form-based)
     hitl_pending: bool = False
     hitl_checkpoint: dict | None = None
     hitl_answers: dict = field(default_factory=dict)
+
+    # HITL chat-based state (new)
+    hitl_conversation_history: list[dict] = field(default_factory=list)
+    hitl_state: dict | None = None
+    waiting_for_human_input: bool = False
+    conversation_ended: bool = False
+    input_counter: int = 0
+    workflow_phase: str = "hitl"  # "hitl", "research", "completed"
+
+    # Database selection
+    use_ext_database: bool = True
+    selected_database: str = ""
+    k_results: int = 5
+
+    # Settings
+    max_search_queries: int = 5
+    enable_web_search: bool = False
+    enable_quality_checker: bool = True
 
     # Results
     final_report: dict | None = None
@@ -117,3 +135,72 @@ def clear_error() -> None:
     """Clear error message."""
     session = get_session_state()
     session.error = None
+
+
+# Chat-based HITL helper functions
+
+
+def add_hitl_message(role: str, content: str) -> None:
+    """Add a message to the HITL conversation history.
+
+    Args:
+        role: Message role ('user' or 'assistant')
+        content: Message content
+    """
+    session = get_session_state()
+    session.hitl_conversation_history.append({"role": role, "content": content})
+
+
+def reset_hitl_conversation() -> None:
+    """Reset the HITL conversation for a new session."""
+    session = get_session_state()
+    session.hitl_conversation_history = []
+    session.hitl_state = None
+    session.waiting_for_human_input = False
+    session.conversation_ended = False
+    session.input_counter = 0
+    session.workflow_phase = "hitl"
+
+
+def get_selected_database() -> str:
+    """Get the currently selected database name.
+
+    Returns:
+        Selected database name or empty string if none selected
+    """
+    session = get_session_state()
+    return session.selected_database if session.use_ext_database else ""
+
+
+def set_database_selection(use_ext: bool, db_name: str, k: int) -> None:
+    """Set database selection settings.
+
+    Args:
+        use_ext: Whether to use external database
+        db_name: Selected database name
+        k: Number of results per query
+    """
+    session = get_session_state()
+    session.use_ext_database = use_ext
+    session.selected_database = db_name
+    session.k_results = k
+
+
+def set_workflow_phase(phase: str) -> None:
+    """Set the current workflow phase.
+
+    Args:
+        phase: One of 'hitl', 'research', 'completed'
+    """
+    session = get_session_state()
+    session.workflow_phase = phase
+
+
+def get_workflow_phase() -> str:
+    """Get the current workflow phase.
+
+    Returns:
+        Current phase string
+    """
+    session = get_session_state()
+    return session.workflow_phase

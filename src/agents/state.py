@@ -43,6 +43,10 @@ class AgentState(TypedDict, total=False):
     error: str | None
     warnings: list[str]
 
+    # UI settings (passed from Streamlit)
+    selected_database: str | None  # Specific database to search
+    k_results: int  # Number of results per search query
+
 
 def create_initial_state(query: str) -> AgentState:
     """Create initial agent state for a new research session.

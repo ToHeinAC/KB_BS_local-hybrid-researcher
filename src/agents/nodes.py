@@ -343,7 +343,13 @@ def execute_task(state: AgentState) -> dict:
 
     # Perform vector search
     query = f"{current_task.task} {' '.join(analysis.key_concepts)}"
-    results = vector_search(query, top_k=settings.m_chunks_per_query)
+    top_k = state.get("k_results") or settings.m_chunks_per_query
+    selected_database = state.get("selected_database")
+    results = vector_search(
+        query,
+        top_k=top_k,
+        selected_database=selected_database,
+    )
 
     # Process results into chunks with info
     chunks: list[ChunkWithInfo] = []

@@ -287,3 +287,133 @@ class ChromaDBClient:
             "name": collection.name,
             "count": collection.count(),
         }
+
+    def list_database_directories(self) -> list[str]:
+        """List all database directories under kb/database/.
+
+        Returns:
+            List of database directory names
+        """
+        if not self.base_path.exists():
+            logger.warning(f"Base path does not exist: {self.base_path}")
+            return []
+
+        directories = []
+        for d in self.base_path.iterdir():
+            if d.is_dir():
+                # Check if it looks like a ChromaDB database (has chroma files)
+                default_dir = d / "default"
+                if default_dir.exists() or any(d.glob("*.sqlite3")) or any(d.glob("chroma*")):
+                    directories.append(d.name)
+
+        directories.sort()
+        logger.info(f"Found {len(directories)} database directories")
+        return directories
+
+    def extract_embedding_model(self, db_name: str) -> str | None:
+        """Extract embedding model from database name pattern.
+
+        Format: CollectionName__Model--SubModel--ChunkSize--Overlap
+        Example: GLageKon__Qwen--Qwen3-Embedding-0.6B--10000--2000
+        Returns: Qwen/Qwen3-Embedding-0.6B
+
+        Args:
+            db_name: Database directory name
+
+        Returns:
+            Embedding model name in HuggingFace format or None
+        """
+        parts = db_name.split("__")
+        if len(parts) >= 2:
+            model_part = parts[1]
+            # Split by -- and take first two parts for model name
+            model_parts = model_part.split("--")
+            if len(model_parts) >= 2:
+                return f"{model_parts[0]}/{model_parts[1]}"
+            elif len(model_parts) == 1:
+                return model_parts[0]
+        return None
+
+    def search_by_database_name(
+        self,
+        query: str,
+        db_name: str,
+        top_k: int | None = None,
+    ) -> list[VectorResult]:
+        """Search a specific database by its directory name.
+
+        Args:
+            query: Search query text
+            db_name: Database directory name (e.g., 'GLageKon__Qwen--...')
+            top_k: Number of results to return
+
+        Returns:
+            List of VectorResult objects
+        """
+        top_k = top_k or settings.m_chunks_per_query
+
+        # Create a cache key for this specific database
+        cache_key = f"db:{db_name}"
+
+        if cache_key not in self._langchain_stores:
+            db_path = self.base_path / db_name
+            if not db_path.exists():
+                logger.error(f"Database not found: {db_path}")
+                return []
+
+            # Try default subdirectory first
+            actual_path = db_path / "default" if (db_path / "default").exists() else db_path
+
+            try:
+                # Get collection name from the database
+                raw_client = chromadb.PersistentClient(path=str(actual_path))
+                collections = raw_client.list_collections()
+                if not collections:
+                    logger.warning(f"No collections in database: {db_name}")
+                    return []
+
+                collection_name = collections[0].name
+
+                self._langchain_stores[cache_key] = Chroma(
+                    persist_directory=str(actual_path),
+                    embedding_function=self._embeddings,
+                    collection_name=collection_name,
+                )
+                logger.info(f"Created LangChain Chroma store for database: {db_name}")
+
+            except Exception as e:
+                logger.error(f"Failed to connect to database {db_name}: {e}")
+                return []
+
+        store = self._langchain_stores[cache_key]
+
+        try:
+            results = store.similarity_search_with_score(query, k=top_k)
+        except Exception as e:
+            logger.error(f"Search failed for database {db_name}: {e}")
+            return []
+
+        vector_results = []
+        for doc, score in results:
+            metadata = doc.metadata or {}
+
+            # Score is distance, convert to similarity
+            similarity = 1 - score if score < 1 else 1 / (1 + score)
+
+            # Extract collection key from db_name
+            collection_key = db_name.split("__")[0] if "__" in db_name else db_name
+
+            vector_results.append(
+                VectorResult(
+                    doc_id=metadata.get("id", str(hash(doc.page_content[:50]))),
+                    doc_name=metadata.get("source", metadata.get("filename", "unknown")),
+                    chunk_text=doc.page_content,
+                    page_number=metadata.get("page"),
+                    relevance_score=similarity,
+                    collection=collection_key,
+                    query_used=query,
+                )
+            )
+
+        logger.debug(f"Found {len(vector_results)} results for query in {db_name}")
+        return vector_results

@@ -36,6 +36,7 @@ def vector_search(
     query: str,
     collections: list[str] | None = None,
     top_k: int | None = None,
+    selected_database: str | None = None,
 ) -> list[VectorResult]:
     """Search vector database for relevant chunks.
 
@@ -43,12 +44,17 @@ def vector_search(
         query: Search query text
         collections: Collections to search (defaults to all)
         top_k: Number of results per collection
+        selected_database: Specific database directory name to search
 
     Returns:
         List of VectorResult objects sorted by relevance
     """
     client = get_chromadb_client()
     top_k = top_k or settings.m_chunks_per_query
+
+    # If a specific database is selected, use it directly
+    if selected_database:
+        return client.search_by_database_name(query, selected_database, top_k)
 
     if collections:
         return client.search_multi_collection(query, collections, top_k)
