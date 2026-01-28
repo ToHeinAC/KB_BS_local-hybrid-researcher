@@ -20,6 +20,25 @@
 - [x] HITL checkpoint for task approval/modification
 - [x] Tests for HITL flow
 
+### Phase 2.5: Enhanced Iterative HITL (NEW)
+- [x] **Iterative HITL Nodes** in `nodes.py`:
+  - `hitl_init()`: Initialize conversation, detect language
+  - `hitl_generate_questions()`: Generate contextual follow-up questions
+  - `hitl_process_response()`: Analyze response, check termination
+  - `hitl_finalize()`: Generate research_queries for Phase 2
+- [x] **Convergence Detection**: Coverage score estimation (0-1)
+- [x] **Termination Conditions**:
+  - User types `/end` → `user_end`
+  - Max iterations (default: 5) → `max_iterations`
+  - Coverage ≥ 0.9 → `convergence`
+- [x] **Enhanced AgentState Fields**:
+  - `hitl_state`, `hitl_iteration`, `hitl_max_iterations`
+  - `hitl_conversation_history`, `hitl_active`, `hitl_termination_reason`
+  - `coverage_score`, `convergence_score`
+- [x] **Graph Entry Routing**: Conditional entry point (`route_entry_point`)
+- [x] **Multi-query Generation**: `generate_alternative_queries()` for broader search coverage
+- [x] **UI Checkpoint Handler**: `_render_iterative_hitl_checkpoint()` in `app.py`
+
 ### Phase 3: LangGraph Agent (Research Phase 3)
 - [x] LangGraph StateGraph setup with TypedDict state (v1.0 pattern)
 - [x] State serialization helpers (Pydantic <-> dict)

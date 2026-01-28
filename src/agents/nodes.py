@@ -711,3 +711,346 @@ def attribute_sources(state: AgentState) -> dict:
         "phase": "complete",
         "messages": [f"Report complete: {len(findings)} findings, {len(sources)} sources"],
     }
+
+
+# --- Enhanced Phase 1: Iterative HITL Nodes ---
+
+
+def hitl_init(state: AgentState) -> dict:
+    """Initialize iterative HITL conversation.
+
+    Step 1 of Enhanced Phase 1. Sets up conversation state and detects language.
+
+    Args:
+        state: Current agent state
+
+    Returns:
+        State update with initialized HITL state
+    """
+    from src.services.hitl_service import initialize_hitl_state
+
+    query = state["query"]
+
+    # Initialize HITL conversation state
+    hitl_state = initialize_hitl_state(query)
+
+    return {
+        "hitl_state": hitl_state,
+        "hitl_active": True,
+        "hitl_iteration": 0,
+        "hitl_conversation_history": hitl_state.get("conversation_history", []),
+        "detected_language": hitl_state.get("detected_language", "de"),
+        "phase": "hitl_generate_questions",
+        "messages": [f"HITL initialized, language: {hitl_state.get('detected_language', 'de')}"],
+    }
+
+
+def hitl_generate_questions(state: AgentState) -> dict:
+    """Generate follow-up questions for current HITL iteration.
+
+    Step 2 of Enhanced Phase 1. Generates 2-3 contextual follow-up questions.
+
+    Args:
+        state: Current agent state
+
+    Returns:
+        State update with generated questions (hitl_pending=True)
+    """
+    from src.services.hitl_service import process_initial_query, process_human_feedback
+
+    hitl_state = state.get("hitl_state", {})
+    iteration = state.get("hitl_iteration", 0)
+
+    if iteration == 0:
+        # First iteration: generate initial questions
+        hitl_state = process_initial_query(hitl_state)
+    else:
+        # Subsequent iterations: questions already generated in process_response
+        pass
+
+    questions = hitl_state.get("follow_up_questions", "")
+
+    # Create checkpoint for UI
+    checkpoint = {
+        "checkpoint_type": "iterative_hitl",
+        "content": {
+            "questions": questions,
+            "iteration": iteration,
+            "max_iterations": state.get("hitl_max_iterations", 5),
+            "analysis": hitl_state.get("analysis", {}),
+        },
+        "requires_approval": True,
+        "phase": "Phase 1: Query Refinement",
+    }
+
+    return {
+        "hitl_state": hitl_state,
+        "hitl_pending": True,
+        "hitl_checkpoint": checkpoint,
+        "hitl_conversation_history": hitl_state.get("conversation_history", []),
+        "messages": [f"HITL iteration {iteration + 1}: awaiting user response"],
+    }
+
+
+def hitl_process_response(state: AgentState) -> dict:
+    """Process user response in HITL conversation.
+
+    Step 3 of Enhanced Phase 1. Analyzes response and decides next action:
+    - If user typed '/end': finalize HITL
+    - If max iterations reached: finalize HITL
+    - Otherwise: generate new questions and continue
+
+    Args:
+        state: Current agent state with user response in hitl_decision
+
+    Returns:
+        State update with processed response
+    """
+    from src.services.hitl_service import process_human_feedback
+
+    hitl_state = state.get("hitl_state", {})
+    decision = state.get("hitl_decision", {})
+    iteration = state.get("hitl_iteration", 0)
+    max_iterations = state.get("hitl_max_iterations", 5)
+
+    # Extract user response from decision
+    user_response = ""
+    if decision:
+        if decision.get("approved"):
+            # User provided a response
+            mods = decision.get("modifications", {})
+            user_response = mods.get("user_response", "")
+        else:
+            # User rejected/ended
+            user_response = "/end"
+
+    # Check for termination
+    if user_response.strip().lower() == "/end":
+        return {
+            "hitl_active": False,
+            "hitl_termination_reason": "user_end",
+            "hitl_pending": False,
+            "hitl_checkpoint": None,
+            "hitl_decision": None,
+            "phase": "hitl_finalize",
+            "messages": ["User ended HITL conversation"],
+        }
+
+    # Check max iterations
+    if iteration >= max_iterations - 1:
+        # Process final response before finalizing
+        if user_response:
+            hitl_state = process_human_feedback(hitl_state, user_response)
+        return {
+            "hitl_state": hitl_state,
+            "hitl_active": False,
+            "hitl_termination_reason": "max_iterations",
+            "hitl_pending": False,
+            "hitl_checkpoint": None,
+            "hitl_decision": None,
+            "phase": "hitl_finalize",
+            "messages": [f"HITL max iterations ({max_iterations}) reached"],
+        }
+
+    # Process user feedback and generate new questions
+    if user_response:
+        hitl_state = process_human_feedback(hitl_state, user_response)
+
+    # Check convergence (if analysis shows high coverage)
+    analysis = hitl_state.get("analysis", {})
+    coverage = _estimate_coverage(analysis)
+
+    if coverage >= 0.9:
+        return {
+            "hitl_state": hitl_state,
+            "hitl_active": False,
+            "hitl_termination_reason": "convergence",
+            "hitl_pending": False,
+            "hitl_checkpoint": None,
+            "hitl_decision": None,
+            "coverage_score": coverage,
+            "phase": "hitl_finalize",
+            "messages": [f"HITL converged with coverage {coverage:.0%}"],
+        }
+
+    # Continue to next iteration
+    return {
+        "hitl_state": hitl_state,
+        "hitl_iteration": iteration + 1,
+        "hitl_pending": False,
+        "hitl_checkpoint": None,
+        "hitl_decision": None,
+        "hitl_conversation_history": hitl_state.get("conversation_history", []),
+        "coverage_score": coverage,
+        "phase": "hitl_generate_questions",
+        "messages": [f"HITL iteration {iteration + 1} complete, continuing..."],
+    }
+
+
+def _estimate_coverage(analysis: dict) -> float:
+    """Estimate information coverage from HITL analysis.
+
+    Args:
+        analysis: Analysis dict from HITL service
+
+    Returns:
+        Coverage score 0-1
+    """
+    if not analysis:
+        return 0.0
+
+    score = 0.0
+
+    # Check for entities (30%)
+    entities = analysis.get("entities", [])
+    if entities:
+        score += min(len(entities) / 3, 1.0) * 0.3
+
+    # Check for scope (30%)
+    scope = analysis.get("scope", "")
+    if scope:
+        score += 0.3
+
+    # Check for context (20%)
+    context = analysis.get("context", "")
+    if context:
+        score += 0.2
+
+    # Check for refined query (20%)
+    refined = analysis.get("refined_query", "")
+    if refined and refined != analysis.get("user_query", ""):
+        score += 0.2
+
+    return min(score, 1.0)
+
+
+def hitl_finalize(state: AgentState) -> dict:
+    """Finalize HITL conversation and prepare for Phase 2.
+
+    Step 4 of Enhanced Phase 1. Generates research queries and hands off to Phase 2.
+
+    Args:
+        state: Current agent state
+
+    Returns:
+        State update with research_queries ready for Phase 2
+    """
+    from src.services.hitl_service import finalize_hitl_conversation
+
+    hitl_state = state.get("hitl_state", {})
+
+    # Finalize and get research queries
+    result = finalize_hitl_conversation(hitl_state, max_queries=5)
+
+    # Build query analysis from HITL results
+    analysis_dict = {
+        "original_query": state["query"],
+        "key_concepts": result.get("entities", []),
+        "entities": result.get("entities", []),
+        "scope": result.get("scope", ""),
+        "assumed_context": [result.get("context", "")] if result.get("context") else [],
+        "clarification_needed": False,
+        "detected_language": result.get("detected_language", "de"),
+        "hitl_refinements": [
+            f"Summary: {result.get('summary', '')}",
+        ],
+    }
+
+    return {
+        "research_queries": result.get("research_queries", []),
+        "additional_context": result.get("summary", ""),
+        "query_analysis": analysis_dict,
+        "detected_language": result.get("detected_language", "de"),
+        "hitl_active": False,
+        "hitl_pending": False,
+        "hitl_state": None,  # Clear HITL state
+        "phase": "generate_todo",
+        "messages": [
+            f"HITL finalized: {len(result.get('research_queries', []))} research queries generated",
+            f"Termination reason: {state.get('hitl_termination_reason', 'unknown')}",
+        ],
+    }
+
+
+# --- Enhanced Phase 1: Multi-Query Retrieval Nodes ---
+
+
+class AlternativeQueriesOutput(BaseModel):
+    """LLM output for alternative query generation."""
+
+    broader_scope: str
+    alternative_angle: str
+    rationale: str
+
+
+def generate_alternative_queries(state: AgentState) -> dict:
+    """Generate alternative queries for multi-angle retrieval.
+
+    Creates 2 alternative queries alongside the original:
+    1. Broader scope exploration
+    2. Different angle/perspective exploration
+
+    Args:
+        state: Current agent state
+
+    Returns:
+        State update with generated queries
+    """
+    client = get_ollama_client()
+    query = state["query"]
+    analysis = state.get("query_analysis", {})
+    iteration = state.get("hitl_iteration", 0)
+
+    # Build context for query generation
+    if iteration == 0 or not analysis:
+        prompt = f"""Generate 2 alternative search queries for this research question.
+
+Original query: "{query}"
+
+Create:
+1. broader_scope: A query that explores related/contextual information
+2. alternative_angle: A query that explores implications, challenges, or alternatives
+3. rationale: Brief explanation of why these alternatives matter
+
+Output as JSON."""
+    else:
+        # Use accumulated analysis for refined queries
+        gaps = analysis.get("knowledge_gaps", [])
+        entities = analysis.get("entities", [])
+        prompt = f"""Generate 2 refined search queries based on the research progress.
+
+Original query: "{query}"
+Entities found: {entities}
+Knowledge gaps: {gaps}
+
+Create:
+1. broader_scope: A query addressing the identified knowledge gaps
+2. alternative_angle: A query exploring newly mentioned concepts
+3. rationale: Brief explanation of why these queries matter
+
+Output as JSON."""
+
+    try:
+        result = client.generate_structured(prompt, AlternativeQueriesOutput)
+        queries = [query, result.broader_scope, result.alternative_angle]
+    except Exception as e:
+        logger.warning(f"Alternative query generation failed: {e}")
+        # Fallback: use original query with variations
+        queries = [
+            query,
+            f"{query} Hintergrund",
+            f"{query} Anwendung",
+        ]
+
+    # Store in retrieval history
+    retrieval_history = dict(state.get("retrieval_history", {}))
+    retrieval_history[f"iteration_{iteration}"] = {
+        "queries": queries,
+        "retrieved_chunks": [],
+        "dedup_stats": {},
+    }
+
+    return {
+        "retrieval_history": retrieval_history,
+        "messages": [f"Generated {len(queries)} search queries for iteration {iteration}"],
+    }

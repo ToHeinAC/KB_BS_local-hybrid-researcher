@@ -34,9 +34,22 @@ class AgentState(TypedDict):
 graph = StateGraph(AgentState)
 
 # Nodes (as implemented in src/agents/graph.py)
+
+# Entry router for conditional routing
+graph.add_node("entry_router", entry_router)
+
+# Enhanced Phase 1: Iterative HITL nodes (NEW)
+graph.add_node("hitl_init", hitl_init)
+graph.add_node("hitl_generate_questions", hitl_generate_questions)
+graph.add_node("hitl_process_response", hitl_process_response)
+graph.add_node("hitl_finalize", hitl_finalize)
+
+# Legacy Phase 1 nodes
 graph.add_node("analyze_query", analyze_query)
 graph.add_node("hitl_clarify", hitl_clarify)
 graph.add_node("process_hitl_clarify", process_hitl_clarify)
+
+# Phase 2+ nodes
 graph.add_node("generate_todo", generate_todo)
 graph.add_node("hitl_approve_todo", hitl_approve_todo)
 graph.add_node("process_hitl_todo", process_hitl_todo)
@@ -356,7 +369,54 @@ def web_search(query: str, max_results: int = 2) -> list[WebResult]:
 
 ## HITL Integration Points
 
-### 1. Query Clarification (Phase 1)
+### Enhanced: Iterative HITL (Phase 1) - NEW
+
+The iterative HITL flow provides conversational query refinement:
+
+```
+hitl_init → hitl_generate_questions ↔ hitl_process_response → hitl_finalize
+```
+
+**Nodes:**
+
+1. **hitl_init**: Initialize conversation, detect language (de/en)
+   - Sets `hitl_active=True`, `hitl_iteration=0`
+
+2. **hitl_generate_questions**: Generate 2-3 contextual follow-ups
+   - Creates `hitl_checkpoint` with `checkpoint_type="iterative_hitl"`
+   - Sets `hitl_pending=True`, routes to END
+
+3. **hitl_process_response**: Analyze user response
+   - Extracts `user_response` from `hitl_decision.modifications`
+   - Checks termination: `/end`, max_iterations, coverage ≥ 0.9
+   - Increments `hitl_iteration` and loops back, OR routes to finalize
+
+4. **hitl_finalize**: Generate research_queries for Phase 2
+   - Builds `query_analysis` from accumulated conversation
+   - Sets `research_queries[]`, `additional_context`
+
+**Termination Conditions:**
+- User types `/end` → `hitl_termination_reason="user_end"`
+- `hitl_iteration >= hitl_max_iterations` → `hitl_termination_reason="max_iterations"`
+- `coverage_score >= 0.9` → `hitl_termination_reason="convergence"`
+
+**Entry Routing:**
+
+The `route_entry_point` function decides which flow to use:
+
+```python
+def route_entry_point(state):
+    # Skip to Phase 2 if HITL already done
+    if state.get("research_queries"):
+        return "generate_todo"
+    # Use iterative HITL
+    if state.get("hitl_active", False):
+        return "hitl_init"
+    # Legacy flow
+    return "analyze_query"
+```
+
+### Legacy: Query Clarification (Phase 1)
 
 The graph emits a HITL checkpoint when clarification is needed:
 

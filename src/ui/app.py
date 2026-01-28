@@ -320,6 +320,11 @@ def main():
                     _resume_with_decision(decision.model_dump())
                     st.rerun()
 
+            elif checkpoint_type == "iterative_hitl":
+                # Graph-based iterative HITL checkpoint
+                _render_iterative_hitl_checkpoint()
+                return  # Don't continue rendering until user responds
+
         # Column layout: 2/3 main content, 1/3 todo side panel
         main_col, todo_col = st.columns([2, 1])
 
@@ -388,24 +393,30 @@ def _start_research_from_hitl(hitl_result: dict) -> None:
 
         add_message(f"Starting research: {user_query[:50]}...")
 
-        # Create graph and initial state
-        graph = create_research_graph()
-        initial_state = create_initial_state(user_query)
+        # Create graph (skip iterative HITL since we already did chat-based HITL)
+        # use_iterative_hitl=False starts at analyze_query which routes to generate_todo
+        graph = create_research_graph(use_iterative_hitl=False)
+        initial_state = create_initial_state(user_query, use_iterative_hitl=False)
 
         # Add HITL results to state
         initial_state["query_analysis"] = {
             "original_query": user_query,
-            "keywords": [],
+            "key_concepts": entities,
             "entities": entities,
             "scope": scope,
             "assumed_context": [context] if context else [],
             "clarification_needed": False,
+            "detected_language": hitl_result.get("language", "de"),
             "hitl_refinements": [],
         }
 
         # Map research queries from HITL to state for Phase 2
         initial_state["research_queries"] = research_queries
         initial_state["additional_context"] = additional_context
+        initial_state["detected_language"] = hitl_result.get("language", "de")
+
+        # Skip analyze phase since we have HITL results - go directly to generate_todo
+        initial_state["phase"] = "generate_todo"
 
         # Add database selection to state
         if session.selected_database:
@@ -425,11 +436,13 @@ def _start_research_from_hitl(hitl_result: dict) -> None:
         set_error(f"Research failed: {e}")
 
 
-def _start_research(query: str) -> None:
+def _start_research(query: str, use_iterative_hitl: bool = False) -> None:
     """Start a new research session.
 
     Args:
         query: The research query
+        use_iterative_hitl: If True, use graph-based iterative HITL.
+                           If False, use legacy flow (analyze_query -> clarify).
     """
     session = get_session_state()
 
@@ -443,8 +456,8 @@ def _start_research(query: str) -> None:
         add_message(f"Starting research: {query[:50]}...")
 
         # Create graph and initial state
-        graph = create_research_graph()
-        initial_state = create_initial_state(query)
+        graph = create_research_graph(use_iterative_hitl=use_iterative_hitl)
+        initial_state = create_initial_state(query, use_iterative_hitl=use_iterative_hitl)
 
         # Add database selection to state
         if session.selected_database:
@@ -462,6 +475,68 @@ def _start_research(query: str) -> None:
         set_error(f"Research failed: {e}")
 
 
+def _render_iterative_hitl_checkpoint() -> None:
+    """Render the iterative HITL checkpoint UI.
+
+    Shows follow-up questions from the graph and captures user response.
+    """
+    session = get_session_state()
+    checkpoint = session.hitl_checkpoint
+
+    if not checkpoint:
+        return
+
+    content = checkpoint.get("content", {})
+    questions = content.get("questions", "")
+    iteration = content.get("iteration", 0)
+    max_iterations = content.get("max_iterations", 5)
+    analysis = content.get("analysis", {})
+
+    st.subheader(f"Forschungsverfeinerung (Schritt {iteration + 1}/{max_iterations})")
+
+    # Show current analysis if available
+    if analysis:
+        with st.expander("Aktuelles Verstaendnis", expanded=False):
+            from src.services.hitl_service import format_analysis_dict
+            formatted = format_analysis_dict(analysis)
+            if formatted:
+                st.markdown(formatted)
+
+    # Show questions
+    st.markdown("**Nachfragen:**")
+    st.markdown(questions)
+
+    st.divider()
+
+    # User input
+    user_response = st.text_area(
+        "Ihre Antwort",
+        placeholder="Beantworten Sie die Fragen oder tippen Sie /end um zur Recherche ueberzugehen...",
+        key=f"iterative_hitl_response_{iteration}",
+    )
+
+    col1, col2 = st.columns([1, 1])
+
+    with col1:
+        if st.button("Antwort senden", type="primary"):
+            if user_response:
+                decision = {
+                    "approved": True,
+                    "modifications": {"user_response": user_response},
+                }
+                _resume_with_decision(decision)
+                st.rerun()
+
+    with col2:
+        if st.button("Recherche starten (/end)", type="secondary"):
+            decision = {
+                "approved": True,
+                "modifications": {"user_response": "/end"},
+            }
+            _resume_with_decision(decision)
+            st.rerun()
+
+
 def _resume_with_decision(decision: dict) -> None:
     """Resume research with HITL decision.
 
@@ -473,8 +548,15 @@ def _resume_with_decision(decision: dict) -> None:
     try:
         add_message("Resuming research with user input...")
 
+        # Determine which HITL mode we're in based on checkpoint type
+        checkpoint_type = ""
+        if session.hitl_checkpoint:
+            checkpoint_type = session.hitl_checkpoint.get("checkpoint_type", "")
+
+        use_iterative_hitl = checkpoint_type == "iterative_hitl"
+
         # Create graph
-        graph = create_research_graph()
+        graph = create_research_graph(use_iterative_hitl=use_iterative_hitl)
 
         config = {"configurable": {"thread_id": session.thread_id}}
 

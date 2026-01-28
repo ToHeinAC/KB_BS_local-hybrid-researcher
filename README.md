@@ -23,6 +23,7 @@ streamlit run src/ui/app.py --server.port 8511
 
 ## Features
 
+- **Iterative HITL**: Conversational query refinement with convergence detection (NEW)
 - **Human-In-The-Loop**: Query clarification and task approval checkpoints
 - **Deep Reference Following**: Automatically follows cross-document references
 - **Multi-Collection Search**: Searches across all ChromaDB collections

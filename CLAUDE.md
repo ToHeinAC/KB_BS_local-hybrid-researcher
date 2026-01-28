@@ -10,8 +10,13 @@ Classical RAG lacks deep contextual understanding and cannot follow inter-docume
 
 ```
 ┌────────────────────────────────────────────────────────────────────┐
-│  Phase 1: Query Analysis + HITL                                     │
-│  User Query → NER/Keywords → Clarification Loop → QueryAnalysis     │
+│  Phase 1: Enhanced Query Analysis + Iterative HITL                  │
+│  User Query → Language Detection → Iterative Clarification Loop     │
+│  ┌──────────────────────────────────────────────────────────────┐  │
+│  │  hitl_init → hitl_generate_questions ↔ hitl_process_response │  │
+│  │  → hitl_finalize (on /end, max_iterations, or convergence)   │  │
+│  └──────────────────────────────────────────────────────────────┘  │
+│  Output: research_queries[], coverage_score, query_analysis         │
 ├────────────────────────────────────────────────────────────────────┤
 │  Phase 2: Research Planning                                         │
 │  QueryAnalysis → ToDoList (3-5 tasks, max 15)                       │
@@ -28,6 +33,25 @@ Classical RAG lacks deep contextual understanding and cannot follow inter-docume
 │  Add citations → Resolve paths → Generate clickable links           │
 └────────────────────────────────────────────────────────────────────┘
 ```
+
+### Enhanced Phase 1: Iterative HITL Flow
+
+The new iterative HITL system provides intelligent query refinement through conversation:
+
+1. **hitl_init**: Initialize conversation, detect language (de/en)
+2. **hitl_generate_questions**: Generate 2-3 contextual follow-up questions
+3. **hitl_process_response**: Analyze user response, check termination conditions
+4. **hitl_finalize**: Generate research_queries and hand off to Phase 2
+
+**Termination Conditions**:
+- User types `/end` → `user_end`
+- Max iterations reached (default: 5) → `max_iterations`
+- Coverage score ≥ 0.9 → `convergence`
+
+**State Tracking**:
+- `hitl_iteration`: Current iteration count (0-indexed)
+- `coverage_score`: 0-1 estimate of information coverage
+- `hitl_conversation_history`: Full conversation for context
 
 ## Tech Stack (LangChain v1.0+)
 
@@ -140,7 +164,17 @@ KB_BS_local-hybrid-researcher/
 - [x] Safe exit button
 - [x] Basic tests
 
-### Deferred to Week 2+
+### Enhanced Phase 1 (Week 2) - NEW
+- [x] Iterative HITL with conversation loop
+- [x] Enhanced AgentState with HITL tracking fields
+- [x] Graph-based iterative HITL nodes (hitl_init, hitl_generate_questions, hitl_process_response, hitl_finalize)
+- [x] Convergence detection (coverage_score ≥ 0.9)
+- [x] Multi-query generation (generate_alternative_queries)
+- [x] Conditional entry point routing (iterative vs legacy HITL)
+- [x] UI support for iterative HITL checkpoint type
+- [x] Dual HITL modes: UI chat-based (default) and graph-based
+
+### Deferred to Week 3+
 - [ ] Progressive disclosure / knowledge pyramid
 - [ ] Three-tier memory architecture
 - [ ] Orchestrator-worker parallelization

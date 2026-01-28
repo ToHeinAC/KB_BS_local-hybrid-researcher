@@ -14,9 +14,13 @@
 │            Rabbithole-Agent (LangGraph StateGraph)                       │
 ├─────────────────────────────────────────────────────────────────────────┤
 │                                                                          │
-│  Phase 1: Query Analysis + HITL Clarification                            │
-│  ├─ analyze_query: extract key_concepts, entities, scope, assumed_context│
-│  └─ hitl_clarify: optional checkpoint (user clarifies)                   │
+│  Phase 1: Enhanced Query Analysis + Iterative HITL                       │
+│  ├─ OPTION A (default): Iterative HITL via graph                         │
+│  │  ├─ hitl_init: initialize conversation, detect language               │
+│  │  ├─ hitl_generate_questions: 2-3 contextual follow-ups                │
+│  │  ├─ hitl_process_response: analyze, check termination                 │
+│  │  └─ hitl_finalize: generate research_queries → Phase 2                │
+│  └─ OPTION B (legacy): analyze_query → hitl_clarify (checkbox-style)     │
 │                                                                          │
 │  Phase 2: Research Planning                                              │
 │  ├─ generate_todo: generate ToDo items                                   │
@@ -73,10 +77,29 @@ class AgentState(TypedDict):
     # Quality assessment
     quality_assessment: dict | None  # Serialized QualityAssessment
 
-    # HITL checkpoint support
+    # HITL checkpoint support (legacy)
     hitl_pending: bool
     hitl_checkpoint: dict | None
     hitl_decision: dict | None
+
+    # Enhanced Phase 1: Iterative HITL (NEW)
+    hitl_state: dict | None       # Chat-style HITL conversation state
+    hitl_iteration: int           # Current iteration count (0-indexed)
+    hitl_max_iterations: int      # Max iterations (default 5)
+    hitl_conversation_history: list[dict]  # Full conversation
+    hitl_active: bool             # Whether iterative HITL is active
+    hitl_termination_reason: str | None  # user_end, max_iterations, convergence
+
+    # Enhanced Phase 1: Convergence tracking
+    coverage_score: float         # 0-1 information coverage estimate
+    convergence_score: float      # 0-1 convergence to stable state
+    retrieval_history: dict       # Per-iteration retrieval results
+    query_retrieval: str          # Accumulated retrieval results
+
+    # HITL handoff fields
+    research_queries: list[str]   # Generated queries from HITL
+    additional_context: str       # Summary from HITL analysis
+    detected_language: str        # de or en
 
     # UI settings
     selected_database: str | None
@@ -156,11 +179,60 @@ The growing JSON structure that accumulates all research findings:
 
 ## Phase Transitions
 
+### Option A: Iterative HITL Flow (Default)
+
 ```
 ┌──────────────────┐
 │ START            │
 └────────┬─────────┘
          │
+         ▼
+┌───────────────────────────┐
+│ entry_router               │  (routes based on state)
+└────────┬──────────────────┘
+         │ hitl_active=True
+         ▼
+┌───────────────────────────┐
+│ hitl_init                  │  (detect language, init state)
+└────────┬──────────────────┘
+         │
+         ▼
+┌───────────────────────────┐
+│ hitl_generate_questions    │  (generate 2-3 questions)
+└────────┬──────────────────┘
+         │ (→ END, wait for user)
+         ▼
+┌───────────────────────────┐
+│ hitl_process_response      │  (analyze response)
+└────────┬──────────────────┘
+         │
+    ┌────┴────┐
+    │ loop?   │
+    └────┬────┘
+         │ no (termination condition met)
+         ▼
+┌───────────────────────────┐
+│ hitl_finalize              │  (generate research_queries)
+└────────┬──────────────────┘
+         │
+         ▼
+┌───────────────────────────┐
+│ generate_todo              │
+└────────┬──────────────────┘
+```
+
+### Option B: Legacy HITL Flow
+
+```
+┌──────────────────┐
+│ START            │
+└────────┬─────────┘
+         │
+         ▼
+┌───────────────────────────┐
+│ entry_router               │  (routes based on state)
+└────────┬──────────────────┘
+         │ research_queries populated OR hitl_active=False
          ▼
 ┌───────────────────────────┐
 │ analyze_query              │
@@ -219,7 +291,23 @@ The growing JSON structure that accumulates all research findings:
 
 ## Data Flow Details
 
-### Phase 1: Query Analysis + HITL
+### Phase 1: Enhanced Query Analysis + Iterative HITL
+
+**Option A: Iterative HITL (Default)**
+
+1. **User Query** → Streamlit UI captures research question
+2. **hitl_init**: Detect language (de/en), initialize conversation state
+3. **hitl_generate_questions**: Generate 2-3 contextual follow-up questions
+4. **Graph interrupts** (→ END), awaits user response
+5. **hitl_process_response**: Analyze user response, check termination:
+   - `/end` typed → terminate with `user_end`
+   - Max iterations reached → terminate with `max_iterations`
+   - Coverage ≥ 0.9 → terminate with `convergence`
+   - Otherwise → loop back to `hitl_generate_questions`
+6. **hitl_finalize**: Generate research_queries list, build query_analysis
+7. **Output**: `research_queries[]`, `query_analysis`, `coverage_score`
+
+**Option B: Legacy HITL (Checkbox-style)**
 
 1. **User Query** → Streamlit UI captures research question
 2. **Query Analysis** → LLM extracts key_concepts, entities, scope

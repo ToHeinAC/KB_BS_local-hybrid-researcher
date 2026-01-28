@@ -340,7 +340,7 @@ class GrepMatch(BaseModel):
 ```python
 class HITLCheckpoint(BaseModel):
     """Checkpoint requiring user validation."""
-    checkpoint_type: Literal["query", "strategy", "findings", "sources"]
+    checkpoint_type: Literal["query", "strategy", "findings", "sources", "iterative_hitl"]
     content: dict
     requires_approval: bool = True
 
@@ -349,6 +349,79 @@ class HITLDecision(BaseModel):
     approved: bool
     modifications: dict | None = None
     feedback: str | None = None
+```
+
+## Enhanced Phase 1: Iterative HITL State (NEW)
+
+The following fields are added to AgentState for the iterative HITL flow:
+
+### Iterative HITL State Fields
+
+```python
+# In AgentState (TypedDict):
+
+# Chat-style HITL conversation state
+hitl_state: dict | None  # {user_query, language, conversation_history, analysis}
+
+# Iteration tracking
+hitl_iteration: int           # Current iteration (0-indexed)
+hitl_max_iterations: int      # Max iterations (default 5)
+hitl_active: bool             # Whether iterative HITL is active
+hitl_termination_reason: str | None  # "user_end", "max_iterations", "convergence"
+
+# Conversation history
+hitl_conversation_history: list[dict]  # [{role, content, iteration}, ...]
+
+# Convergence tracking
+coverage_score: float         # 0-1 information coverage estimate
+convergence_score: float      # 0-1 convergence to stable state
+retrieval_quality_history: list[float]  # Dedup ratios per iteration
+
+# Multi-query retrieval tracking
+retrieval_history: dict       # {"iteration_N": {queries, retrieved_chunks, dedup_stats}}
+query_retrieval: str          # Accumulated filtered retrieval results
+
+# Token budget
+total_tokens_used: int        # Estimated tokens consumed
+max_tokens_allowed: int       # Budget constraint (default 4000)
+
+# HITL handoff (output for Phase 2)
+research_queries: list[str]   # Generated search queries
+additional_context: str       # Summary from analysis
+detected_language: str        # "de" or "en"
+```
+
+### Iterative HITL Checkpoint Content
+
+When `checkpoint_type == "iterative_hitl"`:
+
+```python
+checkpoint = {
+    "checkpoint_type": "iterative_hitl",
+    "content": {
+        "questions": str,           # Follow-up questions text
+        "iteration": int,           # Current iteration number
+        "max_iterations": int,      # Maximum iterations allowed
+        "analysis": {               # Current understanding
+            "entities": list[str],
+            "scope": str,
+            "context": str,
+            "refined_query": str,
+        },
+    },
+    "requires_approval": True,
+    "phase": "Phase 1: Query Refinement",
+}
+```
+
+### Alternative Queries Output
+
+```python
+class AlternativeQueriesOutput(BaseModel):
+    """LLM output for multi-query generation."""
+    broader_scope: str        # Query for broader context
+    alternative_angle: str    # Query for different perspective
+    rationale: str            # Why these alternatives matter
 ```
 
 ## JSON Schema Example
