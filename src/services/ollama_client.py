@@ -72,6 +72,7 @@ class OllamaClient:
                 base_url=self.base_url,
                 num_ctx=self.num_ctx,
                 temperature=0,
+                timeout=60,  # 60 second timeout to prevent UI hangs
             )
         return self._llm
 
@@ -84,6 +85,7 @@ class OllamaClient:
                 base_url=self.base_url,
                 num_ctx=self.num_ctx,
                 temperature=0,
+                timeout=60,  # 60 second timeout to prevent UI hangs
             )
         return self._fallback_llm
 

@@ -50,6 +50,10 @@ class AgentState(TypedDict, total=False):
     selected_database: str | None  # Specific database to search
     k_results: int  # Number of results per search query
 
+    # HITL handoff fields
+    research_queries: list[str]  # From HITL conversation
+    additional_context: str  # From HITL analysis summary
+
 
 def create_initial_state(query: str) -> AgentState:
     """Create initial agent state for a new research session.
@@ -88,6 +92,8 @@ def create_initial_state(query: str) -> AgentState:
         messages=[],
         error=None,
         warnings=[],
+        research_queries=[],
+        additional_context="",
     )
 
 

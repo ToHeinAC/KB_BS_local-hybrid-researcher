@@ -278,7 +278,7 @@ class HITLService:
 
         return False
 
-    # Chat-style HITL methods
+    # Chat-style HITL methods (legacy - kept for backwards compatibility)
 
     def detect_language(self, user_query: str) -> str:
         """Detect the language of the user's query using LLM.
@@ -289,25 +289,7 @@ class HITLService:
         Returns:
             Language code ('de' for German, 'en' for English)
         """
-        client = get_ollama_client()
-
-        prompt = f"""Determine the language of the following text.
-Reply with ONLY 'de' for German or 'en' for English.
-
-Text: "{user_query}"
-
-Language code:"""
-
-        try:
-            response = client.generate(prompt)
-            lang = response.strip().lower()[:2]
-            if lang in ("de", "en"):
-                return lang
-            # Default to German for radiation protection domain
-            return "de"
-        except Exception as e:
-            logger.warning(f"Language detection failed: {e}")
-            return "de"
+        return _detect_language_llm(user_query)
 
     def generate_follow_up_questions(
         self,
@@ -323,54 +305,7 @@ Language code:"""
         Returns:
             Follow-up questions as formatted string
         """
-        client = get_ollama_client()
-
-        user_query = state.get("user_query", "")
-        conversation_history = state.get("conversation_history", [])
-
-        # Build conversation context
-        context = ""
-        for msg in conversation_history:
-            role = msg.get("role", "")
-            content = msg.get("content", "")
-            context += f"{role}: {content}\n"
-
-        if language == "de":
-            prompt = f"""Du bist ein Forschungsassistent für Strahlenschutz-Dokumentation.
-Der Benutzer hat folgende Anfrage: "{user_query}"
-
-Bisheriger Konversationsverlauf:
-{context}
-
-Stelle 2-3 präzise Nachfragen, um die Anfrage besser zu verstehen.
-Fokussiere auf:
-- Relevante Vorschriften (StrlSchG, StrlSchV, etc.)
-- Spezifische Anwendungsfälle
-- Kontext der Anfrage
-
-Formatiere als nummerierte Liste. Antworte NUR mit den Fragen:"""
-        else:
-            prompt = f"""You are a research assistant for radiation protection documentation.
-The user has the following query: "{user_query}"
-
-Conversation history so far:
-{context}
-
-Ask 2-3 precise follow-up questions to better understand the request.
-Focus on:
-- Relevant regulations (StrlSchG, StrlSchV, etc.)
-- Specific use cases
-- Context of the request
-
-Format as a numbered list. Reply ONLY with the questions:"""
-
-        try:
-            return client.generate(prompt)
-        except Exception as e:
-            logger.warning(f"Failed to generate follow-up questions: {e}")
-            if language == "de":
-                return "1. Welchen Bereich betrifft Ihre Anfrage?\n2. Gibt es spezifische Vorschriften, die relevant sind?"
-            return "1. What area does your request concern?\n2. Are there specific regulations that are relevant?"
+        return _generate_follow_up_questions_llm(state, language)
 
     def analyse_user_feedback(self, state: dict) -> dict:
         """Analyze user feedback for insights.
@@ -381,51 +316,7 @@ Format as a numbered list. Reply ONLY with the questions:"""
         Returns:
             Dict with extracted insights (entities, scope, context)
         """
-        client = get_ollama_client()
-
-        user_query = state.get("user_query", "")
-        conversation_history = state.get("conversation_history", [])
-
-        # Build conversation context
-        context = ""
-        for msg in conversation_history:
-            role = msg.get("role", "")
-            content = msg.get("content", "")
-            context += f"{role}: {content}\n"
-
-        prompt = f"""Analysiere diese Konversation und extrahiere die wichtigsten Informationen.
-
-Ursprüngliche Anfrage: "{user_query}"
-
-Konversationsverlauf:
-{context}
-
-Extrahiere und gib als JSON zurück:
-{{"entities": ["Liste relevanter Entitäten/Vorschriften"],
-"scope": "Themenbereich der Anfrage",
-"context": "Zusätzlicher Kontext",
-"refined_query": "Verfeinerte Suchanfrage"}}
-
-JSON:"""
-
-        try:
-            response = client.generate(prompt)
-            # Try to parse JSON
-            import json
-            # Find JSON in response
-            start = response.find("{")
-            end = response.rfind("}") + 1
-            if start >= 0 and end > start:
-                return json.loads(response[start:end])
-        except Exception as e:
-            logger.warning(f"Failed to analyze feedback: {e}")
-
-        return {
-            "entities": [],
-            "scope": "",
-            "context": "",
-            "refined_query": user_query,
-        }
+        return _analyse_user_feedback_llm(state)
 
     def generate_knowledge_base_questions(
         self,
@@ -441,20 +332,152 @@ JSON:"""
         Returns:
             Dict with research_queries list and summary
         """
-        client = get_ollama_client()
+        return _generate_knowledge_base_questions_llm(state, max_queries)
 
-        user_query = state.get("user_query", "")
-        conversation_history = state.get("conversation_history", [])
-        analysis = state.get("analysis", {})
 
-        # Build conversation context
-        context = ""
-        for msg in conversation_history:
-            role = msg.get("role", "")
-            content = msg.get("content", "")
-            context += f"{role}: {content}\n"
+# --- Explicit HITL Functions (Reference Pattern) ---
 
-        prompt = f"""Basierend auf dieser Konversation, erstelle {max_queries} optimierte Suchanfragen für eine Wissensdatenbank.
+
+def _detect_language_llm(user_query: str) -> str:
+    """Detect query language using LLM."""
+    client = get_ollama_client()
+
+    prompt = f"""Determine the language of the following text.
+Reply with ONLY 'de' for German or 'en' for English.
+
+Text: "{user_query}"
+
+Language code:"""
+
+    try:
+        response = client.generate(prompt)
+        lang = response.strip().lower()[:2]
+        if lang in ("de", "en"):
+            return lang
+        return "de"
+    except Exception as e:
+        logger.warning(f"Language detection failed: {e}")
+        return "de"
+
+
+def _generate_follow_up_questions_llm(state: dict, language: str = "de") -> str:
+    """Generate follow-up questions using LLM."""
+    client = get_ollama_client()
+
+    user_query = state.get("user_query", "")
+    conversation_history = state.get("conversation_history", [])
+
+    # Build conversation context
+    context = ""
+    for msg in conversation_history:
+        role = msg.get("role", "")
+        content = msg.get("content", "")
+        context += f"{role}: {content}\n"
+
+    if language == "de":
+        prompt = f"""Du bist ein Forschungsassistent für Strahlenschutz-Dokumentation.
+Der Benutzer hat folgende Anfrage: "{user_query}"
+
+Bisheriger Konversationsverlauf:
+{context}
+
+Stelle 2-3 präzise Nachfragen, um die Anfrage besser zu verstehen.
+Fokussiere auf:
+- Relevante Vorschriften (StrlSchG, StrlSchV, etc.)
+- Spezifische Anwendungsfälle
+- Kontext der Anfrage
+
+Formatiere als nummerierte Liste. Antworte NUR mit den Fragen:"""
+    else:
+        prompt = f"""You are a research assistant for radiation protection documentation.
+The user has the following query: "{user_query}"
+
+Conversation history so far:
+{context}
+
+Ask 2-3 precise follow-up questions to better understand the request.
+Focus on:
+- Relevant regulations (StrlSchG, StrlSchV, etc.)
+- Specific use cases
+- Context of the request
+
+Format as a numbered list. Reply ONLY with the questions:"""
+
+    try:
+        return client.generate(prompt)
+    except Exception as e:
+        logger.warning(f"Failed to generate follow-up questions: {e}")
+        if language == "de":
+            return "1. Welchen Bereich betrifft Ihre Anfrage?\n2. Gibt es spezifische Vorschriften, die relevant sind?"
+        return "1. What area does your request concern?\n2. Are there specific regulations that are relevant?"
+
+
+def _analyse_user_feedback_llm(state: dict) -> dict:
+    """Analyze user feedback using LLM."""
+    import json
+
+    client = get_ollama_client()
+
+    user_query = state.get("user_query", "")
+    conversation_history = state.get("conversation_history", [])
+
+    # Build conversation context
+    context = ""
+    for msg in conversation_history:
+        role = msg.get("role", "")
+        content = msg.get("content", "")
+        context += f"{role}: {content}\n"
+
+    prompt = f"""Analysiere diese Konversation und extrahiere die wichtigsten Informationen.
+
+Ursprüngliche Anfrage: "{user_query}"
+
+Konversationsverlauf:
+{context}
+
+Extrahiere und gib als JSON zurück:
+{{"entities": ["Liste relevanter Entitäten/Vorschriften"],
+"scope": "Themenbereich der Anfrage",
+"context": "Zusätzlicher Kontext",
+"refined_query": "Verfeinerte Suchanfrage"}}
+
+JSON:"""
+
+    try:
+        response = client.generate(prompt)
+        start = response.find("{")
+        end = response.rfind("}") + 1
+        if start >= 0 and end > start:
+            return json.loads(response[start:end])
+    except Exception as e:
+        logger.warning(f"Failed to analyze feedback: {e}")
+
+    return {
+        "entities": [],
+        "scope": "",
+        "context": "",
+        "refined_query": user_query,
+    }
+
+
+def _generate_knowledge_base_questions_llm(state: dict, max_queries: int = 5) -> dict:
+    """Generate research queries using LLM."""
+    import json
+
+    client = get_ollama_client()
+
+    user_query = state.get("user_query", "")
+    conversation_history = state.get("conversation_history", [])
+    analysis = state.get("analysis", {})
+
+    # Build conversation context
+    context = ""
+    for msg in conversation_history:
+        role = msg.get("role", "")
+        content = msg.get("content", "")
+        context += f"{role}: {content}\n"
+
+    prompt = f"""Basierend auf dieser Konversation, erstelle {max_queries} optimierte Suchanfragen für eine Wissensdatenbank.
 
 Ursprüngliche Anfrage: "{user_query}"
 
@@ -472,24 +495,277 @@ Gib als JSON zurück:
 
 JSON:"""
 
-        try:
-            response = client.generate(prompt)
-            # Try to parse JSON
-            import json
-            start = response.find("{")
-            end = response.rfind("}") + 1
-            if start >= 0 and end > start:
-                result = json.loads(response[start:end])
-                # Ensure we have the expected structure
-                if "research_queries" not in result:
-                    result["research_queries"] = [user_query]
-                if "summary" not in result:
-                    result["summary"] = f"Recherche zu: {user_query}"
-                return result
-        except Exception as e:
-            logger.warning(f"Failed to generate KB questions: {e}")
+    try:
+        response = client.generate(prompt)
+        start = response.find("{")
+        end = response.rfind("}") + 1
+        if start >= 0 and end > start:
+            result = json.loads(response[start:end])
+            if "research_queries" not in result:
+                result["research_queries"] = [user_query]
+            if "summary" not in result:
+                result["summary"] = f"Recherche zu: {user_query}"
+            return result
+    except Exception as e:
+        logger.warning(f"Failed to generate KB questions: {e}")
 
-        return {
-            "research_queries": [user_query],
-            "summary": f"Recherche zu: {user_query}",
-        }
+    return {
+        "research_queries": [user_query],
+        "summary": f"Recherche zu: {user_query}",
+    }
+
+
+# --- Four Explicit HITL Functions (Reference App Pattern) ---
+
+
+def initialize_hitl_state(user_query: str) -> dict:
+    """Initialize HITL state for a new conversation.
+
+    Step 1 of the HITL flow. Detects language and sets up conversation state.
+
+    Args:
+        user_query: The user's initial research query
+
+    Returns:
+        Dict with: user_query, detected_language, conversation_history,
+                   human_feedback=[], analysis={}
+    """
+    language = _detect_language_llm(user_query)
+
+    return {
+        "user_query": user_query,
+        "detected_language": language,
+        "conversation_history": [{"role": "user", "content": user_query}],
+        "human_feedback": [],
+        "analysis": {},
+    }
+
+
+def process_initial_query(hitl_state: dict) -> dict:
+    """Process the initial query and generate follow-up questions.
+
+    Step 2 of the HITL flow. Generates 2-3 preliminary questions.
+
+    Args:
+        hitl_state: Current HITL state from initialize_hitl_state()
+
+    Returns:
+        Updated state with follow_up_questions field
+    """
+    language = hitl_state.get("detected_language", "de")
+
+    questions = _generate_follow_up_questions_llm(hitl_state, language)
+
+    # Add assistant message to history
+    hitl_state["conversation_history"].append({
+        "role": "assistant",
+        "content": questions,
+    })
+    hitl_state["follow_up_questions"] = questions
+
+    return hitl_state
+
+
+def process_human_feedback(hitl_state: dict, user_response: str) -> dict:
+    """Process user feedback and update analysis.
+
+    Step 3 of the HITL flow (repeatable). Analyzes response, updates
+    accumulated analysis, and generates refined questions if needed.
+
+    Args:
+        hitl_state: Current HITL state
+        user_response: User's response to follow-up questions
+
+    Returns:
+        Updated state with analysis and optional new follow_up_questions
+    """
+    # Add user response to history
+    hitl_state["conversation_history"].append({
+        "role": "user",
+        "content": user_response,
+    })
+    hitl_state["human_feedback"].append(user_response)
+
+    # Analyze accumulated feedback
+    analysis = _analyse_user_feedback_llm(hitl_state)
+    hitl_state["analysis"] = analysis
+
+    # Generate refined follow-up questions
+    language = hitl_state.get("detected_language", "de")
+    questions = _generate_follow_up_questions_llm(hitl_state, language)
+
+    hitl_state["conversation_history"].append({
+        "role": "assistant",
+        "content": questions,
+    })
+    hitl_state["follow_up_questions"] = questions
+
+    return hitl_state
+
+
+def finalize_hitl_conversation(hitl_state: dict, max_queries: int = 5) -> dict:
+    """Finalize HITL conversation and generate research queries.
+
+    Step 4 of the HITL flow. Called when user types /end.
+    Generates optimized research_queries for Phase 2.
+
+    Args:
+        hitl_state: Current HITL state with accumulated analysis
+        max_queries: Maximum number of research queries to generate
+
+    Returns:
+        Dict with: research_queries, summary, analysis, user_query,
+                   entities, scope, context
+    """
+    # Final analysis pass
+    analysis = _analyse_user_feedback_llm(hitl_state)
+    hitl_state["analysis"] = analysis
+
+    # Generate research queries
+    result = _generate_knowledge_base_questions_llm(hitl_state, max_queries)
+
+    # Return complete result for Phase 2 handoff
+    return {
+        "research_queries": result.get("research_queries", []),
+        "summary": result.get("summary", ""),
+        "analysis": analysis,
+        "user_query": hitl_state.get("user_query", ""),
+        "entities": analysis.get("entities", []),
+        "scope": analysis.get("scope", ""),
+        "context": analysis.get("context", ""),
+        "detected_language": hitl_state.get("detected_language", "de"),
+        "conversation_history": hitl_state.get("conversation_history", []),
+    }
+
+
+def format_analysis_dict(analysis: dict | str) -> str:
+    """Format analysis dict or string into markdown with German labels.
+
+    Args:
+        analysis: Dict with entities/scope/context or a string
+
+    Returns:
+        Formatted markdown string
+    """
+    if isinstance(analysis, str):
+        return analysis
+
+    if not isinstance(analysis, dict):
+        return str(analysis)
+
+    # German label mappings
+    label_map = {
+        "entities": "Entitaeten",
+        "scope": "Umfang",
+        "context": "Kontext",
+        "refined_query": "Verfeinerte Anfrage",
+        "key_concepts": "Schluesselkonzepte",
+        "assumed_context": "Angenommener Kontext",
+    }
+
+    lines = []
+    for key, value in analysis.items():
+        if not value:
+            continue
+
+        label = label_map.get(key, key.replace("_", " ").title())
+
+        if isinstance(value, list):
+            if value:
+                items = ", ".join(f"`{v}`" for v in value)
+                lines.append(f"**{label}:** {items}")
+        elif isinstance(value, str):
+            lines.append(f"**{label}:** {value}")
+
+    return "\n".join(lines) if lines else ""
+
+
+def _deep_search_dict(data: dict | list, target_keys: set[str]) -> dict:
+    """Recursively search nested dicts/lists for target keys.
+
+    Args:
+        data: Dict or list to search
+        target_keys: Set of keys to find
+
+    Returns:
+        Dict with found key-value pairs
+    """
+    result = {}
+
+    if isinstance(data, dict):
+        for key, value in data.items():
+            if key in target_keys:
+                result[key] = value
+            elif isinstance(value, (dict, list)):
+                nested = _deep_search_dict(value, target_keys)
+                result.update(nested)
+    elif isinstance(data, list):
+        for item in data:
+            if isinstance(item, (dict, list)):
+                nested = _deep_search_dict(item, target_keys)
+                result.update(nested)
+
+    return result
+
+
+def parse_structured_llm_output(final_answer: str | dict) -> tuple[str, str]:
+    """Extract thinking and final content from LLM responses.
+
+    Handles JSON strings, nested dicts, and removes <think> blocks.
+
+    Args:
+        final_answer: LLM response (string or dict)
+
+    Returns:
+        Tuple of (final_content, thinking_content)
+    """
+    import json
+    import re
+
+    thinking_content = ""
+    final_content = ""
+
+    # Handle dict input
+    if isinstance(final_answer, dict):
+        # Search for common content keys
+        content_keys = {"content", "text", "response", "answer", "output"}
+        found = _deep_search_dict(final_answer, content_keys)
+        for key in content_keys:
+            if key in found and found[key]:
+                final_answer = found[key]
+                break
+        else:
+            # Convert dict to string if no content key found
+            final_answer = json.dumps(final_answer, ensure_ascii=False)
+
+    if not isinstance(final_answer, str):
+        final_answer = str(final_answer)
+
+    # Extract <think> blocks
+    think_pattern = r"<think>(.*?)</think>"
+    think_matches = re.findall(think_pattern, final_answer, re.DOTALL)
+    if think_matches:
+        thinking_content = "\n".join(think_matches)
+        # Remove think blocks from output
+        final_content = re.sub(think_pattern, "", final_answer, flags=re.DOTALL)
+    else:
+        final_content = final_answer
+
+    # Clean up whitespace
+    final_content = final_content.strip()
+    thinking_content = thinking_content.strip()
+
+    # Try to parse as JSON and extract content
+    if final_content.startswith("{"):
+        try:
+            parsed = json.loads(final_content)
+            if isinstance(parsed, dict):
+                content_keys = {"content", "text", "response", "answer", "output"}
+                for key in content_keys:
+                    if key in parsed and parsed[key]:
+                        final_content = parsed[key]
+                        break
+        except json.JSONDecodeError:
+            pass
+
+    return final_content, thinking_content

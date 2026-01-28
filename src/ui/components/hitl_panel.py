@@ -3,7 +3,7 @@
 import streamlit as st
 
 from src.models.hitl import ClarificationQuestion, HITLDecision
-from src.services.hitl_service import HITLService
+from src.services.hitl_service import HITLService, format_analysis_dict
 from src.ui.state import (
     add_hitl_message,
     clear_hitl_state,
@@ -104,6 +104,31 @@ def _render_query_clarification(checkpoint: dict) -> HITLDecision | None:
     return None
 
 
+def render_hitl_understanding() -> None:
+    """Display growing understanding after each user answer.
+
+    Shows accumulated context (entities, scope, refined query) in a bordered container.
+    Uses format_analysis_dict for consistent formatting.
+    """
+    session = get_session_state()
+
+    if not session.hitl_state:
+        return
+
+    analysis = session.hitl_state.get("analysis", {})
+    if not analysis:
+        return
+
+    # Use format_analysis_dict for consistent formatting
+    formatted = format_analysis_dict(analysis)
+    if not formatted:
+        return
+
+    with st.container(border=True):
+        st.markdown("**Aktuelles Verstaendnis:**")
+        st.markdown(formatted)
+
+
 def render_chat_hitl() -> dict | None:
     """Render chat-based HITL interaction.
 
@@ -121,6 +146,9 @@ def render_chat_hitl() -> dict | None:
         with st.chat_message(msg["role"]):
             st.markdown(msg["content"])
 
+    # Show accumulated understanding after conversation history
+    render_hitl_understanding()
+
     # Initial query (no history yet)
     if len(session.hitl_conversation_history) == 0:
         # Show initial prompt
@@ -132,23 +160,36 @@ def render_chat_hitl() -> dict | None:
         )
 
         if user_query:
-            # Store initial query
+            # Store initial query immediately so user sees their message
             add_hitl_message("user", user_query)
 
-            # Initialize HITL state
-            language = hitl_service.detect_language(user_query)
-            session.hitl_state = {
-                "user_query": user_query,
-                "language": language,
-                "conversation_history": [{"role": "user", "content": user_query}],
-                "analysis": {},
-            }
+            with st.spinner("Analysiere Anfrage..."):
+                try:
+                    # Initialize HITL state with LLM calls
+                    language = hitl_service.detect_language(user_query)
+                    session.hitl_state = {
+                        "user_query": user_query,
+                        "language": language,
+                        "conversation_history": [{"role": "user", "content": user_query}],
+                        "analysis": {},
+                    }
 
-            # Generate follow-up questions
-            questions = hitl_service.generate_follow_up_questions(
-                session.hitl_state,
-                language=language,
-            )
+                    # Generate follow-up questions
+                    questions = hitl_service.generate_follow_up_questions(
+                        session.hitl_state,
+                        language=language,
+                    )
+                except Exception as e:
+                    st.error(f"LLM-Verbindung fehlgeschlagen: {e}")
+                    # Use fallback questions and state
+                    language = "de"
+                    session.hitl_state = {
+                        "user_query": user_query,
+                        "language": language,
+                        "conversation_history": [{"role": "user", "content": user_query}],
+                        "analysis": {},
+                    }
+                    questions = "1. Welchen Bereich betrifft Ihre Anfrage?\n2. Gibt es spezifische Vorschriften, die relevant sind?\n3. Welche Art von Informationen suchen Sie?"
 
             # Add assistant response
             add_hitl_message("assistant", questions)
@@ -159,6 +200,7 @@ def render_chat_hitl() -> dict | None:
 
             session.waiting_for_human_input = True
             session.input_counter += 1
+            st.rerun()
 
     # Feedback loop
     elif session.waiting_for_human_input and not session.conversation_ended:
@@ -177,14 +219,23 @@ def render_chat_hitl() -> dict | None:
 
                 # Analyze accumulated feedback
                 if session.hitl_state:
-                    analysis = hitl_service.analyse_user_feedback(session.hitl_state)
-                    session.hitl_state["analysis"] = analysis
+                    with st.spinner("Generiere Suchanfragen..."):
+                        try:
+                            analysis = hitl_service.analyse_user_feedback(session.hitl_state)
+                            session.hitl_state["analysis"] = analysis
 
-                    # Generate final research queries
-                    result = hitl_service.generate_knowledge_base_questions(
-                        session.hitl_state,
-                        max_queries=session.max_search_queries,
-                    )
+                            # Generate final research queries
+                            result = hitl_service.generate_knowledge_base_questions(
+                                session.hitl_state,
+                                max_queries=session.max_search_queries,
+                            )
+                        except Exception as e:
+                            st.error(f"LLM-Verbindung fehlgeschlagen: {e}")
+                            # Use fallback result
+                            result = {
+                                "research_queries": [session.hitl_state.get("user_query", "")],
+                                "summary": "Fallback: Verwende urspruengliche Anfrage",
+                            }
 
                     # Add final message
                     summary = f"Starte Recherche mit {len(result.get('research_queries', []))} Suchanfragen:\n\n"
@@ -204,36 +255,57 @@ def render_chat_hitl() -> dict | None:
                         "content": feedback,
                     })
 
-                    # Analyze feedback incrementally
-                    analysis = hitl_service.analyse_user_feedback(session.hitl_state)
-                    session.hitl_state["analysis"] = analysis
-
-                    # Get language before the conditional
+                    # Get language before LLM calls
                     language = session.hitl_state.get("language", "de")
 
-                    # Generate follow-up questions if we haven't had many exchanges
-                    if session.input_counter < 4:
-                        questions = hitl_service.generate_follow_up_questions(
-                            session.hitl_state,
-                            language=language,
-                        )
+                    with st.spinner("Verarbeite Antwort..."):
+                        try:
+                            # Analyze feedback incrementally
+                            analysis = hitl_service.analyse_user_feedback(session.hitl_state)
+                            session.hitl_state["analysis"] = analysis
 
-                        add_hitl_message("assistant", questions)
-                        session.hitl_state["conversation_history"].append({
-                            "role": "assistant",
-                            "content": questions,
-                        })
-                    else:
-                        # Suggest ending after several exchanges
-                        if language == "de":
-                            msg = "Wir haben genug Kontext gesammelt. Tippen Sie `/end` um die Recherche zu starten, oder fügen Sie weitere Details hinzu."
-                        else:
-                            msg = "We have collected enough context. Type `/end` to start the research, or add more details."
-                        add_hitl_message("assistant", msg)
-                        session.hitl_state["conversation_history"].append({
-                            "role": "assistant",
-                            "content": msg,
-                        })
+                            # Generate follow-up questions if we haven't had many exchanges
+                            if session.input_counter < 4:
+                                questions = hitl_service.generate_follow_up_questions(
+                                    session.hitl_state,
+                                    language=language,
+                                )
+
+                                # Format combined response with analysis and questions
+                                formatted_analysis = format_analysis_dict(analysis)
+                                if formatted_analysis:
+                                    combined_msg = f"**ANALYSE:**\n{formatted_analysis}\n\n**NACHFRAGEN:**\n{questions}"
+                                else:
+                                    combined_msg = questions
+
+                                add_hitl_message("assistant", combined_msg)
+                                session.hitl_state["conversation_history"].append({
+                                    "role": "assistant",
+                                    "content": combined_msg,
+                                })
+                            else:
+                                # Suggest ending after several exchanges
+                                if language == "de":
+                                    msg = "Wir haben genug Kontext gesammelt. Tippen Sie `/end` um die Recherche zu starten, oder fuegen Sie weitere Details hinzu."
+                                else:
+                                    msg = "We have collected enough context. Type `/end` to start the research, or add more details."
+                                add_hitl_message("assistant", msg)
+                                session.hitl_state["conversation_history"].append({
+                                    "role": "assistant",
+                                    "content": msg,
+                                })
+                        except Exception as e:
+                            st.error(f"LLM-Verbindung fehlgeschlagen: {e}")
+                            # Use fallback message
+                            if language == "de":
+                                msg = "Ich konnte Ihre Antwort nicht verarbeiten. Bitte versuchen Sie es erneut oder tippen Sie `/end` um fortzufahren."
+                            else:
+                                msg = "Could not process your response. Please try again or type `/end` to continue."
+                            add_hitl_message("assistant", msg)
+                            session.hitl_state["conversation_history"].append({
+                                "role": "assistant",
+                                "content": msg,
+                            })
 
                 session.input_counter += 1
                 st.rerun()
@@ -257,7 +329,7 @@ def create_hitl_result(hitl_state: dict) -> dict:
         hitl_state: The accumulated HITL state
 
     Returns:
-        Dict with research_queries, analysis, and user_query
+        Dict with research_queries, analysis, user_query, and additional fields
     """
     hitl_service = HITLService()
 
@@ -266,11 +338,19 @@ def create_hitl_result(hitl_state: dict) -> dict:
         max_queries=5,
     )
 
+    analysis = hitl_state.get("analysis", {})
+
     return {
         "research_queries": result.get("research_queries", []),
         "summary": result.get("summary", ""),
         "user_query": hitl_state.get("user_query", ""),
-        "analysis": hitl_state.get("analysis", {}),
+        "analysis": analysis,
+        # Additional fields for Phase 2 handoff
+        "language": hitl_state.get("language", "de"),
+        "conversation_history": hitl_state.get("conversation_history", []),
+        "entities": analysis.get("entities", []),
+        "scope": analysis.get("scope", ""),
+        "context": analysis.get("context", ""),
     }
 
 
@@ -278,6 +358,7 @@ def render_hitl_summary() -> None:
     """Render HITL results summary in an expander.
 
     Shows after HITL phase completes: original query, research queries, entities.
+    Enhanced with visual prominence for final context.
     """
     session = get_session_state()
 
@@ -285,29 +366,37 @@ def render_hitl_summary() -> None:
     if not hitl_result:
         return
 
-    with st.expander("HITL Zusammenfassung", expanded=False):
-        # Original query
-        user_query = hitl_result.get("user_query", "")
-        if user_query:
-            st.markdown("**Urspruengliche Anfrage:**")
-            st.write(user_query)
+    with st.expander("HITL Zusammenfassung - Finaler Kontext", expanded=False):
+        with st.container(border=True):
+            # Original query
+            user_query = hitl_result.get("user_query", "")
+            if user_query:
+                st.markdown("**Urspruengliche Anfrage:**")
+                st.write(user_query)
 
-        # Research queries
+            # Analysis entities - display as inline code tags
+            analysis = hitl_result.get("analysis", {})
+            entities = analysis.get("entities", [])
+            if entities:
+                st.markdown("**Erkannte Entitaeten:**")
+                entity_tags = " ".join([f"`{e}`" for e in entities])
+                st.markdown(entity_tags)
+
+            # Scope
+            scope = analysis.get("scope", "")
+            if scope:
+                st.markdown("**Umfang:**")
+                st.write(scope)
+
+            # Context
+            context = analysis.get("context", "")
+            if context:
+                st.markdown("**Kontext:**")
+                st.caption(context)
+
+        # Research queries - numbered list outside the bordered container
         research_queries = hitl_result.get("research_queries", [])
         if research_queries:
             st.markdown("**Forschungsabfragen:**")
             for i, q in enumerate(research_queries, 1):
-                st.write(f"{i}. {q}")
-
-        # Analysis entities
-        analysis = hitl_result.get("analysis", {})
-        entities = analysis.get("entities", [])
-        if entities:
-            st.markdown("**Erkannte Entitaeten:**")
-            st.write(", ".join(entities))
-
-        # Scope
-        scope = analysis.get("scope", "")
-        if scope:
-            st.markdown("**Umfang:**")
-            st.write(scope)
+                st.markdown(f"{i}. {q}")

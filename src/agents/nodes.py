@@ -195,6 +195,9 @@ class ToDoListOutput(BaseModel):
 def generate_todo(state: AgentState) -> dict:
     """Generate research task list based on query analysis.
 
+    Prioritizes research_queries from HITL if available,
+    otherwise falls back to LLM generation.
+
     Args:
         state: Current agent state
 
@@ -202,9 +205,27 @@ def generate_todo(state: AgentState) -> dict:
         State update with todo_list
     """
     analysis = QueryAnalysis.model_validate(state["query_analysis"])
-    client = get_ollama_client()
 
-    prompt = f"""Generate a research task list for this query analysis.
+    # Check for research_queries from HITL first
+    research_queries = state.get("research_queries", [])
+    additional_context = state.get("additional_context", "")
+
+    if research_queries:
+        # Convert HITL research queries directly to ToDoItems
+        items = [
+            ToDoItem(
+                id=i + 1,
+                task=query,
+                context=additional_context if i == 0 else "From HITL conversation",
+            )
+            for i, query in enumerate(research_queries)
+        ]
+        logger.info(f"Using {len(items)} research queries from HITL")
+    else:
+        # Fallback to LLM generation
+        client = get_ollama_client()
+
+        prompt = f"""Generate a research task list for this query analysis.
 
 Original Query: "{analysis.original_query}"
 Key Concepts: {analysis.key_concepts}
@@ -226,25 +247,25 @@ Return JSON with "items" array, each item having:
 Example:
 {{"items": [{{"id": 1, "task": "Find dose limit regulations", "context": "Core query requirement"}}]}}"""
 
-    try:
-        result = client.generate_structured(prompt, ToDoListOutput)
-        items = [
-            ToDoItem(
-                id=item.get("id", i + 1),
-                task=item.get("task", ""),
-                context=item.get("context", ""),
-            )
-            for i, item in enumerate(result.items)
-        ]
-    except Exception as e:
-        logger.warning(f"ToDo generation failed: {e}")
-        items = [
-            ToDoItem(
-                id=1,
-                task=f"Research: {analysis.original_query}",
-                context="Fallback task from failed generation",
-            )
-        ]
+        try:
+            result = client.generate_structured(prompt, ToDoListOutput)
+            items = [
+                ToDoItem(
+                    id=item.get("id", i + 1),
+                    task=item.get("task", ""),
+                    context=item.get("context", ""),
+                )
+                for i, item in enumerate(result.items)
+            ]
+        except Exception as e:
+            logger.warning(f"ToDo generation failed: {e}")
+            items = [
+                ToDoItem(
+                    id=1,
+                    task=f"Research: {analysis.original_query}",
+                    context="Fallback task from failed generation",
+                )
+            ]
 
     todo_list = ToDoList(items=items, max_items=settings.todo_max_items)
 

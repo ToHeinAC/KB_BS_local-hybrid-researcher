@@ -14,11 +14,13 @@ from src.ui.components import (
     render_chat_hitl,
     render_hitl_panel,
     render_hitl_summary,
+    render_preliminary_results,
     render_research_status,
     render_results_view,
     render_safe_exit,
     render_todo_approval,
     render_todo_display,
+    render_todo_side_panel,
 )
 from src.ui.components.safe_exit import render_connection_status
 from src.ui.components.todo_display import render_messages
@@ -48,7 +50,7 @@ HEADER_IMAGE = ASSETS_DIR / "Header_fuer_Chatbot.png"
 # Version info
 VERSION = "V2.2"
 
-LICENSE_FILE = Path(__file__).parent.parent.parent / "LICENSE"
+LICENSE_FILE = Path(__file__).parent.parent.parent / "assets" / "LICENCE"
 
 
 def get_license_content() -> str:
@@ -64,19 +66,23 @@ def render_header():
     col1, col2 = st.columns([0.5, 0.5])
 
     with col1:
-        # Title with version tooltip
-        st.markdown(
-            f'<h1 style="margin-bottom: 0;" title="Version {VERSION}">Br<span style="color:darkorange;"><b>AI</b></span>n <sup style="font-size: 0.4em; color: gray;">{VERSION}</sup></h1>',
-            unsafe_allow_html=True,
-        )
+        license_text = get_license_content()
+        # Title row with version and license popover
+        title_col, license_col = st.columns([4, 1])
+        with title_col:
+            st.markdown(
+                f'<h1 style="margin-bottom: 0;">Br<span style="color:darkorange;"><b>AI</b></span>n <sup style="font-size: 0.4em; color: gray;">{VERSION}</sup></h1>',
+                unsafe_allow_html=True,
+            )
+        with license_col:
+            st.markdown(
+                '<p style="text-align: right; font-size:12px; font-weight:bold; color:darkorange;">LIZENZ</p>',
+                unsafe_allow_html=True,
+                help=license_text if license_text else "Apache License 2.0",
+            )
+
         st.markdown("## Wissensdatenbank-Konnektor")
         st.caption("Local Hybrid Researcher mit Deep Reference-Following")
-
-        st.markdown(
-            '<p style="text-align: right; font-size:12px; font-weight:bold; color:darkorange; margin-top:0px;">Apache 2.0</p>',
-            unsafe_allow_html=True,
-            help=get_license_content(),
-        )
 
     with col2:
         if HEADER_IMAGE.exists():
@@ -118,27 +124,30 @@ def _render_preliminary_results() -> None:
 
 
 def _run_graph_stream(graph, input_state: dict, config: dict) -> None:
-    status_placeholder = st.empty()
-    todo_placeholder = st.empty()
-    messages_placeholder = st.empty()
-    prelim_placeholder = st.empty()
+    # Create column placeholders for streaming updates
+    main_col_placeholder = st.empty()
+    todo_col_placeholder = st.empty()
 
     last_state: dict | None = None
     for state in graph.stream(input_state, config, stream_mode="values"):
         last_state = state
         update_agent_state(state)
 
-        with status_placeholder.container():
-            render_research_status()
-
         phase = get_current_phase()
-        if phase not in ["idle", "analyze"]:
-            with todo_placeholder.container():
-                render_todo_display()
-            with messages_placeholder.container():
+
+        # Use column layout during streaming
+        col1, col2 = st.columns([2, 1])
+
+        with col1:
+            with main_col_placeholder.container():
+                render_research_status()
+                if phase not in ["idle", "analyze"]:
+                    render_preliminary_results()
                 render_messages()
-            with prelim_placeholder.container():
-                _render_preliminary_results()
+
+        with col2:
+            with todo_col_placeholder.container():
+                render_todo_side_panel()
 
     if last_state:
         update_agent_state(last_state)
@@ -287,11 +296,11 @@ def main():
         # Research in progress
         phase = get_current_phase()
 
-        # Show HITL summary if available (after HITL phase completes)
+        # Show HITL summary if available (after HITL phase completes) - full width
         if session.hitl_result:
             render_hitl_summary()
 
-        # HITL checkpoints during research
+        # HITL checkpoints during research - full width
         if session.hitl_pending:
             checkpoint_type = (
                 session.hitl_checkpoint.get("checkpoint_type", "")
@@ -311,15 +320,25 @@ def main():
                     _resume_with_decision(decision.model_dump())
                     st.rerun()
 
-        # Progress status (spinner-based)
-        render_research_status()
+        # Column layout: 2/3 main content, 1/3 todo side panel
+        main_col, todo_col = st.columns([2, 1])
 
-        # Progress display
-        if phase not in ["idle", "analyze"]:
-            render_todo_display()
+        with main_col:
+            # Progress status (spinner-based)
+            render_research_status()
+
+            # Preliminary results with nested expanders
+            if phase not in ["idle", "analyze"]:
+                render_preliminary_results()
+
+            # Activity log
             render_messages()
 
-        # Results display
+        with todo_col:
+            # Side panel with progress, spinner, and task list
+            render_todo_side_panel()
+
+        # Results display - check for completion
         if session.final_report:
             set_workflow_phase("completed")
             st.rerun()
@@ -356,6 +375,17 @@ def _start_research_from_hitl(hitl_result: dict) -> None:
         user_query = hitl_result.get("user_query", "")
         research_queries = hitl_result.get("research_queries", [user_query])
 
+        # Extract analysis fields (support both nested and flat structure)
+        analysis = hitl_result.get("analysis", {})
+        entities = hitl_result.get("entities", analysis.get("entities", []))
+        scope = hitl_result.get("scope", analysis.get("scope", ""))
+        context = hitl_result.get("context", analysis.get("context", ""))
+
+        # Build additional context from HITL summary
+        additional_context = hitl_result.get("summary", "")
+        if context and context not in additional_context:
+            additional_context = f"{additional_context} {context}".strip()
+
         add_message(f"Starting research: {user_query[:50]}...")
 
         # Create graph and initial state
@@ -366,12 +396,16 @@ def _start_research_from_hitl(hitl_result: dict) -> None:
         initial_state["query_analysis"] = {
             "original_query": user_query,
             "keywords": [],
-            "entities": hitl_result.get("analysis", {}).get("entities", []),
-            "scope": hitl_result.get("analysis", {}).get("scope", ""),
-            "assumed_context": [hitl_result.get("analysis", {}).get("context", "")],
+            "entities": entities,
+            "scope": scope,
+            "assumed_context": [context] if context else [],
             "clarification_needed": False,
             "hitl_refinements": [],
         }
+
+        # Map research queries from HITL to state for Phase 2
+        initial_state["research_queries"] = research_queries
+        initial_state["additional_context"] = additional_context
 
         # Add database selection to state
         if session.selected_database:
