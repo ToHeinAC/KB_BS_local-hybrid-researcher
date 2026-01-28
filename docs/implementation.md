@@ -20,24 +20,25 @@
 - [x] HITL checkpoint for task approval/modification
 - [x] Tests for HITL flow
 
-### Phase 2.5: Enhanced Iterative HITL (NEW)
-- [x] **Iterative HITL Nodes** in `nodes.py`:
+### Phase 2.5: Enhanced Iterative HITL with Multi-Vector Retrieval (NEW)
+- [x] **Iterative Retrieval-HITL Nodes** in `nodes.py`:
   - `hitl_init()`: Initialize conversation, detect language
+  - `hitl_generate_queries()`: Generate 3 queries (original + 2 alternatives)
+  - `hitl_retrieve_chunks()`: Search ChromaDB, deduplicate, append to context
+  - `hitl_analyze_retrieval()`: LLM analysis for concepts, gaps, coverage
   - `hitl_generate_questions()`: Generate contextual follow-up questions
-  - `hitl_process_response()`: Analyze response, check termination
+  - `hitl_process_response()`: Analyze user feedback, check termination
   - `hitl_finalize()`: Generate research_queries for Phase 2
-- [x] **Convergence Detection**: Coverage score estimation (0-1)
-- [x] **Termination Conditions**:
-  - User types `/end` → `user_end`
-  - Max iterations (default: 5) → `max_iterations`
-  - Coverage ≥ 0.9 → `convergence`
-- [x] **Enhanced AgentState Fields**:
-  - `hitl_state`, `hitl_iteration`, `hitl_max_iterations`
-  - `hitl_conversation_history`, `hitl_active`, `hitl_termination_reason`
-  - `coverage_score`, `convergence_score`
+- [x] **Convergence Detection**: Improved 3-tier criteria
+  - Coverage score ≥ 0.8
+  - Retrieval deduplication ratio ≥ 0.7
+  - Knowledge gaps count ≤ 2
+- [x] **Enhanced AgentState Tracking**:
+  - `iteration_queries`, `knowledge_gaps`, `retrieval_dedup_ratios`
+  - `coverage_score`, `retrieval_history`, `query_retrieval`
 - [x] **Graph Entry Routing**: Conditional entry point (`route_entry_point`)
-- [x] **Multi-query Generation**: `generate_alternative_queries()` for broader search coverage
-- [x] **UI Checkpoint Handler**: `_render_iterative_hitl_checkpoint()` in `app.py`
+- [x] **UI Support**: Live display of retrieval stats and coverage during HITL phase
+
 
 ### Phase 3: LangGraph Agent (Research Phase 3)
 - [x] LangGraph StateGraph setup with TypedDict state (v1.0 pattern)

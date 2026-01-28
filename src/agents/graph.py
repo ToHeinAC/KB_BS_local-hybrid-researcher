@@ -23,7 +23,10 @@ from src.agents.nodes import (
     hitl_generate_questions,
     hitl_process_response,
     hitl_finalize,
-    generate_alternative_queries,
+    # Enhanced Phase 1: Multi-vector retrieval nodes
+    hitl_generate_queries,
+    hitl_retrieve_chunks,
+    hitl_analyze_retrieval,
 )
 from src.agents.state import AgentState
 
@@ -52,8 +55,29 @@ def route_entry_point(
     return "analyze_query"
 
 
-def route_after_hitl_init(state: AgentState) -> Literal["hitl_generate_questions"]:
-    """Route after HITL initialization."""
+def route_after_hitl_init(state: AgentState) -> Literal["hitl_generate_queries"]:
+    """Route after HITL initialization - go to query generation."""
+    return "hitl_generate_queries"
+
+
+def route_after_hitl_generate_queries(
+    state: AgentState,
+) -> Literal["hitl_retrieve_chunks"]:
+    """Route after query generation - go to retrieval."""
+    return "hitl_retrieve_chunks"
+
+
+def route_after_hitl_retrieve_chunks(
+    state: AgentState,
+) -> Literal["hitl_analyze_retrieval"]:
+    """Route after retrieval - go to analysis."""
+    return "hitl_analyze_retrieval"
+
+
+def route_after_hitl_analyze_retrieval(
+    state: AgentState,
+) -> Literal["hitl_generate_questions"]:
+    """Route after analysis - go to question generation."""
     return "hitl_generate_questions"
 
 
@@ -67,17 +91,34 @@ def route_after_hitl_generate_questions(
 
 def route_after_hitl_process_response(
     state: AgentState,
-) -> Literal["hitl_generate_questions", "hitl_finalize"]:
-    """Route after processing HITL response."""
+) -> Literal["hitl_generate_queries", "hitl_finalize"]:
+    """Route after processing HITL response.
+    
+    Routes to:
+    - hitl_finalize: if user typed /end, max iterations, or convergence
+    - hitl_generate_queries: to continue the retrieval loop
+    """
     phase = state.get("phase", "")
+    
+    # Check termination conditions
     if phase == "hitl_finalize":
         return "hitl_finalize"
-    if phase == "hitl_generate_questions":
-        return "hitl_generate_questions"
-    # Default to finalize if HITL is no longer active
+    
     if not state.get("hitl_active", False):
         return "hitl_finalize"
-    return "hitl_generate_questions"
+    
+    # Check for convergence
+    coverage = state.get("coverage_score", 0.0)
+    dedup_ratios = state.get("retrieval_dedup_ratios", [])
+    recent_dedup = dedup_ratios[-1] if dedup_ratios else 0.0
+    gaps = len(state.get("knowledge_gaps", []))
+    
+    if coverage >= 0.80 and recent_dedup >= 0.70 and gaps <= 2:
+        # Convergence detected - suggest finalization
+        return "hitl_finalize"
+    
+    # Continue to next iteration via query generation
+    return "hitl_generate_queries"
 
 
 def route_after_hitl_finalize(state: AgentState) -> Literal["generate_todo"]:
@@ -169,6 +210,9 @@ def create_research_graph(use_iterative_hitl: bool = True) -> StateGraph:
 
     # Add nodes - Enhanced Phase 1: Iterative HITL
     graph.add_node("hitl_init", hitl_init)
+    graph.add_node("hitl_generate_queries", hitl_generate_queries)
+    graph.add_node("hitl_retrieve_chunks", hitl_retrieve_chunks)
+    graph.add_node("hitl_analyze_retrieval", hitl_analyze_retrieval)
     graph.add_node("hitl_generate_questions", hitl_generate_questions)
     graph.add_node("hitl_process_response", hitl_process_response)
     graph.add_node("hitl_finalize", hitl_finalize)
@@ -201,18 +245,48 @@ def create_research_graph(use_iterative_hitl: bool = True) -> StateGraph:
         },
     )
 
-    # === Enhanced Phase 1: Iterative HITL Flow ===
+    # === Enhanced Phase 1: Iterative HITL Flow with Vector Retrieval ===
+    # Flow: hitl_init → hitl_generate_queries → hitl_retrieve_chunks →
+    #       hitl_analyze_retrieval → hitl_generate_questions → END (wait for user)
+    # Resume: hitl_process_response → hitl_generate_queries (loop) OR hitl_finalize
 
-    # hitl_init -> hitl_generate_questions
+    # hitl_init → hitl_generate_queries
     graph.add_conditional_edges(
         "hitl_init",
         route_after_hitl_init,
+        {
+            "hitl_generate_queries": "hitl_generate_queries",
+        },
+    )
+
+    # hitl_generate_queries → hitl_retrieve_chunks
+    graph.add_conditional_edges(
+        "hitl_generate_queries",
+        route_after_hitl_generate_queries,
+        {
+            "hitl_retrieve_chunks": "hitl_retrieve_chunks",
+        },
+    )
+
+    # hitl_retrieve_chunks → hitl_analyze_retrieval
+    graph.add_conditional_edges(
+        "hitl_retrieve_chunks",
+        route_after_hitl_retrieve_chunks,
+        {
+            "hitl_analyze_retrieval": "hitl_analyze_retrieval",
+        },
+    )
+
+    # hitl_analyze_retrieval → hitl_generate_questions
+    graph.add_conditional_edges(
+        "hitl_analyze_retrieval",
+        route_after_hitl_analyze_retrieval,
         {
             "hitl_generate_questions": "hitl_generate_questions",
         },
     )
 
-    # hitl_generate_questions -> END (wait for user)
+    # hitl_generate_questions → END (wait for user)
     graph.add_conditional_edges(
         "hitl_generate_questions",
         route_after_hitl_generate_questions,
@@ -221,17 +295,17 @@ def create_research_graph(use_iterative_hitl: bool = True) -> StateGraph:
         },
     )
 
-    # hitl_process_response -> hitl_generate_questions OR hitl_finalize
+    # hitl_process_response → hitl_generate_queries (continue loop) OR hitl_finalize
     graph.add_conditional_edges(
         "hitl_process_response",
         route_after_hitl_process_response,
         {
-            "hitl_generate_questions": "hitl_generate_questions",
+            "hitl_generate_queries": "hitl_generate_queries",
             "hitl_finalize": "hitl_finalize",
         },
     )
 
-    # hitl_finalize -> generate_todo
+    # hitl_finalize → generate_todo
     graph.add_conditional_edges(
         "hitl_finalize",
         route_after_hitl_finalize,

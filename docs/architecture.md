@@ -14,13 +14,16 @@
 │            Rabbithole-Agent (LangGraph StateGraph)                       │
 ├─────────────────────────────────────────────────────────────────────────┤
 │                                                                          │
-│  Phase 1: Enhanced Query Analysis + Iterative HITL                       │
-│  ├─ OPTION A (default): Iterative HITL via graph                         │
-│  │  ├─ hitl_init: initialize conversation, detect language               │
-│  │  ├─ hitl_generate_questions: 2-3 contextual follow-ups                │
-│  │  ├─ hitl_process_response: analyze, check termination                 │
-│  │  └─ hitl_finalize: generate research_queries → Phase 2                │
-│  └─ OPTION B (legacy): analyze_query → hitl_clarify (checkbox-style)     │
+│  Phase 1: Enhanced Query Analysis + Iterative HITL
+  ├─ OPTION A (default): Iterative Retrieval-HITL Loop
+  │  ├─ hitl_init: initialize conversation, detect language
+  │  ├─ hitl_generate_queries: 3 search queries per iteration
+  │  ├─ hitl_retrieve_chunks: vector search + deduplication
+  │  ├─ hitl_analyze_retrieval: LLM context analysis & gaps
+  │  ├─ hitl_generate_questions: gap-informed follow-ups
+  │  ├─ hitl_process_response: analyze user feedback
+  │  └─ hitl_finalize: transition to Phase 2
+  └─ OPTION B (legacy): analyze_query → hitl_clarify (checkbox-style)     │
 │                                                                          │
 │  Phase 2: Research Planning                                              │
 │  ├─ generate_todo: generate ToDo items                                   │
@@ -90,11 +93,13 @@ class AgentState(TypedDict):
     hitl_active: bool             # Whether iterative HITL is active
     hitl_termination_reason: str | None  # user_end, max_iterations, convergence
 
-    # Enhanced Phase 1: Convergence tracking
-    coverage_score: float         # 0-1 information coverage estimate
-    convergence_score: float      # 0-1 convergence to stable state
-    retrieval_history: dict       # Per-iteration retrieval results
-    query_retrieval: str          # Accumulated retrieval results
+    # Enhanced Phase 1: Multi-vector retrieval & Convergence
+    iteration_queries: list[list[str]]  # Queries per iteration [[q1, q2, q3], ...]
+    knowledge_gaps: list[str]           # Gaps identified from retrieval analysis
+    retrieval_dedup_ratios: list[float] # Dedup ratio per iteration
+    coverage_score: float               # 0-1 information coverage estimate
+    retrieval_history: dict             # Per-iteration retrieval metadata
+    query_retrieval: str                # Accumulated retrieval results (context)
 
     # HITL handoff fields
     research_queries: list[str]   # Generated queries from HITL
@@ -198,18 +203,33 @@ The growing JSON structure that accumulates all research findings:
          │
          ▼
 ┌───────────────────────────┐
-│ hitl_generate_questions    │  (generate 2-3 questions)
+│ hitl_generate_queries     │  (Node 1: original + alternatives)
+└────────┬──────────────────┘
+         │
+         ▼
+┌───────────────────────────┐
+│ hitl_retrieve_chunks      │  (Node 2: vector search + dedup)
+└────────┬──────────────────┘
+         │
+         ▼
+┌───────────────────────────┐
+│ hitl_analyze_retrieval    │  (Node 3: concepts, gaps, coverage)
+└────────┬──────────────────┘
+         │
+         ▼
+┌───────────────────────────┐
+│ hitl_generate_questions    │  (Node 4: gap-informed questions)
 └────────┬──────────────────┘
          │ (→ END, wait for user)
          ▼
 ┌───────────────────────────┐
-│ hitl_process_response      │  (analyze response)
+│ hitl_process_response      │  (Node 5: analyze feedback)
 └────────┬──────────────────┘
          │
     ┌────┴────┐
     │ loop?   │
     └────┬────┘
-         │ no (termination condition met)
+         │ no (termination or /end)
          ▼
 ┌───────────────────────────┐
 │ hitl_finalize              │  (generate research_queries)
@@ -297,15 +317,18 @@ The growing JSON structure that accumulates all research findings:
 
 1. **User Query** → Streamlit UI captures research question
 2. **hitl_init**: Detect language (de/en), initialize conversation state
-3. **hitl_generate_questions**: Generate 2-3 contextual follow-up questions
-4. **Graph interrupts** (→ END), awaits user response
-5. **hitl_process_response**: Analyze user response, check termination:
+3. **hitl_generate_queries**: Generate 3 search queries (original + 2 alternatives)
+4. **hitl_retrieve_chunks**: Search ChromaDB, deduplicate, append to `query_retrieval`
+5. **hitl_analyze_retrieval**: LLM analysis for concepts, gaps, and coverage score
+6. **hitl_generate_questions**: Generate 2-3 contextual follow-ups based on knowledge gaps
+7. **Graph interrupts** (→ END), awaits user response
+8. **hitl_process_response**: Analyze user response, check termination:
    - `/end` typed → terminate with `user_end`
    - Max iterations reached → terminate with `max_iterations`
-   - Coverage ≥ 0.9 → terminate with `convergence`
-   - Otherwise → loop back to `hitl_generate_questions`
-6. **hitl_finalize**: Generate research_queries list, build query_analysis
-7. **Output**: `research_queries[]`, `query_analysis`, `coverage_score`
+   - Convergence criteria met (coverage ≥ 0.8, dedup ≥ 0.7, gaps ≤ 2) → terminate with `convergence`
+   - Otherwise → loop back to `hitl_generate_queries`
+9. **hitl_finalize**: Generate research_queries list, build query_analysis
+10. **Output**: `research_queries[]`, `query_analysis`, `coverage_score`, `query_retrieval` (as context)
 
 **Option B: Legacy HITL (Checkbox-style)**
 

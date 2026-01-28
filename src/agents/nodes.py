@@ -975,82 +975,141 @@ def hitl_finalize(state: AgentState) -> dict:
 # --- Enhanced Phase 1: Multi-Query Retrieval Nodes ---
 
 
-class AlternativeQueriesOutput(BaseModel):
-    """LLM output for alternative query generation."""
+def hitl_generate_queries(state: AgentState) -> dict:
+    """Generate 3 search queries for current HITL iteration.
 
-    broader_scope: str
-    alternative_angle: str
-    rationale: str
-
-
-def generate_alternative_queries(state: AgentState) -> dict:
-    """Generate alternative queries for multi-angle retrieval.
-
-    Creates 2 alternative queries alongside the original:
-    1. Broader scope exploration
-    2. Different angle/perspective exploration
+    Node 1 of the Enhanced Phase 1 retrieval loop.
+    - Iteration 0: original + broader + alternative angle
+    - Iteration N>0: refined based on user feedback + knowledge gaps
 
     Args:
         state: Current agent state
 
     Returns:
-        State update with generated queries
+        State update with iteration_queries
     """
-    client = get_ollama_client()
+    from src.services.hitl_service import (
+        generate_alternative_queries_llm,
+        generate_refined_queries_llm,
+    )
+
+    iteration = state.get("hitl_iteration", 0)
     query = state["query"]
     analysis = state.get("query_analysis", {})
-    iteration = state.get("hitl_iteration", 0)
+    conversation = state.get("hitl_conversation_history", [])
 
-    # Build context for query generation
-    if iteration == 0 or not analysis:
-        prompt = f"""Generate 2 alternative search queries for this research question.
-
-Original query: "{query}"
-
-Create:
-1. broader_scope: A query that explores related/contextual information
-2. alternative_angle: A query that explores implications, challenges, or alternatives
-3. rationale: Brief explanation of why these alternatives matter
-
-Output as JSON."""
+    if iteration == 0:
+        # Initial: original + broader + alternative angle
+        queries = generate_alternative_queries_llm(query, {}, iteration)
     else:
-        # Use accumulated analysis for refined queries
-        gaps = analysis.get("knowledge_gaps", [])
-        entities = analysis.get("entities", [])
-        prompt = f"""Generate 2 refined search queries based on the research progress.
+        # Refined: based on user feedback + knowledge gaps
+        gaps = state.get("knowledge_gaps", [])
+        last_response = ""
+        for msg in reversed(conversation):
+            if msg.get("role") == "user":
+                last_response = msg.get("content", "")
+                break
+        queries = generate_refined_queries_llm(query, last_response, gaps)
 
-Original query: "{query}"
-Entities found: {entities}
-Knowledge gaps: {gaps}
+    # Track all queries per iteration
+    iteration_queries = list(state.get("iteration_queries", []))
+    iteration_queries.append(queries)
 
-Create:
-1. broader_scope: A query addressing the identified knowledge gaps
-2. alternative_angle: A query exploring newly mentioned concepts
-3. rationale: Brief explanation of why these queries matter
+    return {
+        "iteration_queries": iteration_queries,
+        "phase": "hitl_retrieve_chunks",
+        "messages": [f"Generated {len(queries)} queries for iteration {iteration}"],
+    }
 
-Output as JSON."""
 
-    try:
-        result = client.generate_structured(prompt, AlternativeQueriesOutput)
-        queries = [query, result.broader_scope, result.alternative_angle]
-    except Exception as e:
-        logger.warning(f"Alternative query generation failed: {e}")
-        # Fallback: use original query with variations
-        queries = [
-            query,
-            f"{query} Hintergrund",
-            f"{query} Anwendung",
-        ]
+def hitl_retrieve_chunks(state: AgentState) -> dict:
+    """Execute vector search and deduplicate results.
 
-    # Store in retrieval history
+    Node 2 of the Enhanced Phase 1 retrieval loop.
+    Retrieves 3 chunks per query (9 total), deduplicates against existing retrieval.
+
+    Args:
+        state: Current agent state
+
+    Returns:
+        State update with query_retrieval, retrieval_dedup_ratios
+    """
+    from src.services.hitl_service import calculate_dedup_ratio, format_chunks_for_state
+
+    iteration = state.get("hitl_iteration", 0)
+    iteration_queries = state.get("iteration_queries", [[]])
+    queries = iteration_queries[-1] if iteration_queries else []
+    selected_database = state.get("selected_database")
+    k_per_query = 3
+
+    all_chunks = []
+    for q in queries:
+        try:
+            results = vector_search(q, top_k=k_per_query, selected_database=selected_database)
+            all_chunks.extend(results)
+        except Exception as e:
+            logger.warning(f"Vector search failed for query '{q}': {e}")
+
+    # Deduplicate against existing retrieval
+    existing = state.get("query_retrieval", "")
+    unique_chunks, dedup_stats = calculate_dedup_ratio(all_chunks, existing)
+
+    # Format and append to query_retrieval
+    formatted = format_chunks_for_state(unique_chunks, queries)
+    new_retrieval = existing + "\n\n" + formatted if existing else formatted
+
+    # Track dedup ratio for convergence detection
+    dedup_ratios = list(state.get("retrieval_dedup_ratios", []))
+    dedup_ratios.append(dedup_stats["dedup_ratio"])
+
+    # Update retrieval history
     retrieval_history = dict(state.get("retrieval_history", {}))
     retrieval_history[f"iteration_{iteration}"] = {
         "queries": queries,
-        "retrieved_chunks": [],
-        "dedup_stats": {},
+        "new_chunks": dedup_stats["new_count"],
+        "duplicates": dedup_stats["dup_count"],
     }
 
     return {
+        "query_retrieval": new_retrieval,
+        "retrieval_dedup_ratios": dedup_ratios,
         "retrieval_history": retrieval_history,
-        "messages": [f"Generated {len(queries)} search queries for iteration {iteration}"],
+        "phase": "hitl_analyze_retrieval",
+        "messages": [
+            f"Retrieved {dedup_stats['new_count']} new chunks, "
+            f"{dedup_stats['dup_count']} duplicates skipped"
+        ],
     }
+
+
+def hitl_analyze_retrieval(state: AgentState) -> dict:
+    """Analyze accumulated retrieval for concepts, gaps, coverage.
+
+    Node 3 of the Enhanced Phase 1 retrieval loop.
+    LLM analyzes query + retrieval to extract entities, gaps, coverage score.
+
+    Args:
+        state: Current agent state
+
+    Returns:
+        State update with query_analysis, knowledge_gaps, coverage_score
+    """
+    from src.services.hitl_service import analyze_retrieval_context_llm
+
+    query = state["query"]
+    retrieval = state.get("query_retrieval", "")
+
+    # LLM analysis
+    analysis = analyze_retrieval_context_llm(query, retrieval)
+
+    return {
+        "query_analysis": analysis,
+        "knowledge_gaps": analysis.get("knowledge_gaps", []),
+        "coverage_score": analysis.get("coverage_score", 0.0),
+        "phase": "hitl_generate_questions",
+        "messages": [
+            f"Coverage: {analysis.get('coverage_score', 0):.0%}, "
+            f"gaps: {len(analysis.get('knowledge_gaps', []))}"
+        ],
+    }
+

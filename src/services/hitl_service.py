@@ -769,3 +769,273 @@ def parse_structured_llm_output(final_answer: str | dict) -> tuple[str, str]:
             pass
 
     return final_content, thinking_content
+
+
+# --- Enhanced Phase 1: Multi-Vector Retrieval Helpers ---
+
+
+def generate_alternative_queries_llm(
+    query: str,
+    analysis: dict,
+    iteration: int,
+) -> list[str]:
+    """Generate 3 queries: original + broader + alternative angle.
+
+    Args:
+        query: Original user query
+        analysis: Current query analysis (may be empty on iteration 0)
+        iteration: Current HITL iteration
+
+    Returns:
+        List of 3 queries [original, broader, alternative]
+    """
+    import json
+
+    client = get_ollama_client()
+
+    if iteration == 0 or not analysis:
+        prompt = f"""Generate 2 alternative search queries for this research question.
+
+Original query: "{query}"
+
+Create:
+1. broader_scope: A query that explores related/contextual information
+2. alternative_angle: A query that explores implications, challenges, or alternatives
+
+Output as JSON:
+{{"broader_scope": "...", "alternative_angle": "..."}}
+
+JSON:"""
+    else:
+        gaps = analysis.get("knowledge_gaps", [])
+        entities = analysis.get("entities", [])
+        prompt = f"""Generate 2 refined search queries based on the research progress.
+
+Original query: "{query}"
+Entities found: {entities}
+Knowledge gaps: {gaps}
+
+Create:
+1. broader_scope: A query addressing the identified knowledge gaps
+2. alternative_angle: A query exploring newly mentioned concepts
+
+Output as JSON:
+{{"broader_scope": "...", "alternative_angle": "..."}}
+
+JSON:"""
+
+    try:
+        response = client.generate(prompt)
+        start = response.find("{")
+        end = response.rfind("}") + 1
+        if start >= 0 and end > start:
+            parsed = json.loads(response[start:end])
+            return [
+                query,
+                parsed.get("broader_scope", f"{query} Hintergrund"),
+                parsed.get("alternative_angle", f"{query} Anwendung"),
+            ]
+    except Exception as e:
+        logger.warning(f"Alternative query generation failed: {e}")
+
+    # Fallback
+    return [query, f"{query} Hintergrund", f"{query} Anwendung"]
+
+
+def analyze_retrieval_context_llm(query: str, retrieval_text: str) -> dict:
+    """Analyze accumulated retrieval for gaps, concepts, scope.
+
+    Args:
+        query: Original user query
+        retrieval_text: Accumulated retrieval text (may be truncated)
+
+    Returns:
+        Dict with key_concepts, entities, scope, knowledge_gaps, coverage_score
+    """
+    import json
+
+    client = get_ollama_client()
+
+    # Truncate retrieval to avoid token limits
+    max_chars = 3000
+    truncated = retrieval_text[:max_chars] if len(retrieval_text) > max_chars else retrieval_text
+
+    prompt = f"""User's Research Query: {query}
+
+Retrieved Context (from knowledge base):
+{truncated}
+
+Perform comprehensive analysis:
+1. KEY CONCEPTS: 5-7 core concepts from query + retrieved content
+2. ENTITIES: Named entities (organizations, dates, technical terms)
+3. SCOPE: Primary focus area
+4. KNOWLEDGE GAPS: Specific missing information (be concrete, not "more details")
+5. COVERAGE: 0-100% estimate considering foundational, intermediate, advanced coverage
+
+Output as JSON:
+{{"key_concepts": ["..."], "entities": ["..."], "scope": "...", "knowledge_gaps": ["..."], "coverage_score": 0.XX}}
+
+JSON:"""
+
+    try:
+        response = client.generate(prompt)
+        start = response.find("{")
+        end = response.rfind("}") + 1
+        if start >= 0 and end > start:
+            parsed = json.loads(response[start:end])
+            # Normalize coverage_score to 0-1
+            score = parsed.get("coverage_score", 0)
+            if isinstance(score, (int, float)):
+                if score > 1:
+                    score = score / 100.0
+                parsed["coverage_score"] = min(1.0, max(0.0, score))
+            return parsed
+    except Exception as e:
+        logger.warning(f"Retrieval analysis failed: {e}")
+
+    return {
+        "key_concepts": [],
+        "entities": [],
+        "scope": "",
+        "knowledge_gaps": [],
+        "coverage_score": 0.0,
+    }
+
+
+def generate_refined_queries_llm(
+    query: str,
+    user_response: str,
+    gaps: list[str],
+) -> list[str]:
+    """Generate 3 refined queries based on user feedback.
+
+    Args:
+        query: Original user query
+        user_response: User's response to follow-up questions
+        gaps: Identified knowledge gaps
+
+    Returns:
+        List of 3 refined queries
+    """
+    import json
+
+    client = get_ollama_client()
+
+    prompt = f"""Original query: "{query}"
+User's clarification: "{user_response}"
+Identified gaps: {gaps}
+
+Generate 3 refined search queries:
+1. query_1: Addresses the identified knowledge gaps
+2. query_2: Explores new concepts mentioned by the user
+3. query_3: Clarifies the updated scope
+
+Output as JSON:
+{{"query_1": "...", "query_2": "...", "query_3": "..."}}
+
+JSON:"""
+
+    try:
+        response = client.generate(prompt)
+        start = response.find("{")
+        end = response.rfind("}") + 1
+        if start >= 0 and end > start:
+            parsed = json.loads(response[start:end])
+            return [
+                parsed.get("query_1", query),
+                parsed.get("query_2", f"{query} {user_response[:50]}"),
+                parsed.get("query_3", query),
+            ]
+    except Exception as e:
+        logger.warning(f"Refined query generation failed: {e}")
+
+    # Fallback: use original + user keywords
+    user_words = user_response.split()[:3]
+    return [
+        query,
+        f"{query} {' '.join(user_words)}" if user_words else query,
+        query,
+    ]
+
+
+def calculate_dedup_ratio(
+    new_chunks: list,
+    existing_retrieval: str,
+    threshold: float = 0.7,
+) -> tuple[list, dict]:
+    """Filter duplicates and return unique chunks with stats.
+
+    Uses simple substring matching for deduplication.
+
+    Args:
+        new_chunks: List of VectorResult objects
+        existing_retrieval: Accumulated retrieval text
+        threshold: Similarity threshold for duplicate detection
+
+    Returns:
+        Tuple of (unique_chunks, dedup_stats)
+        dedup_stats: {"new_count": int, "dup_count": int, "dedup_ratio": float}
+    """
+    unique_chunks = []
+    dup_count = 0
+
+    existing_lower = existing_retrieval.lower() if existing_retrieval else ""
+
+    for chunk in new_chunks:
+        # Get chunk text - handle both VectorResult objects and dicts
+        if hasattr(chunk, "chunk_text"):
+            chunk_text = chunk.chunk_text
+        elif isinstance(chunk, dict):
+            chunk_text = chunk.get("chunk_text", chunk.get("text", ""))
+        else:
+            chunk_text = str(chunk)
+
+        # Simple substring match for deduplication
+        chunk_lower = chunk_text.lower()[:200]  # Compare first 200 chars
+
+        if chunk_lower in existing_lower:
+            dup_count += 1
+        else:
+            unique_chunks.append(chunk)
+
+    total = len(new_chunks)
+    new_count = len(unique_chunks)
+    dedup_ratio = dup_count / total if total > 0 else 0.0
+
+    return unique_chunks, {
+        "new_count": new_count,
+        "dup_count": dup_count,
+        "dedup_ratio": dedup_ratio,
+    }
+
+
+def format_chunks_for_state(chunks: list, queries: list[str]) -> str:
+    """Format retrieved chunks for state.query_retrieval.
+
+    Args:
+        chunks: List of VectorResult objects
+        queries: List of queries used for retrieval
+
+    Returns:
+        Formatted string for query_retrieval state
+    """
+    lines = []
+    for chunk in chunks:
+        # Handle both VectorResult objects and dicts
+        if hasattr(chunk, "chunk_text"):
+            text = chunk.chunk_text
+            doc = getattr(chunk, "doc_name", "unknown")
+            page = getattr(chunk, "page_number", 0)
+        elif isinstance(chunk, dict):
+            text = chunk.get("chunk_text", chunk.get("text", ""))
+            doc = chunk.get("doc_name", chunk.get("document", "unknown"))
+            page = chunk.get("page_number", chunk.get("page", 0))
+        else:
+            text = str(chunk)
+            doc = "unknown"
+            page = 0
+
+        lines.append(f"[{doc}, p.{page}]: {text[:500]}")
+
+    return "\n---\n".join(lines)
+

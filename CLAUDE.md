@@ -34,23 +34,45 @@ Classical RAG lacks deep contextual understanding and cannot follow inter-docume
 └────────────────────────────────────────────────────────────────────┘
 ```
 
-### Enhanced Phase 1: Iterative HITL Flow
+### Enhanced Phase 1: Iterative HITL with Multi-Vector Retrieval
 
-The new iterative HITL system provides intelligent query refinement through conversation:
+The enhanced iterative HITL system provides intelligent query refinement through conversation **with integrated vector DB retrieval at each iteration**:
+
+```
+┌──────────────────────────────────────────────────────────────────┐
+│  hitl_init → hitl_generate_queries → hitl_retrieve_chunks →      │
+│  hitl_analyze_retrieval → hitl_generate_questions → [wait] →     │
+│  hitl_process_response → [loop back or hitl_finalize]           │
+└──────────────────────────────────────────────────────────────────┘
+```
+
+**Node Descriptions:**
 
 1. **hitl_init**: Initialize conversation, detect language (de/en)
-2. **hitl_generate_questions**: Generate 2-3 contextual follow-up questions
-3. **hitl_process_response**: Analyze user response, check termination conditions
-4. **hitl_finalize**: Generate research_queries and hand off to Phase 2
+2. **hitl_generate_queries** (NEW): Generate 3 search queries per iteration
+   - Iteration 0: original + broader_scope + alternative_angle
+   - Iteration N>0: refined based on user feedback + knowledge gaps
+3. **hitl_retrieve_chunks** (NEW): Execute vector search with deduplication
+   - 3 chunks per query (~9 total per iteration)
+   - Deduplicates against accumulated `query_retrieval`
+4. **hitl_analyze_retrieval** (NEW): LLM analysis of retrieval context
+   - Extracts: key_concepts, entities, scope, knowledge_gaps, coverage_score
+5. **hitl_generate_questions**: Generate 2-3 contextual follow-up questions
+   - Now informed by retrieval analysis and identified gaps
+6. **hitl_process_response**: Analyze user response, check termination conditions
+7. **hitl_finalize**: Generate research_queries and hand off to Phase 2
 
 **Termination Conditions**:
 - User types `/end` → `user_end`
 - Max iterations reached (default: 5) → `max_iterations`
-- Coverage score ≥ 0.9 → `convergence`
+- **Convergence** (coverage ≥ 0.8 AND dedup_ratio ≥ 0.7 AND gaps ≤ 2) → `convergence`
 
 **State Tracking**:
 - `hitl_iteration`: Current iteration count (0-indexed)
 - `coverage_score`: 0-1 estimate of information coverage
+- `iteration_queries`: List of query triples per iteration
+- `knowledge_gaps`: Identified gaps from retrieval analysis
+- `retrieval_dedup_ratios`: Dedup ratio per iteration for convergence detection
 - `hitl_conversation_history`: Full conversation for context
 
 ## Tech Stack (LangChain v1.0+)
@@ -164,15 +186,15 @@ KB_BS_local-hybrid-researcher/
 - [x] Safe exit button
 - [x] Basic tests
 
-### Enhanced Phase 1 (Week 2) - NEW
+### Enhanced Phase 1 (Week 2) - COMPLETE
 - [x] Iterative HITL with conversation loop
-- [x] Enhanced AgentState with HITL tracking fields
-- [x] Graph-based iterative HITL nodes (hitl_init, hitl_generate_questions, hitl_process_response, hitl_finalize)
-- [x] Convergence detection (coverage_score ≥ 0.9)
-- [x] Multi-query generation (generate_alternative_queries)
-- [x] Conditional entry point routing (iterative vs legacy HITL)
-- [x] UI support for iterative HITL checkpoint type
-- [x] Dual HITL modes: UI chat-based (default) and graph-based
+- [x] Enhanced AgentState with retrieval tracking fields (`iteration_queries`, `knowledge_gaps`, etc.)
+- [x] Multi-vector retrieval nodes (`hitl_generate_queries`, `hitl_retrieve_chunks`, `hitl_analyze_retrieval`)
+- [x] Convergence detection (coverage ≥ 0.8, dedup ≥ 0.7, gaps ≤ 2)
+- [x] Interactive query refinement powered by real-time retrieval context
+- [x] UI support for iterative retrieval statistics and coverage metrics
+- [x] Full graph integration with retrieval loop back edges
+- [x] Unit tests for enhanced state and graph flow (17/17 passed)
 
 ### Deferred to Week 3+
 - [ ] Progressive disclosure / knowledge pyramid

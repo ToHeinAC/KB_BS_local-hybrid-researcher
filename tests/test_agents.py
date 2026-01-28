@@ -22,14 +22,14 @@ class TestAgentState:
         state = create_initial_state("Test query")
 
         assert state["query"] == "Test query"
-        assert state["phase"] == "analyze"
+        assert state["phase"] == "hitl_init"  # Default with iterative HITL
         assert state["hitl_pending"] is False
         assert state["todo_list"] == []
 
     def test_get_phase(self):
         """Test get_phase utility."""
         state = create_initial_state("Test")
-        assert get_phase(state) == "analyze"
+        assert get_phase(state) == "hitl_init"  # Default with iterative HITL
 
     def test_set_phase(self):
         """Test set_phase utility."""

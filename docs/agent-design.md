@@ -369,12 +369,12 @@ def web_search(query: str, max_results: int = 2) -> list[WebResult]:
 
 ## HITL Integration Points
 
-### Enhanced: Iterative HITL (Phase 1) - NEW
+### Enhanced: Iterative Retrieval-HITL (Phase 1) - NEW
 
-The iterative HITL flow provides conversational query refinement:
+The iterative HITL flow provides conversational query refinement **integrated with vector DB retrieval**:
 
 ```
-hitl_init → hitl_generate_questions ↔ hitl_process_response → hitl_finalize
+hitl_init → hitl_generate_queries → hitl_retrieve_chunks → hitl_analyze_retrieval → hitl_generate_questions ↔ hitl_process_response → hitl_finalize
 ```
 
 **Nodes:**
@@ -382,23 +382,39 @@ hitl_init → hitl_generate_questions ↔ hitl_process_response → hitl_finaliz
 1. **hitl_init**: Initialize conversation, detect language (de/en)
    - Sets `hitl_active=True`, `hitl_iteration=0`
 
-2. **hitl_generate_questions**: Generate 2-3 contextual follow-ups
+2. **hitl_generate_queries**: Generate 3 queries (original + 2 alternatives)
+   - Iteration 0: standard discovery queries
+   - Iteration N>0: refined queries based on user feedback + gaps
+
+3. **hitl_retrieve_chunks**: Execute vector search for all 3 queries
+   - Retrieves ~9 chunks per iteration
+   - Deduplicates findings against existing `query_retrieval` context
+
+4. **hitl_analyze_retrieval**: LLM analysis of retrieved context
+   - Identifies `knowledge_gaps` and computes `coverage_score` (0-1)
+
+5. **hitl_generate_questions**: Generate 2-3 contextual follow-ups
+   - Targeted questions focused on filling identified `knowledge_gaps`
    - Creates `hitl_checkpoint` with `checkpoint_type="iterative_hitl"`
    - Sets `hitl_pending=True`, routes to END
 
-3. **hitl_process_response**: Analyze user response
-   - Extracts `user_response` from `hitl_decision.modifications`
-   - Checks termination: `/end`, max_iterations, coverage ≥ 0.9
-   - Increments `hitl_iteration` and loops back, OR routes to finalize
+6. **hitl_process_response**: Analyze user response
+   - Extracts insights from user feedback
+   - Checks termination: `/end`, max_iterations, convergence
+   - Increments `hitl_iteration` and loops back to query generation
 
-4. **hitl_finalize**: Generate research_queries for Phase 2
-   - Builds `query_analysis` from accumulated conversation
+7. **hitl_finalize**: Generate research_queries for Phase 2
+   - Builds `query_analysis` from final conversation and retrieval state
    - Sets `research_queries[]`, `additional_context`
 
-**Termination Conditions:**
+**Termination (Convergence) Conditions:**
 - User types `/end` → `hitl_termination_reason="user_end"`
 - `hitl_iteration >= hitl_max_iterations` → `hitl_termination_reason="max_iterations"`
-- `coverage_score >= 0.9` → `hitl_termination_reason="convergence"`
+- **Convergence Detection (3-tier)**:
+  - `coverage_score >= 0.8`
+  - `retrieval_dedup_ratio >= 0.7` (high overlap indicates search stability)
+  - `len(knowledge_gaps) <= 2`
+  - Sets `hitl_termination_reason="convergence"`
 
 **Entry Routing:**
 

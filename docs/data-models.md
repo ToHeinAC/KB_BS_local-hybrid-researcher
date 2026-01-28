@@ -372,14 +372,15 @@ hitl_termination_reason: str | None  # "user_end", "max_iterations", "convergenc
 # Conversation history
 hitl_conversation_history: list[dict]  # [{role, content, iteration}, ...]
 
+# Enhanced Multi-query retrieval tracking (NEW)
+iteration_queries: list[list[str]]   # [[q1, q2, q3], ...] per iteration
+knowledge_gaps: list[str]            # Gaps identified from retrieval analysis
+retrieval_dedup_ratios: list[float]  # Dedup ratio per iteration for convergence
+
 # Convergence tracking
 coverage_score: float         # 0-1 information coverage estimate
-convergence_score: float      # 0-1 convergence to stable state
-retrieval_quality_history: list[float]  # Dedup ratios per iteration
-
-# Multi-query retrieval tracking
 retrieval_history: dict       # {"iteration_N": {queries, retrieved_chunks, dedup_stats}}
-query_retrieval: str          # Accumulated filtered retrieval results
+query_retrieval: str          # Accumulated filtered retrieval results (context)
 
 # Token budget
 total_tokens_used: int        # Estimated tokens consumed

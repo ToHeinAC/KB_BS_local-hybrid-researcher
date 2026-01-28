@@ -61,6 +61,11 @@ class AgentState(TypedDict, total=False):
     total_tokens_used: int  # Estimated tokens used
     max_tokens_allowed: int  # Budget constraint (default 4000)
 
+    # Enhanced Phase 1: Multi-vector retrieval tracking
+    iteration_queries: list[list[str]]  # Queries per iteration [[q1, q2, q3], ...]
+    knowledge_gaps: list[str]  # Identified gaps from retrieval analysis
+    retrieval_dedup_ratios: list[float]  # Dedup ratio per iteration for convergence
+
     # Message accumulation (for debugging/logging)
     messages: Annotated[list, add]
 
@@ -131,6 +136,10 @@ def create_initial_state(query: str, use_iterative_hitl: bool = True) -> AgentSt
         # Enhanced Phase 1: Token budget
         total_tokens_used=0,
         max_tokens_allowed=4000,
+        # Enhanced Phase 1: Multi-vector retrieval tracking
+        iteration_queries=[],
+        knowledge_gaps=[],
+        retrieval_dedup_ratios=[],
         # General
         messages=[],
         error=None,
