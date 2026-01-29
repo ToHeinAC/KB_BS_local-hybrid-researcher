@@ -384,3 +384,77 @@ for state in graph.stream(input_state, config, stream_mode="values"):
 ```
 
 HITL checkpoints are supported via a persisted `thread_id` stored in session state and reused when resuming.
+
+### UI Data Flow for Chat-Based HITL
+
+The chat-based HITL (`render_chat_hitl`) runs independently from the LangGraph, using standalone services:
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  Chat-Based HITL (hitl_panel.py)                                 │
+├─────────────────────────────────────────────────────────────────┤
+│  User Query                                                      │
+│      │                                                           │
+│      ▼                                                           │
+│  HITLService.detect_language()                                   │
+│      │                                                           │
+│      ▼                                                           │
+│  _perform_hitl_retrieval(query, session)  ──┐                    │
+│      │                                      │                    │
+│      │  ┌───────────────────────────────────┘                    │
+│      │  │  Uses session.selected_database                        │
+│      │  │  Stores in session.hitl_state["retrieval_history"]     │
+│      │  └───────────────────────────────────┐                    │
+│      │                                      │                    │
+│      ▼                                      ▼                    │
+│  HITLService.generate_follow_up_questions() │                    │
+│      │                                      │                    │
+│      ▼                                      │                    │
+│  _render_retrieval_history()  ◄─────────────┘                    │
+│      │  (reads from hitl_state or agent_state)                   │
+│      │                                                           │
+│      ▼                                                           │
+│  [User Feedback Loop]                                            │
+│      │                                                           │
+│      ▼                                                           │
+│  On /end: create_hitl_result() → research_queries                │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**Key Data Sources:**
+- `session.hitl_state["retrieval_history"]`: Populated during HITL phase
+- `session.agent_state["retrieval_history"]`: Populated during graph execution
+- `_render_retrieval_history()` reads from both, preferring `hitl_state`
+
+### Cached Service Clients
+
+To improve performance on Streamlit reruns, service clients are cached:
+
+```python
+@st.cache_resource
+def _get_chromadb_client():    # safe_exit.py
+def get_chromadb_client():     # app.py
+def _get_ollama_client():      # safe_exit.py
+def _get_hitl_service():       # hitl_panel.py
+```
+
+This prevents re-loading the embedding model and reconnecting to services on every UI interaction.
+
+### Graph Entry Point Routing
+
+The `route_entry_point()` function in `graph.py` handles multiple entry scenarios:
+
+```python
+def route_entry_point(state) -> Literal["hitl_init", "hitl_process_response", "analyze_query", "generate_todo"]:
+    # 1. research_queries present → generate_todo (skip HITL)
+    # 2. phase == "generate_todo" → generate_todo
+    # 3. hitl_decision + hitl_active → hitl_process_response (resume)
+    # 4. hitl_active=True → hitl_init (start new)
+    # 5. else → analyze_query (legacy flow)
+```
+
+This enables:
+- **Skip HITL**: When UI chat-based HITL has already produced research_queries
+- **Resume HITL**: When user responds to an interrupted HITL session
+- **New HITL**: When starting fresh with iterative HITL enabled
+- **Legacy Flow**: When hitl_active=False

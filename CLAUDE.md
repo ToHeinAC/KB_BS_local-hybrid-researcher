@@ -135,6 +135,7 @@ KB_BS_local-hybrid-researcher/
 │   ├── data-sources.md    # PDF corpus + ChromaDB
 │   ├── configuration.md   # .env + pyproject.toml
 │   ├── implementation.md  # Phases + coding standards
+│   ├── rabbithole-magic.md # Deep reference-following algorithm
 │   └── references.md      # External resources
 ├── src/                   # Source code
 │   ├── agents/            # LangGraph agents + tools
@@ -164,11 +165,12 @@ KB_BS_local-hybrid-researcher/
 | Document | Contents |
 |----------|----------|
 | [docs/architecture.md](docs/architecture.md) | Full architecture diagram, state objects, data flow |
-| [docs/agent-design.md](docs/agent-design.md) | ReAct+LangGraph patterns, Rabbithole Magic, tools |
+| [docs/agent-design.md](docs/agent-design.md) | ReAct+LangGraph patterns, tools |
 | [docs/data-models.md](docs/data-models.md) | All Pydantic models with JSON schemas |
 | [docs/data-sources.md](docs/data-sources.md) | PDF corpus, ChromaDB collections, embeddings |
 | [docs/configuration.md](docs/configuration.md) | Environment variables, pyproject.toml |
 | [docs/implementation.md](docs/implementation.md) | Implementation phases, coding standards |
+| [docs/rabbithole-magic.md](docs/rabbithole-magic.md) | Deep reference-following algorithm |
 | [docs/references.md](docs/references.md) | External repos, LangGraph docs, examples |
 
 ## Implementation Status
@@ -195,6 +197,17 @@ KB_BS_local-hybrid-researcher/
 - [x] UI support for iterative retrieval statistics and coverage metrics
 - [x] Full graph integration with retrieval loop back edges
 - [x] Unit tests for enhanced state and graph flow (17/17 passed)
+
+### UI Enhancements (Week 2.5) - COMPLETE
+- [x] **Retrieval History Panel**: Real-time display of vector search results during HITL
+  - Shows queries, chunk counts, dedup ratios per iteration
+  - Nested expanders with chunk details (doc, page, score, text preview)
+- [x] **Database Selection Fix**: User's collection choice now respected in HITL retrieval
+  - `_perform_hitl_retrieval()` uses `search_by_database_name()` when DB selected
+- [x] **Active Database Indicator**: Sidebar shows currently selected database
+- [x] **Cached Service Clients**: `@st.cache_resource` for ChromaDB/Ollama clients (faster reloads)
+- [x] **Graph Entry Point Enhancement**: Supports HITL resume via `hitl_process_response` routing
+- [x] **Coverage Metrics in Checkpoints**: Knowledge gaps and dedup ratios shown in UI
 
 ### Deferred to Week 3+
 - [ ] Progressive disclosure / knowledge pyramid

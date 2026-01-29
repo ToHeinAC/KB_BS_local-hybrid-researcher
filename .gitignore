@@ -49,3 +49,6 @@ htmlcov/
 
 # Logs
 *.log
+
+# Examples for Coding references etc.
+examples/

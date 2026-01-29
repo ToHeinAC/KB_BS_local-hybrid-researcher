@@ -35,11 +35,14 @@ logger = logging.getLogger(__name__)
 
 def route_entry_point(
     state: AgentState,
-) -> Literal["hitl_init", "analyze_query", "generate_todo"]:
+) -> Literal["hitl_init", "hitl_process_response", "analyze_query", "generate_todo"]:
     """Route at entry point: iterative HITL, legacy flow, or skip to todo.
 
-    Routes to generate_todo if research_queries are already populated
-    (e.g., from UI chat-based HITL).
+    Routes to:
+    - generate_todo: if research_queries already populated (from UI chat-based HITL)
+    - hitl_process_response: if resuming HITL with a decision (user responded)
+    - hitl_init: if starting new iterative HITL
+    - analyze_query: legacy flow
     """
     # Check if HITL results are already available (from UI chat-based HITL)
     if state.get("research_queries"):
@@ -49,6 +52,10 @@ def route_entry_point(
     phase = state.get("phase", "")
     if phase == "generate_todo":
         return "generate_todo"
+
+    # Check for HITL resume: decision present + hitl_active means user responded
+    if state.get("hitl_decision") and state.get("hitl_active", False):
+        return "hitl_process_response"
 
     if state.get("hitl_active", False):
         return "hitl_init"
@@ -240,6 +247,7 @@ def create_research_graph(use_iterative_hitl: bool = True) -> StateGraph:
         route_entry_point,
         {
             "hitl_init": "hitl_init",
+            "hitl_process_response": "hitl_process_response",
             "analyze_query": "analyze_query",
             "generate_todo": "generate_todo",
         },

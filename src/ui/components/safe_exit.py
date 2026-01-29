@@ -8,6 +8,20 @@ import streamlit as st
 from src.config import settings
 
 
+@st.cache_resource
+def _get_ollama_client():
+    """Return cached OllamaClient instance."""
+    from src.services.ollama_client import OllamaClient
+    return OllamaClient()
+
+
+@st.cache_resource
+def _get_chromadb_client():
+    """Return cached ChromaDBClient instance."""
+    from src.services.chromadb_client import ChromaDBClient
+    return ChromaDBClient()
+
+
 def render_safe_exit() -> None:
     """Render the safe exit button in the sidebar."""
     st.sidebar.divider()
@@ -53,10 +67,9 @@ def render_connection_status() -> None:
     """Render connection status indicators in sidebar."""
     st.sidebar.subheader("System Status")
 
-    # Check Ollama
+    # Check Ollama (using cached client)
     try:
-        from src.services.ollama_client import OllamaClient
-        client = OllamaClient()
+        client = _get_ollama_client()
         if client.is_available():
             st.sidebar.success("Ollama: Connected")
         else:
@@ -64,10 +77,9 @@ def render_connection_status() -> None:
     except Exception as e:
         st.sidebar.error(f"Ollama: Error - {e}")
 
-    # Check ChromaDB
+    # Check ChromaDB (using cached client)
     try:
-        from src.services.chromadb_client import ChromaDBClient
-        client = ChromaDBClient()
+        client = _get_chromadb_client()
         collections = client.list_available_collections()
         st.sidebar.success(f"ChromaDB: {len(collections)} collections")
     except Exception as e:

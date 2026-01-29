@@ -13,6 +13,68 @@ from src.ui.state import (
 )
 
 
+@st.cache_resource
+def _get_hitl_service():
+    """Return cached HITLService instance."""
+    return HITLService()
+
+
+def _perform_hitl_retrieval(query: str, session) -> dict:
+    """Perform vector search and store results for display.
+
+    Args:
+        query: Search query text
+        session: Session state object
+
+    Returns:
+        Dict of collection_name -> list of VectorResult
+    """
+    from src.ui.components.safe_exit import _get_chromadb_client
+
+    client = _get_chromadb_client()
+
+    # Respect user's database selection
+    if session.selected_database:
+        results_list = client.search_by_database_name(
+            query, session.selected_database, top_k=3
+        )
+        # Convert list to dict format for consistency
+        results = {session.selected_database: results_list}
+    else:
+        results = client.search_all_collections(query, top_k=3)
+
+    # Initialize retrieval_history in hitl_state if needed
+    if not session.hitl_state:
+        session.hitl_state = {}
+    if "retrieval_history" not in session.hitl_state:
+        session.hitl_state["retrieval_history"] = {}
+
+    # Count results and serialize chunks for storage
+    total_chunks = 0
+    chunks_data = []
+    for collection_name, chunk_list in results.items():
+        for chunk in chunk_list:
+            total_chunks += 1
+            chunks_data.append({
+                "collection": collection_name,
+                "doc_name": chunk.doc_name,
+                "page": chunk.page_number,
+                "score": round(chunk.relevance_score, 3),
+                "text": chunk.chunk_text[:500],  # Truncate for display
+            })
+
+    # Track iteration
+    iteration = len(session.hitl_state["retrieval_history"])
+    session.hitl_state["retrieval_history"][f"iteration_{iteration}"] = {
+        "queries": [query],
+        "new_chunks": total_chunks,
+        "duplicates": 0,
+        "chunks": chunks_data,
+    }
+
+    return results
+
+
 def render_hitl_panel() -> HITLDecision | None:
     """Render the legacy form-based HITL clarification panel.
 
@@ -129,6 +191,68 @@ def render_hitl_understanding() -> None:
         st.markdown(formatted)
 
 
+def _render_retrieval_history() -> None:
+    """Display retrieval history from hitl_state or agent_state in an expander.
+
+    Data structure from hitl_retrieve_chunks node:
+    - queries: list of query strings
+    - new_chunks: int count of new chunks retrieved
+    - duplicates: int count of duplicate chunks skipped
+    - chunks: list of chunk data dicts (optional)
+    """
+    session = get_session_state()
+
+    # Read from hitl_state during HITL phase, agent_state during research
+    hitl_state = session.hitl_state or {}
+    agent_state = session.agent_state or {}
+    if not isinstance(agent_state, dict):
+        agent_state = {}
+
+    retrieval_history = hitl_state.get("retrieval_history") or agent_state.get("retrieval_history", {})
+    if not retrieval_history:
+        return
+
+    with st.expander("Retrieval History", expanded=False):
+        for iteration_key, iteration_data in sorted(retrieval_history.items()):
+            st.markdown(f"**{iteration_key}**")
+
+            # Show queries
+            queries = iteration_data.get("queries", [])
+            if queries:
+                st.markdown("*Queries:*")
+                for q in queries:
+                    st.markdown(f"- {q}")
+
+            # Show chunk counts (matches hitl_retrieve_chunks node output)
+            new_chunks = iteration_data.get("new_chunks", 0)
+            duplicates = iteration_data.get("duplicates", 0)
+            total = new_chunks + duplicates
+
+            if total > 0:
+                st.markdown(f"*Retrieved:* {new_chunks} new, {duplicates} duplicates")
+                dedup_ratio = duplicates / total if total > 0 else 0
+                st.markdown(f"*Dedup ratio:* {dedup_ratio:.0%}")
+
+            # Show chunks in nested expanders
+            chunks = iteration_data.get("chunks", [])
+            if chunks:
+                for i, chunk in enumerate(chunks):
+                    doc_name = chunk.get("doc_name", "Unknown")
+                    page = chunk.get("page")
+                    score = chunk.get("score", 0)
+                    collection = chunk.get("collection", "")
+
+                    # Build header with source info
+                    page_str = f" p.{page}" if page else ""
+                    header = f"[{score:.3f}] {doc_name}{page_str} ({collection})"
+
+                    with st.expander(header, expanded=False):
+                        text = chunk.get("text", "")
+                        st.text(text)
+
+            st.divider()
+
+
 def render_chat_hitl() -> dict | None:
     """Render chat-based HITL interaction.
 
@@ -139,7 +263,7 @@ def render_chat_hitl() -> dict | None:
         Dict with research_queries and analysis if conversation ended, None otherwise
     """
     session = get_session_state()
-    hitl_service = HITLService()
+    hitl_service = _get_hitl_service()
 
     # Display conversation history
     for msg in session.hitl_conversation_history:
@@ -148,6 +272,9 @@ def render_chat_hitl() -> dict | None:
 
     # Show accumulated understanding after conversation history
     render_hitl_understanding()
+
+    # Show retrieval history if available
+    _render_retrieval_history()
 
     # Initial query (no history yet)
     if len(session.hitl_conversation_history) == 0:
@@ -173,6 +300,9 @@ def render_chat_hitl() -> dict | None:
                         "conversation_history": [{"role": "user", "content": user_query}],
                         "analysis": {},
                     }
+
+                    # Perform initial vector retrieval
+                    _perform_hitl_retrieval(user_query, session)
 
                     # Generate follow-up questions
                     questions = hitl_service.generate_follow_up_questions(
@@ -264,6 +394,10 @@ def render_chat_hitl() -> dict | None:
                             analysis = hitl_service.analyse_user_feedback(session.hitl_state)
                             session.hitl_state["analysis"] = analysis
 
+                            # Perform retrieval with refined query or feedback
+                            refined = analysis.get("refined_query", feedback)
+                            _perform_hitl_retrieval(refined or feedback, session)
+
                             # Generate follow-up questions if we haven't had many exchanges
                             if session.input_counter < 4:
                                 questions = hitl_service.generate_follow_up_questions(
@@ -331,7 +465,7 @@ def create_hitl_result(hitl_state: dict) -> dict:
     Returns:
         Dict with research_queries, analysis, user_query, and additional fields
     """
-    hitl_service = HITLService()
+    hitl_service = _get_hitl_service()
 
     result = hitl_service.generate_knowledge_base_questions(
         hitl_state,

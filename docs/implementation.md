@@ -72,12 +72,44 @@
 - [x] Safe exit button (port-aware kill)
 - [x] Source inspection view
 
+### Phase 6.5: UI Enhancements (NEW)
+- [x] **Retrieval History Panel** (`hitl_panel.py`):
+  - `_perform_hitl_retrieval()`: Vector search during chat-based HITL
+  - `_render_retrieval_history()`: Expander with queries, chunks, dedup stats
+  - Nested expanders showing chunk details (doc, page, score, text)
+  - Reads from `hitl_state` during HITL, `agent_state` during research
+- [x] **Database Selection Fix**:
+  - HITL retrieval now respects `session.selected_database`
+  - Uses `search_by_database_name()` when specific DB selected
+  - Falls back to `search_all_collections()` when no selection
+- [x] **Active Database Indicator**: Sidebar shows "Aktive DB: {name}"
+- [x] **Cached Service Clients** (`@st.cache_resource`):
+  - `_get_chromadb_client()` in `safe_exit.py`
+  - `_get_ollama_client()` in `safe_exit.py`
+  - `_get_hitl_service()` in `hitl_panel.py`
+  - `get_chromadb_client()` in `app.py`
+- [x] **Graph Entry Point Enhancement** (`graph.py`):
+  - `route_entry_point()` now routes to `hitl_process_response` on resume
+  - Supports HITL continuation when `hitl_decision` + `hitl_active` present
+- [x] **Coverage Metrics in Checkpoints** (`nodes.py`):
+  - `hitl_generate_questions()` includes coverage, gaps, dedup ratios
+  - UI displays knowledge gaps in expander
+
 ### Phase 7: Polish
 - [x] Multi-collection search
 - [ ] Query history and caching
 - [ ] Export results (JSON, Markdown)
 - [x] Error handling and recovery
 - [x] Logging and observability
+
+### Phase 8: Testing Improvements
+- [x] `TestRouteEntryPoint` class for graph routing logic (6 tests)
+  - `test_route_to_hitl_init_on_new_session`
+  - `test_route_to_hitl_process_response_on_resume`
+  - `test_route_to_generate_todo_with_research_queries`
+  - `test_route_to_generate_todo_with_phase`
+  - `test_route_to_analyze_query_legacy`
+  - `test_decision_without_hitl_active_routes_to_analyze`
 
 ---
 

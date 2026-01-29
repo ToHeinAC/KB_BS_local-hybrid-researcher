@@ -67,26 +67,32 @@ def render_header():
 
     with col1:
         license_text = get_license_content()
-        # Title row with version and license popover
-        title_col, license_col = st.columns([4, 1])
+        # Title with tooltip on left
+        help_col, title_col = st.columns([0.05, 0.95])
+        with help_col:
+            st.markdown("<div style='height:35px'></div>", unsafe_allow_html=True)
+            st.caption("", help=f"Human-In-The-Loop (HITL) RAG Forscher {VERSION}")
         with title_col:
             st.markdown(
-                f'<h1 style="margin-bottom: 0;">Br<span style="color:darkorange;"><b>AI</b></span>n <sup style="font-size: 0.4em; color: gray;">{VERSION}</sup></h1>',
+                '<h1 style="margin-bottom:0;">Br<span style="color:darkorange;"><b>AI</b></span>n 🔍</h1>',
                 unsafe_allow_html=True,
-            )
-        with license_col:
-            st.markdown(
-                '<p style="text-align: right; font-size:12px; font-weight:bold; color:darkorange;">LIZENZ</p>',
-                unsafe_allow_html=True,
-                help=license_text if license_text else "Apache License 2.0",
             )
 
-        st.markdown("## Wissensdatenbank-Konnektor")
-        st.caption("Local Hybrid Researcher mit Deep Reference-Following")
+        st.markdown("#### Wissensdatenbank-Konnektor")
+
+        # License with tooltip on left
+        lic_help_col, lic_col = st.columns([0.05, 0.95])
+        with lic_help_col:
+            st.caption("", help=license_text if license_text else "Apache License 2.0")
+        with lic_col:
+            st.markdown(
+                '<p style="font-size:12px; font-weight:bold; color:darkorange; margin:0;">LIZENZ</p>',
+                unsafe_allow_html=True,
+            )
 
     with col2:
         if HEADER_IMAGE.exists():
-            st.image(str(HEADER_IMAGE), use_container_width=True)
+            st.image(str(HEADER_IMAGE), width="stretch")
         else:
             st.warning("Header image not found")
 
@@ -153,13 +159,19 @@ def _run_graph_stream(graph, input_state: dict, config: dict) -> None:
         update_agent_state(last_state)
 
 
+@st.cache_resource
+def get_chromadb_client() -> ChromaDBClient:
+    """Get cached ChromaDB client to avoid reloading embedding model."""
+    return ChromaDBClient()
+
+
 def render_sidebar():
     """Render the sidebar with database selection and settings."""
     session = get_session_state()
 
-    # Get ChromaDB client for database listing
+    # Get ChromaDB client for database listing (cached)
     try:
-        chromadb_client = ChromaDBClient()
+        chromadb_client = get_chromadb_client()
         available_dbs = chromadb_client.list_database_directories()
     except Exception as e:
         logger.warning(f"Failed to list databases: {e}")
@@ -214,6 +226,12 @@ def render_sidebar():
             else:
                 st.info("Alle Sammlungen werden durchsucht")
                 set_database_selection(False, "", session.k_results)
+
+        # Show active database indicator
+        if session.selected_database:
+            st.sidebar.success(f"Aktive DB: {session.selected_database}")
+        else:
+            st.sidebar.info("Aktive DB: Alle Sammlungen")
 
         # Settings expander
         with st.expander("Erweiterte Einstellungen"):
@@ -491,8 +509,27 @@ def _render_iterative_hitl_checkpoint() -> None:
     iteration = content.get("iteration", 0)
     max_iterations = content.get("max_iterations", 5)
     analysis = content.get("analysis", {})
+    coverage_score = content.get("coverage_score", 0.0)
+    knowledge_gaps = content.get("knowledge_gaps", [])
+    retrieval_stats = content.get("retrieval_stats", {})
 
     st.subheader(f"Forschungsverfeinerung (Schritt {iteration + 1}/{max_iterations})")
+
+    # Show coverage and retrieval stats
+    if coverage_score > 0 or retrieval_stats.get("dedup_ratios"):
+        col1, col2 = st.columns(2)
+        with col1:
+            st.metric("Abdeckung", f"{coverage_score:.0%}")
+        with col2:
+            dedup_ratios = retrieval_stats.get("dedup_ratios", [])
+            if dedup_ratios:
+                st.metric("Dedup-Rate (letzte)", f"{dedup_ratios[-1]:.0%}")
+
+    # Show knowledge gaps if any
+    if knowledge_gaps:
+        with st.expander(f"Wissenslücken ({len(knowledge_gaps)})", expanded=False):
+            for gap in knowledge_gaps:
+                st.markdown(f"- {gap}")
 
     # Show current analysis if available
     if analysis:

@@ -771,13 +771,25 @@ def hitl_generate_questions(state: AgentState) -> dict:
     questions = hitl_state.get("follow_up_questions", "")
 
     # Create checkpoint for UI
+    # Prefer retrieval-based query_analysis (from hitl_analyze_retrieval) over hitl_state analysis
+    retrieval_analysis = state.get("query_analysis", {})
+    hitl_analysis = hitl_state.get("analysis", {})
+    # Merge: use retrieval analysis as base, fill gaps from hitl_analysis
+    merged_analysis = {**hitl_analysis, **retrieval_analysis} if retrieval_analysis else hitl_analysis
+
     checkpoint = {
         "checkpoint_type": "iterative_hitl",
         "content": {
             "questions": questions,
             "iteration": iteration,
             "max_iterations": state.get("hitl_max_iterations", 5),
-            "analysis": hitl_state.get("analysis", {}),
+            "analysis": merged_analysis,
+            "coverage_score": state.get("coverage_score", 0.0),
+            "knowledge_gaps": state.get("knowledge_gaps", []),
+            "retrieval_stats": {
+                "dedup_ratios": state.get("retrieval_dedup_ratios", []),
+                "iteration_queries": state.get("iteration_queries", []),
+            },
         },
         "requires_approval": True,
         "phase": "Phase 1: Query Refinement",
@@ -856,10 +868,16 @@ def hitl_process_response(state: AgentState) -> dict:
     if user_response:
         hitl_state = process_human_feedback(hitl_state, user_response)
 
-    # Check convergence (if analysis shows high coverage)
-    analysis = hitl_state.get("analysis", {})
-    coverage = _estimate_coverage(analysis)
+    # Check convergence using retrieval-based coverage (from hitl_analyze_retrieval)
+    # This is more reliable than conversation-based _estimate_coverage
+    coverage = state.get("coverage_score", 0.0)
 
+    # Fallback to conversation-based estimate if retrieval coverage not available
+    if coverage == 0.0:
+        analysis = hitl_state.get("analysis", {})
+        coverage = _estimate_coverage(analysis)
+
+    # Use 0.9 threshold for local convergence check (matches route_after_hitl_process_response 0.8 + margin)
     if coverage >= 0.9:
         return {
             "hitl_state": hitl_state,

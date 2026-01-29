@@ -172,3 +172,61 @@ class TestGraph:
         graph = create_research_graph()
         # The graph should have nodes
         assert hasattr(graph, "nodes")
+
+
+class TestRouteEntryPoint:
+    """Test route_entry_point routing logic for HITL resume."""
+
+    def test_route_to_hitl_init_on_new_session(self):
+        """Test routing to hitl_init when starting new iterative HITL."""
+        from src.agents.graph import route_entry_point
+
+        state = {"hitl_active": True}
+        result = route_entry_point(state)
+        assert result == "hitl_init"
+
+    def test_route_to_hitl_process_response_on_resume(self):
+        """Test routing to hitl_process_response when resuming with decision."""
+        from src.agents.graph import route_entry_point
+
+        state = {
+            "hitl_active": True,
+            "hitl_decision": {"approved": True, "modifications": {"user_response": "test"}},
+        }
+        result = route_entry_point(state)
+        assert result == "hitl_process_response"
+
+    def test_route_to_generate_todo_with_research_queries(self):
+        """Test routing to generate_todo when research_queries present."""
+        from src.agents.graph import route_entry_point
+
+        state = {"research_queries": ["query1", "query2"]}
+        result = route_entry_point(state)
+        assert result == "generate_todo"
+
+    def test_route_to_generate_todo_with_phase(self):
+        """Test routing to generate_todo when phase explicitly set."""
+        from src.agents.graph import route_entry_point
+
+        state = {"phase": "generate_todo"}
+        result = route_entry_point(state)
+        assert result == "generate_todo"
+
+    def test_route_to_analyze_query_legacy(self):
+        """Test routing to analyze_query for legacy flow."""
+        from src.agents.graph import route_entry_point
+
+        state = {"hitl_active": False}
+        result = route_entry_point(state)
+        assert result == "analyze_query"
+
+    def test_decision_without_hitl_active_routes_to_analyze(self):
+        """Test that decision without hitl_active doesn't route to process_response."""
+        from src.agents.graph import route_entry_point
+
+        state = {
+            "hitl_active": False,
+            "hitl_decision": {"approved": True},
+        }
+        result = route_entry_point(state)
+        assert result == "analyze_query"
