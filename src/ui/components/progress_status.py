@@ -6,8 +6,9 @@ from src.ui.state import get_current_phase, get_session_state
 
 # Phase messages: (short_label, description)
 PHASE_MESSAGES = {
-    "analyze": ("Analysiere Anfrage...", "Extrahiere Schluesselwoerter und Entitaeten"),
-    "hitl_clarify": ("Warte auf Klaerung...", "Benutzer-Feedback erforderlich"),
+    "hitl_init": ("HITL Initialisierung...", "Starte interaktive Klaerung"),
+    "hitl_generate_queries": ("Generiere Suchbegriffe...", "Erstelle Suchbegriffe fuer Retrieval"),
+    "hitl_generate_questions": ("Warte auf Antwort...", "Benutzer-Feedback erforderlich"),
     "generate_todo": ("Erstelle Aufgabenliste...", "Plane Forschungsschritte"),
     "hitl_approve_todo": ("Warte auf Genehmigung...", "Aufgabenliste pruefen"),
     "execute_tasks": ("Fuehre Recherche durch...", "Durchsuche Wissensdatenbank"),
@@ -37,8 +38,9 @@ def render_phase_indicator(phase: str) -> None:
         phase: The current phase identifier
     """
     phase_icons = {
-        "analyze": ":mag:",
-        "hitl_clarify": ":speech_balloon:",
+        "hitl_init": ":speech_balloon:",
+        "hitl_generate_queries": ":mag:",
+        "hitl_generate_questions": ":speech_balloon:",
         "generate_todo": ":clipboard:",
         "hitl_approve_todo": ":raised_hand:",
         "execute_tasks": ":books:",

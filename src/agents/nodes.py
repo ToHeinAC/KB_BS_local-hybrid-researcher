@@ -24,6 +24,11 @@ from src.models.research import (
     SearchQueryResult,
 )
 from src.models.results import FinalReport, Finding, LinkedSource, QualityAssessment, Source
+from src.prompts import (
+    QUALITY_CHECK_PROMPT,
+    SYNTHESIS_PROMPT,
+    TODO_GENERATION_PROMPT,
+)
 from src.services.hitl_service import HITLService
 from src.services.ollama_client import OllamaClient
 
@@ -48,139 +53,6 @@ def get_hitl_service() -> HITLService:
     if _hitl_service is None:
         _hitl_service = HITLService(max_questions=settings.max_clarification_questions)
     return _hitl_service
-
-
-# --- Phase 1: Query Analysis ---
-
-
-class QueryAnalysisOutput(BaseModel):
-    """LLM output for query analysis."""
-
-    key_concepts: list[str]
-    entities: list[str]
-    scope: str
-    assumed_context: list[str]
-    clarification_needed: bool
-    detected_language: str
-
-
-def analyze_query(state: AgentState) -> dict:
-    """Analyze the user query and extract key information.
-
-    Args:
-        state: Current agent state
-
-    Returns:
-        State update with query_analysis
-    """
-    query = state["query"]
-    client = get_ollama_client()
-
-    prompt = f"""Analyze this research query and extract key information.
-
-Query: "{query}"
-
-Extract:
-1. key_concepts: Main concepts/topics (list of strings)
-2. entities: Named entities like laws, regulations, documents (list of strings)
-3. scope: Research scope (e.g., "regulatory", "technical", "general")
-4. assumed_context: Implicit context assumptions (list of strings)
-5. clarification_needed: Whether clarification would help (boolean)
-6. detected_language: Language of the query ("de" or "en")
-
-Respond in JSON format."""
-
-    try:
-        result = client.generate_structured(prompt, QueryAnalysisOutput)
-        analysis = QueryAnalysis(
-            original_query=query,
-            key_concepts=result.key_concepts,
-            entities=result.entities,
-            scope=result.scope,
-            assumed_context=result.assumed_context,
-            clarification_needed=result.clarification_needed,
-            detected_language=result.detected_language,
-        )
-    except Exception as e:
-        logger.warning(f"Query analysis failed, using defaults: {e}")
-        analysis = QueryAnalysis(
-            original_query=query,
-            key_concepts=query.split()[:5],
-            clarification_needed=True,
-        )
-
-    return {
-        "query_analysis": analysis.model_dump(),
-        "phase": "hitl_clarify",
-        "messages": [f"Query analyzed: {len(analysis.key_concepts)} concepts extracted"],
-    }
-
-
-def hitl_clarify(state: AgentState) -> dict:
-    """Generate clarification questions for HITL.
-
-    Args:
-        state: Current agent state
-
-    Returns:
-        State update with HITL checkpoint or phase transition
-    """
-    hitl_service = get_hitl_service()
-    analysis = QueryAnalysis.model_validate(state["query_analysis"])
-
-    # Check if clarification is needed
-    if not hitl_service.should_request_clarification(analysis):
-        return {
-            "phase": "generate_todo",
-            "hitl_pending": False,
-        }
-
-    # Generate questions
-    questions = hitl_service.generate_clarification_questions(analysis)
-
-    if not questions:
-        return {
-            "phase": "generate_todo",
-            "hitl_pending": False,
-        }
-
-    # Create checkpoint
-    checkpoint = hitl_service.create_query_checkpoint(questions)
-
-    return {
-        "hitl_pending": True,
-        "hitl_checkpoint": checkpoint.model_dump(),
-        "messages": [f"Awaiting user clarification: {len(questions)} questions"],
-    }
-
-
-def process_hitl_clarify(state: AgentState) -> dict:
-    """Process HITL clarification response.
-
-    Args:
-        state: Current agent state with hitl_decision
-
-    Returns:
-        State update with refined analysis
-    """
-    hitl_service = get_hitl_service()
-    analysis = QueryAnalysis.model_validate(state["query_analysis"])
-    decision = HITLDecision.model_validate(state.get("hitl_decision", {}))
-
-    if decision.approved and decision.modifications:
-        # Extract answers from modifications
-        answers = decision.modifications.get("answers", {})
-        analysis = hitl_service.merge_clarifications(analysis, answers)
-
-    return {
-        "query_analysis": analysis.model_dump(),
-        "phase": "generate_todo",
-        "hitl_pending": False,
-        "hitl_checkpoint": None,
-        "hitl_decision": None,
-        "hitl_history": state.get("hitl_history", [])
-        + [{"type": "clarify", "decision": decision.model_dump()}],
-    }
 
 
 # --- Phase 2: ToDo List Generation ---
@@ -225,27 +97,14 @@ def generate_todo(state: AgentState) -> dict:
         # Fallback to LLM generation
         client = get_ollama_client()
 
-        prompt = f"""Generate a research task list for this query analysis.
-
-Original Query: "{analysis.original_query}"
-Key Concepts: {analysis.key_concepts}
-Entities: {analysis.entities}
-Scope: {analysis.scope}
-Context: {analysis.assumed_context}
-
-Generate {settings.initial_todo_items} specific, actionable research tasks.
-Each task should be:
-- Specific and measurable
-- Focused on finding concrete information
-- Related to the query concepts
-
-Return JSON with "items" array, each item having:
-- id: integer starting from 1
-- task: string describing the task
-- context: string explaining why this task is needed
-
-Example:
-{{"items": [{{"id": 1, "task": "Find dose limit regulations", "context": "Core query requirement"}}]}}"""
+        prompt = TODO_GENERATION_PROMPT.format(
+            original_query=analysis.original_query,
+            key_concepts=analysis.key_concepts,
+            entities=analysis.entities,
+            scope=analysis.scope,
+            assumed_context=analysis.assumed_context,
+            num_items=settings.initial_todo_items,
+        )
 
         try:
             result = client.generate_structured(prompt, ToDoListOutput)
@@ -480,18 +339,11 @@ def synthesize(state: AgentState) -> dict:
     max_synthesis_docs = settings.max_docs * 4  # 4x for synthesis context
     info_text = json.dumps(all_info[:max_synthesis_docs], ensure_ascii=False, indent=2)
 
-    prompt = f"""Synthesize these research findings into a coherent answer.
-
-Original Query: "{analysis.original_query}"
-
-Research Findings:
-{info_text}
-
-Provide:
-1. summary: A comprehensive answer to the query (in {analysis.detected_language})
-2. key_findings: List of the most important findings
-
-Include source citations in the format [Document_name.pdf, Page X] where applicable."""
+    prompt = SYNTHESIS_PROMPT.format(
+        original_query=analysis.original_query,
+        findings=info_text,
+        language=analysis.detected_language,
+    )
 
     try:
         result = client.generate_structured(prompt, SynthesisOutput)
@@ -553,18 +405,7 @@ def quality_check(state: AgentState) -> dict:
     if not summary:
         return {"phase": "attribute_sources"}
 
-    prompt = f"""Evaluate the quality of this research summary.
-
-Summary:
-{summary}
-
-Score each dimension from 0-100:
-1. factual_accuracy: Are claims factually correct?
-2. semantic_validity: Does it make logical sense?
-3. structural_integrity: Is it well-organized?
-4. citation_correctness: Are sources properly cited?
-
-Also list any issues_found as a list of strings."""
+    prompt = QUALITY_CHECK_PROMPT.format(summary=summary)
 
     try:
         result = client.generate_structured(prompt, QualityCheckOutput)

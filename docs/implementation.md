@@ -20,7 +20,7 @@
 - [x] HITL checkpoint for task approval/modification
 - [x] Tests for HITL flow
 
-### Phase 2.5: Enhanced Iterative HITL with Multi-Vector Retrieval (NEW)
+### Phase 2.5: Enhanced Iterative HITL with Multi-Vector Retrieval
 - [x] **Iterative Retrieval-HITL Nodes** in `nodes.py`:
   - `hitl_init()`: Initialize conversation, detect language
   - `hitl_generate_queries()`: Generate 3 queries (original + 2 alternatives)
@@ -33,11 +33,12 @@
   - Coverage score ≥ 0.8
   - Retrieval deduplication ratio ≥ 0.7
   - Knowledge gaps count ≤ 2
-- [x] **Enhanced AgentState Tracking**:
+- [x] **AgentState Tracking**:
   - `iteration_queries`, `knowledge_gaps`, `retrieval_dedup_ratios`
   - `coverage_score`, `retrieval_history`, `query_retrieval`
 - [x] **Graph Entry Routing**: Conditional entry point (`route_entry_point`)
 - [x] **UI Support**: Live display of retrieval stats and coverage during HITL phase
+- [x] **Centralized Prompts**: All LLM prompts in `src/prompts.py`
 
 
 ### Phase 3: LangGraph Agent (Research Phase 3)
@@ -103,13 +104,11 @@
 - [x] Logging and observability
 
 ### Phase 8: Testing Improvements
-- [x] `TestRouteEntryPoint` class for graph routing logic (6 tests)
+- [x] `TestRouteEntryPoint` class for graph routing logic
   - `test_route_to_hitl_init_on_new_session`
   - `test_route_to_hitl_process_response_on_resume`
   - `test_route_to_generate_todo_with_research_queries`
   - `test_route_to_generate_todo_with_phase`
-  - `test_route_to_analyze_query_legacy`
-  - `test_decision_without_hitl_active_routes_to_analyze`
 
 ---
 

@@ -33,13 +33,12 @@ class AgentState(TypedDict, total=False):
     # Quality assessment from quality_check phase
     quality_assessment: dict | None
 
-    # HITL fields (legacy checkbox-style)
+    # HITL checkpoint fields (for graph interrupts)
     hitl_pending: bool
     hitl_checkpoint: dict | None  # Serialized HITLCheckpoint
-    hitl_history: list[dict]  # History of HITL interactions
     hitl_decision: dict | None  # Serialized HITLDecision
 
-    # Enhanced Phase 1: Iterative HITL fields
+    # Phase 1: Iterative HITL fields
     hitl_state: dict | None  # Chat-style HITL conversation state
     hitl_iteration: int  # Current HITL iteration count (0-indexed)
     hitl_max_iterations: int  # Maximum HITL iterations (default 5)
@@ -83,12 +82,11 @@ class AgentState(TypedDict, total=False):
     detected_language: str  # Language detected from user query
 
 
-def create_initial_state(query: str, use_iterative_hitl: bool = True) -> AgentState:
+def create_initial_state(query: str) -> AgentState:
     """Create initial agent state for a new research session.
 
     Args:
         query: User's research question
-        use_iterative_hitl: Whether to use iterative HITL (default True)
 
     Returns:
         Initialized AgentState
@@ -109,34 +107,33 @@ def create_initial_state(query: str, use_iterative_hitl: bool = True) -> AgentSt
         final_report={},
         current_task_id=None,
         completed_task_ids=[],
-        phase="hitl_init" if use_iterative_hitl else "analyze",
+        phase="hitl_init",
         iteration=0,
         visited_refs=set(),
         current_depth=0,
         quality_assessment=None,
-        # Legacy HITL fields
+        # HITL checkpoint fields
         hitl_pending=False,
         hitl_checkpoint=None,
-        hitl_history=[],
         hitl_decision=None,
-        # Enhanced Phase 1: Iterative HITL
+        # Phase 1: Iterative HITL
         hitl_state=None,
         hitl_iteration=0,
         hitl_max_iterations=5,
         hitl_conversation_history=[],
-        hitl_active=use_iterative_hitl,
+        hitl_active=True,
         hitl_termination_reason=None,
-        # Enhanced Phase 1: Multi-query retrieval
+        # Phase 1: Multi-query retrieval
         retrieval_history={},
         query_retrieval="",
-        # Enhanced Phase 1: Convergence
+        # Phase 1: Convergence
         coverage_score=0.0,
         convergence_score=0.0,
         retrieval_quality_history=[],
-        # Enhanced Phase 1: Token budget
+        # Phase 1: Token budget
         total_tokens_used=0,
         max_tokens_allowed=4000,
-        # Enhanced Phase 1: Multi-vector retrieval tracking
+        # Phase 1: Multi-vector retrieval tracking
         iteration_queries=[],
         knowledge_gaps=[],
         retrieval_dedup_ratios=[],
@@ -179,7 +176,7 @@ def get_next_task_id(state: AgentState) -> int | None:
     return None
 
 
-# --- Enhanced Phase 1: Iterative HITL Helpers ---
+# --- Phase 1: Iterative HITL Helpers ---
 
 
 def is_iterative_hitl_active(state: AgentState) -> bool:

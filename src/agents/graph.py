@@ -7,14 +7,10 @@ from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, StateGraph
 
 from src.agents.nodes import (
-    # Legacy nodes
-    analyze_query,
     attribute_sources,
     execute_task,
     generate_todo,
     hitl_approve_todo,
-    hitl_clarify,
-    process_hitl_clarify,
     process_hitl_todo,
     quality_check,
     synthesize,
@@ -35,14 +31,13 @@ logger = logging.getLogger(__name__)
 
 def route_entry_point(
     state: AgentState,
-) -> Literal["hitl_init", "hitl_process_response", "analyze_query", "generate_todo"]:
-    """Route at entry point: iterative HITL, legacy flow, or skip to todo.
+) -> Literal["hitl_init", "hitl_process_response", "generate_todo"]:
+    """Route at entry point: iterative HITL or skip to todo.
 
     Routes to:
     - generate_todo: if research_queries already populated (from UI chat-based HITL)
     - hitl_process_response: if resuming HITL with a decision (user responded)
-    - hitl_init: if starting new iterative HITL
-    - analyze_query: legacy flow
+    - hitl_init: if starting new iterative HITL (default)
     """
     # Check if HITL results are already available (from UI chat-based HITL)
     if state.get("research_queries"):
@@ -57,9 +52,8 @@ def route_entry_point(
     if state.get("hitl_decision") and state.get("hitl_active", False):
         return "hitl_process_response"
 
-    if state.get("hitl_active", False):
-        return "hitl_init"
-    return "analyze_query"
+    # Default: start iterative HITL
+    return "hitl_init"
 
 
 def route_after_hitl_init(state: AgentState) -> Literal["hitl_generate_queries"]:
@@ -133,26 +127,6 @@ def route_after_hitl_finalize(state: AgentState) -> Literal["generate_todo"]:
     return "generate_todo"
 
 
-def route_after_analyze(state: AgentState) -> Literal["hitl_clarify", "generate_todo"]:
-    """Route after query analysis (legacy flow)."""
-    phase = state.get("phase", "")
-    if phase == "hitl_clarify":
-        return "hitl_clarify"
-    return "generate_todo"
-
-
-def route_after_hitl_clarify(
-    state: AgentState,
-) -> Literal["process_hitl_clarify", "generate_todo", "__end__"]:
-    """Route after HITL clarification checkpoint."""
-    if state.get("hitl_pending"):
-        # Wait for user input - end this invocation
-        return "__end__"
-    if state.get("hitl_decision"):
-        return "process_hitl_clarify"
-    return "generate_todo"
-
-
 def route_after_generate_todo(
     state: AgentState,
 ) -> Literal["hitl_approve_todo"]:
@@ -199,12 +173,8 @@ def _entry_router(state: AgentState) -> dict:
     return {}
 
 
-def create_research_graph(use_iterative_hitl: bool = True) -> StateGraph:
+def create_research_graph() -> StateGraph:
     """Create the research agent StateGraph.
-
-    Args:
-        use_iterative_hitl: If True, use Enhanced Phase 1 with iterative HITL.
-                           If False, use legacy checkbox-style HITL.
 
     Returns:
         Compiled StateGraph with checkpointer for HITL support
@@ -215,7 +185,7 @@ def create_research_graph(use_iterative_hitl: bool = True) -> StateGraph:
     # Add entry router node for conditional routing
     graph.add_node("entry_router", _entry_router)
 
-    # Add nodes - Enhanced Phase 1: Iterative HITL
+    # Add nodes - Phase 1: Iterative HITL
     graph.add_node("hitl_init", hitl_init)
     graph.add_node("hitl_generate_queries", hitl_generate_queries)
     graph.add_node("hitl_retrieve_chunks", hitl_retrieve_chunks)
@@ -223,11 +193,6 @@ def create_research_graph(use_iterative_hitl: bool = True) -> StateGraph:
     graph.add_node("hitl_generate_questions", hitl_generate_questions)
     graph.add_node("hitl_process_response", hitl_process_response)
     graph.add_node("hitl_finalize", hitl_finalize)
-
-    # Add nodes - Legacy Phase 1
-    graph.add_node("analyze_query", analyze_query)
-    graph.add_node("hitl_clarify", hitl_clarify)
-    graph.add_node("process_hitl_clarify", process_hitl_clarify)
 
     # Add nodes - Phase 2 onwards
     graph.add_node("generate_todo", generate_todo)
@@ -248,7 +213,6 @@ def create_research_graph(use_iterative_hitl: bool = True) -> StateGraph:
         {
             "hitl_init": "hitl_init",
             "hitl_process_response": "hitl_process_response",
-            "analyze_query": "analyze_query",
             "generate_todo": "generate_todo",
         },
     )
@@ -322,29 +286,6 @@ def create_research_graph(use_iterative_hitl: bool = True) -> StateGraph:
         },
     )
 
-    # === Legacy Phase 1: Query Analysis ===
-
-    graph.add_conditional_edges(
-        "analyze_query",
-        route_after_analyze,
-        {
-            "hitl_clarify": "hitl_clarify",
-            "generate_todo": "generate_todo",
-        },
-    )
-
-    # HITL Clarification (legacy)
-    graph.add_conditional_edges(
-        "hitl_clarify",
-        route_after_hitl_clarify,
-        {
-            "__end__": END,
-            "process_hitl_clarify": "process_hitl_clarify",
-            "generate_todo": "generate_todo",
-        },
-    )
-    graph.add_edge("process_hitl_clarify", "generate_todo")
-
     # Phase 2: ToDo Generation
     graph.add_conditional_edges(
         "generate_todo",
@@ -407,22 +348,20 @@ def create_research_graph(use_iterative_hitl: bool = True) -> StateGraph:
 def run_research(
     query: str,
     config: dict | None = None,
-    use_iterative_hitl: bool = True,
 ) -> dict:
     """Run a complete research session.
 
     Args:
         query: User's research question
         config: Optional LangGraph config (for thread_id, etc.)
-        use_iterative_hitl: If True, use Enhanced Phase 1 with iterative HITL
 
     Returns:
         Final agent state with report
     """
     from src.agents.state import create_initial_state
 
-    graph = create_research_graph(use_iterative_hitl=use_iterative_hitl)
-    initial_state = create_initial_state(query, use_iterative_hitl=use_iterative_hitl)
+    graph = create_research_graph()
+    initial_state = create_initial_state(query)
 
     config = config or {"configurable": {"thread_id": "default"}}
 
@@ -435,44 +374,30 @@ def run_research(
 def resume_research(
     thread_id: str,
     hitl_decision: dict,
-    use_iterative_hitl: bool = True,
 ) -> dict:
     """Resume research after HITL interaction.
 
     Args:
         thread_id: Thread ID from previous invocation
         hitl_decision: User's decision from HITL checkpoint
-        use_iterative_hitl: If True, use Enhanced Phase 1 with iterative HITL
 
     Returns:
         Updated agent state
     """
-    graph = create_research_graph(use_iterative_hitl=use_iterative_hitl)
+    graph = create_research_graph()
     config = {"configurable": {"thread_id": thread_id}}
 
-    # Determine which node to resume from based on checkpoint type
-    checkpoint_type = hitl_decision.get("checkpoint_type", "")
-
-    if checkpoint_type == "iterative_hitl" or use_iterative_hitl:
-        # Resume iterative HITL: process the response
-        state_update = {
-            "hitl_decision": hitl_decision,
-            "hitl_pending": False,
-        }
-        # Invoke hitl_process_response directly
-        result = graph.invoke(state_update, config, interrupt_before=["hitl_process_response"])
-        if result.get("hitl_pending"):
-            return result
-        # Continue from process_response
-        return graph.invoke(None, config)
-    else:
-        # Legacy HITL resume
-        state_update = {
-            "hitl_decision": hitl_decision,
-            "hitl_pending": False,
-        }
-        result = graph.invoke(state_update, config)
+    # Resume iterative HITL: process the response
+    state_update = {
+        "hitl_decision": hitl_decision,
+        "hitl_pending": False,
+    }
+    # Invoke hitl_process_response directly
+    result = graph.invoke(state_update, config, interrupt_before=["hitl_process_response"])
+    if result.get("hitl_pending"):
         return result
+    # Continue from process_response
+    return graph.invoke(None, config)
 
 
 def resume_iterative_hitl(
@@ -490,7 +415,7 @@ def resume_iterative_hitl(
     Returns:
         Updated agent state
     """
-    graph = create_research_graph(use_iterative_hitl=True)
+    graph = create_research_graph()
     config = {"configurable": {"thread_id": thread_id}}
 
     # Create decision with user response

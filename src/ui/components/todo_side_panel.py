@@ -10,8 +10,9 @@ from src.ui.state import get_current_phase, get_session_state, get_todo_list
 
 # Phase labels and descriptions for side panel
 PHASE_INFO = {
-    "analyze": ("Analysiere Anfrage", "Extrahiere Schluesselwoerter"),
-    "hitl_clarify": ("Warte auf Klaerung", "Benutzer-Feedback"),
+    "hitl_init": ("HITL Initialisierung", "Starte interaktive Klaerung"),
+    "hitl_generate_queries": ("Generiere Suchbegriffe", "Erstelle Suchbegriffe"),
+    "hitl_generate_questions": ("Warte auf Antwort", "Benutzer-Feedback"),
     "generate_todo": ("Erstelle Aufgaben", "Plane Forschungsschritte"),
     "hitl_approve_todo": ("Warte auf Genehmigung", "Pruefen Sie die Aufgaben"),
     "execute_tasks": ("Fuehre Recherche durch", "Durchsuche Wissensdatenbank"),

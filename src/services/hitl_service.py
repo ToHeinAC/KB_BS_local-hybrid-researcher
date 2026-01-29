@@ -10,6 +10,17 @@ from src.models.hitl import (
     HITLState,
 )
 from src.models.query import QueryAnalysis, ToDoList
+from src.prompts import (
+    ALTERNATIVE_QUERIES_INITIAL_PROMPT,
+    ALTERNATIVE_QUERIES_REFINED_PROMPT,
+    FOLLOW_UP_QUESTIONS_DE,
+    FOLLOW_UP_QUESTIONS_EN,
+    KNOWLEDGE_BASE_QUESTIONS_PROMPT,
+    LANGUAGE_DETECTION_PROMPT,
+    REFINED_QUERIES_PROMPT,
+    RETRIEVAL_ANALYSIS_PROMPT,
+    USER_FEEDBACK_ANALYSIS_PROMPT,
+)
 from src.services.ollama_client import OllamaClient
 
 logger = logging.getLogger(__name__)
@@ -342,12 +353,7 @@ def _detect_language_llm(user_query: str) -> str:
     """Detect query language using LLM."""
     client = get_ollama_client()
 
-    prompt = f"""Determine the language of the following text.
-Reply with ONLY 'de' for German or 'en' for English.
-
-Text: "{user_query}"
-
-Language code:"""
+    prompt = LANGUAGE_DETECTION_PROMPT.format(user_query=user_query)
 
     try:
         response = client.generate(prompt)
@@ -375,33 +381,9 @@ def _generate_follow_up_questions_llm(state: dict, language: str = "de") -> str:
         context += f"{role}: {content}\n"
 
     if language == "de":
-        prompt = f"""Du bist ein Forschungsassistent für Strahlenschutz-Dokumentation.
-Der Benutzer hat folgende Anfrage: "{user_query}"
-
-Bisheriger Konversationsverlauf:
-{context}
-
-Stelle 2-3 präzise Nachfragen, um die Anfrage besser zu verstehen.
-Fokussiere auf:
-- Relevante Vorschriften (StrlSchG, StrlSchV, etc.)
-- Spezifische Anwendungsfälle
-- Kontext der Anfrage
-
-Formatiere als nummerierte Liste. Antworte NUR mit den Fragen:"""
+        prompt = FOLLOW_UP_QUESTIONS_DE.format(user_query=user_query, context=context)
     else:
-        prompt = f"""You are a research assistant for radiation protection documentation.
-The user has the following query: "{user_query}"
-
-Conversation history so far:
-{context}
-
-Ask 2-3 precise follow-up questions to better understand the request.
-Focus on:
-- Relevant regulations (StrlSchG, StrlSchV, etc.)
-- Specific use cases
-- Context of the request
-
-Format as a numbered list. Reply ONLY with the questions:"""
+        prompt = FOLLOW_UP_QUESTIONS_EN.format(user_query=user_query, context=context)
 
     try:
         return client.generate(prompt)
@@ -428,20 +410,7 @@ def _analyse_user_feedback_llm(state: dict) -> dict:
         content = msg.get("content", "")
         context += f"{role}: {content}\n"
 
-    prompt = f"""Analysiere diese Konversation und extrahiere die wichtigsten Informationen.
-
-Ursprüngliche Anfrage: "{user_query}"
-
-Konversationsverlauf:
-{context}
-
-Extrahiere und gib als JSON zurück:
-{{"entities": ["Liste relevanter Entitäten/Vorschriften"],
-"scope": "Themenbereich der Anfrage",
-"context": "Zusätzlicher Kontext",
-"refined_query": "Verfeinerte Suchanfrage"}}
-
-JSON:"""
+    prompt = USER_FEEDBACK_ANALYSIS_PROMPT.format(user_query=user_query, context=context)
 
     try:
         response = client.generate(prompt)
@@ -477,23 +446,12 @@ def _generate_knowledge_base_questions_llm(state: dict, max_queries: int = 5) ->
         content = msg.get("content", "")
         context += f"{role}: {content}\n"
 
-    prompt = f"""Basierend auf dieser Konversation, erstelle {max_queries} optimierte Suchanfragen für eine Wissensdatenbank.
-
-Ursprüngliche Anfrage: "{user_query}"
-
-Konversationsverlauf:
-{context}
-
-Extrahierte Informationen: {analysis}
-
-Erstelle {max_queries} verschiedene, spezifische Suchanfragen, die verschiedene Aspekte der Anfrage abdecken.
-Jede Anfrage sollte auf einen Aspekt fokussiert sein.
-
-Gib als JSON zurück:
-{{"research_queries": ["Anfrage 1", "Anfrage 2", ...],
-"summary": "Kurze Zusammenfassung der Forschungsrichtung"}}
-
-JSON:"""
+    prompt = KNOWLEDGE_BASE_QUESTIONS_PROMPT.format(
+        max_queries=max_queries,
+        user_query=user_query,
+        context=context,
+        analysis=analysis,
+    )
 
     try:
         response = client.generate(prompt)
@@ -794,35 +752,13 @@ def generate_alternative_queries_llm(
     client = get_ollama_client()
 
     if iteration == 0 or not analysis:
-        prompt = f"""Generate 2 alternative search queries for this research question.
-
-Original query: "{query}"
-
-Create:
-1. broader_scope: A query that explores related/contextual information
-2. alternative_angle: A query that explores implications, challenges, or alternatives
-
-Output as JSON:
-{{"broader_scope": "...", "alternative_angle": "..."}}
-
-JSON:"""
+        prompt = ALTERNATIVE_QUERIES_INITIAL_PROMPT.format(query=query)
     else:
         gaps = analysis.get("knowledge_gaps", [])
         entities = analysis.get("entities", [])
-        prompt = f"""Generate 2 refined search queries based on the research progress.
-
-Original query: "{query}"
-Entities found: {entities}
-Knowledge gaps: {gaps}
-
-Create:
-1. broader_scope: A query addressing the identified knowledge gaps
-2. alternative_angle: A query exploring newly mentioned concepts
-
-Output as JSON:
-{{"broader_scope": "...", "alternative_angle": "..."}}
-
-JSON:"""
+        prompt = ALTERNATIVE_QUERIES_REFINED_PROMPT.format(
+            query=query, entities=entities, gaps=gaps
+        )
 
     try:
         response = client.generate(prompt)
@@ -860,22 +796,7 @@ def analyze_retrieval_context_llm(query: str, retrieval_text: str) -> dict:
     max_chars = 3000
     truncated = retrieval_text[:max_chars] if len(retrieval_text) > max_chars else retrieval_text
 
-    prompt = f"""User's Research Query: {query}
-
-Retrieved Context (from knowledge base):
-{truncated}
-
-Perform comprehensive analysis:
-1. KEY CONCEPTS: 5-7 core concepts from query + retrieved content
-2. ENTITIES: Named entities (organizations, dates, technical terms)
-3. SCOPE: Primary focus area
-4. KNOWLEDGE GAPS: Specific missing information (be concrete, not "more details")
-5. COVERAGE: 0-100% estimate considering foundational, intermediate, advanced coverage
-
-Output as JSON:
-{{"key_concepts": ["..."], "entities": ["..."], "scope": "...", "knowledge_gaps": ["..."], "coverage_score": 0.XX}}
-
-JSON:"""
+    prompt = RETRIEVAL_ANALYSIS_PROMPT.format(query=query, retrieval=truncated)
 
     try:
         response = client.generate(prompt)
@@ -921,19 +842,9 @@ def generate_refined_queries_llm(
 
     client = get_ollama_client()
 
-    prompt = f"""Original query: "{query}"
-User's clarification: "{user_response}"
-Identified gaps: {gaps}
-
-Generate 3 refined search queries:
-1. query_1: Addresses the identified knowledge gaps
-2. query_2: Explores new concepts mentioned by the user
-3. query_3: Clarifies the updated scope
-
-Output as JSON:
-{{"query_1": "...", "query_2": "...", "query_3": "..."}}
-
-JSON:"""
+    prompt = REFINED_QUERIES_PROMPT.format(
+        query=query, user_response=user_response, gaps=gaps
+    )
 
     try:
         response = client.generate(prompt)

@@ -160,6 +160,14 @@ KB_BS_local-hybrid-researcher/
 5. **Safe Exit**: Streamlit button to cleanly terminate (port-aware)
 6. **Reference Following**: Deep rabbithole traversal with relevance filtering
 
+## Coding Standards
+
+### Prompt Management
+- **All LLM prompts MUST be defined in `src/prompts.py`**
+- Never inline prompt strings in node functions or services
+- Use template variables for dynamic content (e.g., `{query}`, `{context}`)
+- Group prompts by category (HITL, Research, Quality)
+
 ## Documentation
 
 | Document | Contents |

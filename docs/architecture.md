@@ -14,16 +14,14 @@
 │            Rabbithole-Agent (LangGraph StateGraph)                       │
 ├─────────────────────────────────────────────────────────────────────────┤
 │                                                                          │
-│  Phase 1: Enhanced Query Analysis + Iterative HITL
-  ├─ OPTION A (default): Iterative Retrieval-HITL Loop
-  │  ├─ hitl_init: initialize conversation, detect language
-  │  ├─ hitl_generate_queries: 3 search queries per iteration
-  │  ├─ hitl_retrieve_chunks: vector search + deduplication
-  │  ├─ hitl_analyze_retrieval: LLM context analysis & gaps
-  │  ├─ hitl_generate_questions: gap-informed follow-ups
-  │  ├─ hitl_process_response: analyze user feedback
-  │  └─ hitl_finalize: transition to Phase 2
-  └─ OPTION B (legacy): analyze_query → hitl_clarify (checkbox-style)     │
+│  Phase 1: Enhanced Query Analysis + Iterative HITL                       │
+│  ├─ hitl_init: initialize conversation, detect language                  │
+│  ├─ hitl_generate_queries: 3 search queries per iteration                │
+│  ├─ hitl_retrieve_chunks: vector search + deduplication                  │
+│  ├─ hitl_analyze_retrieval: LLM context analysis & gaps                  │
+│  ├─ hitl_generate_questions: gap-informed follow-ups                     │
+│  ├─ hitl_process_response: analyze user feedback                         │
+│  └─ hitl_finalize: transition to Phase 2                                 │
 │                                                                          │
 │  Phase 2: Research Planning                                              │
 │  ├─ generate_todo: generate ToDo items                                   │
@@ -80,12 +78,12 @@ class AgentState(TypedDict):
     # Quality assessment
     quality_assessment: dict | None  # Serialized QualityAssessment
 
-    # HITL checkpoint support (legacy)
+    # HITL checkpoint support
     hitl_pending: bool
     hitl_checkpoint: dict | None
     hitl_decision: dict | None
 
-    # Enhanced Phase 1: Iterative HITL (NEW)
+    # Phase 1: Iterative HITL
     hitl_state: dict | None       # Chat-style HITL conversation state
     hitl_iteration: int           # Current iteration count (0-indexed)
     hitl_max_iterations: int      # Max iterations (default 5)
@@ -184,7 +182,7 @@ The growing JSON structure that accumulates all research findings:
 
 ## Phase Transitions
 
-### Option A: Iterative HITL Flow (Default)
+### Iterative HITL Flow
 
 ```
 ┌──────────────────┐
@@ -241,79 +239,9 @@ The growing JSON structure that accumulates all research findings:
 └────────┬──────────────────┘
 ```
 
-### Option B: Legacy HITL Flow
-
-```
-┌──────────────────┐
-│ START            │
-└────────┬─────────┘
-         │
-         ▼
-┌───────────────────────────┐
-│ entry_router               │  (routes based on state)
-└────────┬──────────────────┘
-         │ research_queries populated OR hitl_active=False
-         ▼
-┌───────────────────────────┐
-│ analyze_query              │
-└────────┬──────────────────┘
-         │
-         ▼
-┌───────────────────────────┐
-│ hitl_clarify               │  (optional checkpoint)
-└────────┬──────────────────┘
-         │
-         ▼
-┌───────────────────────────┐
-│ process_hitl_clarify       │  (if user answered)
-└────────┬──────────────────┘
-         │
-         ▼
-┌───────────────────────────┐
-│ generate_todo              │
-└────────┬──────────────────┘
-         │
-         ▼
-┌───────────────────────────┐
-│ hitl_approve_todo          │  (checkpoint)
-└────────┬──────────────────┘
-         │
-         ▼
-┌───────────────────────────┐
-│ process_hitl_todo          │
-└────────┬──────────────────┘
-         │
-         ▼
-┌───────────────────────────┐
-│ execute_task (loop)        │
-└────────┬──────────────────┘
-         │
-         ▼
-┌───────────────────────────┐
-│ synthesize                 │
-└────────┬──────────────────┘
-         │
-         ▼
-┌───────────────────────────┐
-│ quality_check (optional)   │
-└────────┬──────────────────┘
-         │
-         ▼
-┌───────────────────────────┐
-│ attribute_sources          │
-└────────┬──────────────────┘
-         │
-         ▼
-┌──────────────────┐
-│ END: Final Report│
-└──────────────────┘
-```
-
 ## Data Flow Details
 
 ### Phase 1: Enhanced Query Analysis + Iterative HITL
-
-**Option A: Iterative HITL (Default)**
 
 1. **User Query** → Streamlit UI captures research question
 2. **hitl_init**: Detect language (de/en), initialize conversation state
@@ -329,16 +257,6 @@ The growing JSON structure that accumulates all research findings:
    - Otherwise → loop back to `hitl_generate_queries`
 9. **hitl_finalize**: Generate research_queries list, build query_analysis
 10. **Output**: `research_queries[]`, `query_analysis`, `coverage_score`, `query_retrieval` (as context)
-
-**Option B: Legacy HITL (Checkbox-style)**
-
-1. **User Query** → Streamlit UI captures research question
-2. **Query Analysis** → LLM extracts key_concepts, entities, scope
-3. **Optional HITL Clarification Checkpoint**:
-   - If clarification is needed, the graph emits a checkpoint (`hitl_pending=True`)
-   - The user answers clarification questions once
-   - The graph resumes via `process_hitl_clarify`
-4. **Output**: QueryAnalysis updated with any user clarifications
 
 ### Phase 2: Research Planning
 
@@ -445,16 +363,14 @@ This prevents re-loading the embedding model and reconnecting to services on eve
 The `route_entry_point()` function in `graph.py` handles multiple entry scenarios:
 
 ```python
-def route_entry_point(state) -> Literal["hitl_init", "hitl_process_response", "analyze_query", "generate_todo"]:
+def route_entry_point(state) -> Literal["hitl_init", "hitl_process_response", "generate_todo"]:
     # 1. research_queries present → generate_todo (skip HITL)
     # 2. phase == "generate_todo" → generate_todo
     # 3. hitl_decision + hitl_active → hitl_process_response (resume)
-    # 4. hitl_active=True → hitl_init (start new)
-    # 5. else → analyze_query (legacy flow)
+    # 4. else → hitl_init (start new)
 ```
 
 This enables:
 - **Skip HITL**: When UI chat-based HITL has already produced research_queries
 - **Resume HITL**: When user responds to an interrupted HITL session
-- **New HITL**: When starting fresh with iterative HITL enabled
-- **Legacy Flow**: When hitl_active=False
+- **New HITL**: Default behavior when starting fresh

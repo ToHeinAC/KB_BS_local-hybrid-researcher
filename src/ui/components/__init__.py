@@ -2,7 +2,6 @@
 
 from src.ui.components.hitl_panel import (
     render_chat_hitl,
-    render_hitl_panel,
     render_hitl_summary,
     render_hitl_understanding,
 )
@@ -17,7 +16,6 @@ from src.ui.components.todo_side_panel import render_todo_side_panel
 
 __all__ = [
     "render_chat_hitl",
-    "render_hitl_panel",
     "render_hitl_summary",
     "render_hitl_understanding",
     "render_preliminary_results",

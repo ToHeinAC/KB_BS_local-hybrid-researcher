@@ -6,6 +6,7 @@ import re
 from src.config import settings
 from src.models.research import ChunkWithInfo, DetectedReference, NestedChunk
 from src.models.results import VectorResult
+from src.prompts import INFO_EXTRACTION_PROMPT
 from src.services.chromadb_client import ChromaDBClient
 from src.services.ollama_client import OllamaClient
 
@@ -76,14 +77,7 @@ def extract_info(
     """
     client = get_ollama_client()
 
-    prompt = f"""Given this search query: "{query}"
-
-Extract only the relevant passages from this text chunk. Be concise and focus on information that directly answers or relates to the query.
-
-Text chunk:
-{chunk_text}
-
-Extracted relevant information (in the same language as the chunk):"""
+    prompt = INFO_EXTRACTION_PROMPT.format(query=query, chunk_text=chunk_text)
 
     try:
         return client.generate(prompt)

@@ -212,16 +212,16 @@ class TestRouteEntryPoint:
         result = route_entry_point(state)
         assert result == "generate_todo"
 
-    def test_route_to_analyze_query_legacy(self):
-        """Test routing to analyze_query for legacy flow."""
+    def test_default_route_to_hitl_init(self):
+        """Test default routing to hitl_init when no special conditions."""
         from src.agents.graph import route_entry_point
 
-        state = {"hitl_active": False}
+        state = {}
         result = route_entry_point(state)
-        assert result == "analyze_query"
+        assert result == "hitl_init"
 
-    def test_decision_without_hitl_active_routes_to_analyze(self):
-        """Test that decision without hitl_active doesn't route to process_response."""
+    def test_decision_without_hitl_active_routes_to_hitl_init(self):
+        """Test that decision without hitl_active routes to hitl_init."""
         from src.agents.graph import route_entry_point
 
         state = {
@@ -229,4 +229,5 @@ class TestRouteEntryPoint:
             "hitl_decision": {"approved": True},
         }
         result = route_entry_point(state)
-        assert result == "analyze_query"
+        # With hitl_active=False, decision doesn't trigger process_response
+        assert result == "hitl_init"

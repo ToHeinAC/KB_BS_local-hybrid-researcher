@@ -12,7 +12,6 @@ from src.config import settings
 from src.services.chromadb_client import ChromaDBClient
 from src.ui.components import (
     render_chat_hitl,
-    render_hitl_panel,
     render_hitl_summary,
     render_preliminary_results,
     render_research_status,
@@ -326,13 +325,7 @@ def main():
                 else ""
             )
 
-            if checkpoint_type == "query_clarify":
-                decision = render_hitl_panel()
-                if decision:
-                    _resume_with_decision(decision.model_dump())
-                    st.rerun()
-
-            elif checkpoint_type == "todo_approve":
+            if checkpoint_type == "todo_approve":
                 decision = render_todo_approval()
                 if decision:
                     _resume_with_decision(decision.model_dump())
@@ -411,10 +404,9 @@ def _start_research_from_hitl(hitl_result: dict) -> None:
 
         add_message(f"Starting research: {user_query[:50]}...")
 
-        # Create graph (skip iterative HITL since we already did chat-based HITL)
-        # use_iterative_hitl=False starts at analyze_query which routes to generate_todo
-        graph = create_research_graph(use_iterative_hitl=False)
-        initial_state = create_initial_state(user_query, use_iterative_hitl=False)
+        # Create graph (chat-based HITL already completed, state will route to generate_todo)
+        graph = create_research_graph()
+        initial_state = create_initial_state(user_query)
 
         # Add HITL results to state
         initial_state["query_analysis"] = {
@@ -454,13 +446,11 @@ def _start_research_from_hitl(hitl_result: dict) -> None:
         set_error(f"Research failed: {e}")
 
 
-def _start_research(query: str, use_iterative_hitl: bool = False) -> None:
+def _start_research(query: str) -> None:
     """Start a new research session.
 
     Args:
         query: The research query
-        use_iterative_hitl: If True, use graph-based iterative HITL.
-                           If False, use legacy flow (analyze_query -> clarify).
     """
     session = get_session_state()
 
@@ -474,8 +464,8 @@ def _start_research(query: str, use_iterative_hitl: bool = False) -> None:
         add_message(f"Starting research: {query[:50]}...")
 
         # Create graph and initial state
-        graph = create_research_graph(use_iterative_hitl=use_iterative_hitl)
-        initial_state = create_initial_state(query, use_iterative_hitl=use_iterative_hitl)
+        graph = create_research_graph()
+        initial_state = create_initial_state(query)
 
         # Add database selection to state
         if session.selected_database:
@@ -585,15 +575,8 @@ def _resume_with_decision(decision: dict) -> None:
     try:
         add_message("Resuming research with user input...")
 
-        # Determine which HITL mode we're in based on checkpoint type
-        checkpoint_type = ""
-        if session.hitl_checkpoint:
-            checkpoint_type = session.hitl_checkpoint.get("checkpoint_type", "")
-
-        use_iterative_hitl = checkpoint_type == "iterative_hitl"
-
         # Create graph
-        graph = create_research_graph(use_iterative_hitl=use_iterative_hitl)
+        graph = create_research_graph()
 
         config = {"configurable": {"thread_id": session.thread_id}}
 
