@@ -366,8 +366,19 @@ def _detect_language_llm(user_query: str) -> str:
         return "de"
 
 
-def _generate_follow_up_questions_llm(state: dict, language: str = "de") -> str:
-    """Generate follow-up questions using LLM."""
+def _generate_follow_up_questions_llm(
+    state: dict, language: str = "de", retrieval: str = ""
+) -> str:
+    """Generate follow-up questions using LLM.
+
+    Args:
+        state: Current HITL state with user_query and conversation_history
+        language: Language for questions ('de' or 'en')
+        retrieval: Retrieved context from vector DB to inform questions
+
+    Returns:
+        Follow-up questions as formatted string
+    """
     client = get_ollama_client()
 
     user_query = state.get("user_query", "")
@@ -380,10 +391,20 @@ def _generate_follow_up_questions_llm(state: dict, language: str = "de") -> str:
         content = msg.get("content", "")
         context += f"{role}: {content}\n"
 
+    # Prepare retrieval context (with fallback message)
     if language == "de":
-        prompt = FOLLOW_UP_QUESTIONS_DE.format(user_query=user_query, context=context)
+        retrieval_text = retrieval or "Noch keine Informationen abgerufen."
     else:
-        prompt = FOLLOW_UP_QUESTIONS_EN.format(user_query=user_query, context=context)
+        retrieval_text = retrieval or "No information retrieved yet."
+
+    if language == "de":
+        prompt = FOLLOW_UP_QUESTIONS_DE.format(
+            user_query=user_query, context=context, retrieval=retrieval_text
+        )
+    else:
+        prompt = FOLLOW_UP_QUESTIONS_EN.format(
+            user_query=user_query, context=context, retrieval=retrieval_text
+        )
 
     try:
         return client.generate(prompt)
@@ -511,8 +532,11 @@ def process_initial_query(hitl_state: dict) -> dict:
         Updated state with follow_up_questions field
     """
     language = hitl_state.get("detected_language", "de")
+    query_retrieval = hitl_state.get("query_retrieval", "")
 
-    questions = _generate_follow_up_questions_llm(hitl_state, language)
+    questions = _generate_follow_up_questions_llm(
+        hitl_state, language, retrieval=query_retrieval
+    )
 
     # Add assistant message to history
     hitl_state["conversation_history"].append({
@@ -548,9 +572,12 @@ def process_human_feedback(hitl_state: dict, user_response: str) -> dict:
     analysis = _analyse_user_feedback_llm(hitl_state)
     hitl_state["analysis"] = analysis
 
-    # Generate refined follow-up questions
+    # Generate refined follow-up questions with retrieval context
     language = hitl_state.get("detected_language", "de")
-    questions = _generate_follow_up_questions_llm(hitl_state, language)
+    query_retrieval = hitl_state.get("query_retrieval", "")
+    questions = _generate_follow_up_questions_llm(
+        hitl_state, language, retrieval=query_retrieval
+    )
 
     hitl_state["conversation_history"].append({
         "role": "assistant",

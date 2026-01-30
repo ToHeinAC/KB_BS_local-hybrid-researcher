@@ -602,6 +602,10 @@ def hitl_generate_questions(state: AgentState) -> dict:
     hitl_state = state.get("hitl_state", {})
     iteration = state.get("hitl_iteration", 0)
 
+    # Pass query_retrieval from state to hitl_state for context-aware questions
+    query_retrieval = state.get("query_retrieval", "")
+    hitl_state["query_retrieval"] = query_retrieval
+
     if iteration == 0:
         # First iteration: generate initial questions
         hitl_state = process_initial_query(hitl_state)

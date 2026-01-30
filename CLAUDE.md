@@ -59,6 +59,7 @@ The enhanced iterative HITL system provides intelligent query refinement through
    - Extracts: key_concepts, entities, scope, knowledge_gaps, coverage_score
 5. **hitl_generate_questions**: Generate 2-3 contextual follow-up questions
    - Now informed by retrieval analysis and identified gaps
+   - **Uses `query_retrieval` from state** to provide retrieval context to LLM
 6. **hitl_process_response**: Analyze user response, check termination conditions
 7. **hitl_finalize**: Generate research_queries and hand off to Phase 2
 
@@ -74,6 +75,7 @@ The enhanced iterative HITL system provides intelligent query refinement through
 - `knowledge_gaps`: Identified gaps from retrieval analysis
 - `retrieval_dedup_ratios`: Dedup ratio per iteration for convergence detection
 - `hitl_conversation_history`: Full conversation for context
+- `query_retrieval`: Accumulated retrieval text (persists after HITL, not used in Phase 2+)
 
 ## Tech Stack (LangChain v1.0+)
 

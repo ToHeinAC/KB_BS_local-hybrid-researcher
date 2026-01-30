@@ -26,11 +26,14 @@ Der Benutzer hat folgende Anfrage: "{user_query}"
 Bisheriger Konversationsverlauf:
 {context}
 
-Stelle 2-3 präzise Nachfragen, um die Anfrage besser zu verstehen.
+Relevante Informationen aus der Wissensdatenbank:
+{retrieval}
+
+Stelle 2-3 präzise Nachfragen basierend auf den gefundenen Informationen.
 Fokussiere auf:
-- Relevante Vorschriften (StrlSchG, StrlSchV, etc.)
-- Spezifische Anwendungsfälle
-- Kontext der Anfrage
+- Lücken in den gefundenen Informationen
+- Unklare Aspekte der Anfrage
+- Spezifische Details die noch fehlen
 
 Formatiere als nummerierte Liste. Antworte NUR mit den Fragen:"""
 
@@ -40,11 +43,14 @@ The user has the following query: "{user_query}"
 Conversation history so far:
 {context}
 
-Ask 2-3 precise follow-up questions to better understand the request.
+Relevant information from the knowledge base:
+{retrieval}
+
+Ask 2-3 precise follow-up questions based on the retrieved information.
 Focus on:
-- Relevant regulations (StrlSchG, StrlSchV, etc.)
-- Specific use cases
-- Context of the request
+- Gaps in the retrieved information
+- Unclear aspects of the request
+- Specific details still missing
 
 Format as a numbered list. Reply ONLY with the questions:"""
 

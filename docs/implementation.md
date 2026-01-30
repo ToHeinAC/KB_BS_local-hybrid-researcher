@@ -27,6 +27,8 @@
   - `hitl_retrieve_chunks()`: Search ChromaDB, deduplicate, append to context
   - `hitl_analyze_retrieval()`: LLM analysis for concepts, gaps, coverage
   - `hitl_generate_questions()`: Generate contextual follow-up questions
+    - Passes `query_retrieval` to LLM prompt via `{retrieval}` template variable
+    - Questions focus on gaps in retrieved information
   - `hitl_process_response()`: Analyze user feedback, check termination
   - `hitl_finalize()`: Generate research_queries for Phase 2
 - [x] **Convergence Detection**: Improved 3-tier criteria
@@ -36,6 +38,12 @@
 - [x] **AgentState Tracking**:
   - `iteration_queries`, `knowledge_gaps`, `retrieval_dedup_ratios`
   - `coverage_score`, `retrieval_history`, `query_retrieval`
+
+**Note on `query_retrieval` Lifecycle**:
+- Accumulated during HITL via `hitl_retrieve_chunks()`
+- Passed to follow-up question prompts for context-aware questions
+- Persists in state after `hitl_finalize()` (LangGraph only overwrites returned keys)
+- **Not currently used in Phase 2+** (Phase 3 does independent vector searches into `research_context`)
 - [x] **Graph Entry Routing**: Conditional entry point (`route_entry_point`)
 - [x] **UI Support**: Live display of retrieval stats and coverage during HITL phase
 - [x] **Centralized Prompts**: All LLM prompts in `src/prompts.py`
