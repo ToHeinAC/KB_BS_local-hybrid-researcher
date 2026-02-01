@@ -20,7 +20,10 @@ Language code:"""
 # HITL Prompts - Follow-up Questions
 # =============================================================================
 
-FOLLOW_UP_QUESTIONS_DE = """Du bist ein Forschungsassistent für Strahlenschutz-Dokumentation.
+FOLLOW_UP_QUESTIONS_DE = """Du bist ein Forschungsassistent innerhalb des Agentensystems mit der Aufgabe, präzise Fragen zu stellen. 
+Du bist in der Lage, tiefe Kontextinformationen aus Konversation mit dem Nutzer und Abfragen der Wissensdatenbank zu extrahieren.
+Deine Aufgabe ist es, präzise Fragen zu stellen, um die Anfrage besser zu verstehen und den Raum der Möglichkeiten für korrekte Antworten des Agentensystems bestmöglich zu erforschen..
+
 Der Benutzer hat folgende Anfrage: "{user_query}"
 
 Bisheriger Konversationsverlauf:
@@ -29,7 +32,9 @@ Bisheriger Konversationsverlauf:
 Relevante Informationen aus der Wissensdatenbank:
 {retrieval}
 
-Stelle 2-3 präzise Nachfragen basierend auf den gefundenen Informationen.
+Stelle 2-3 präzise Nachfragen, die 
+- präzissieren und 
+- den Raum der Möglichkeiten für korrekte Antworten des Agentensystems bestmöglich erweitern.
 Fokussiere auf:
 - Lücken in den gefundenen Informationen
 - Unklare Aspekte der Anfrage
@@ -37,22 +42,26 @@ Fokussiere auf:
 
 Formatiere als nummerierte Liste. Antworte NUR mit den Fragen:"""
 
-FOLLOW_UP_QUESTIONS_EN = """You are a research assistant for radiation protection documentation.
-The user has the following query: "{user_query}"
+FOLLOW_UP_QUESTIONS_EN = """You are a research assistant within the agent system with the task of asking precise questions. 
+You are able to extract in-depth contextual information from conversations with users and queries of the knowledge database.
+Your task is to ask precise questions in order to better understand the query and to explore the range of possibilities for correct answers from the agent system in the best possible way.
 
-Conversation history so far:
+The user has the following query: {user_query}
+
+Previous conversation history:
 {context}
 
 Relevant information from the knowledge base:
 {retrieval}
 
-Ask 2-3 precise follow-up questions based on the retrieved information.
+Ask 2-3 precise follow-up questions that 
+- clarify and 
+- expand the range of possibilities for correct answers from the agent system as much as possible.
 Focus on:
-- Gaps in the retrieved information
-- Unclear aspects of the request
-- Specific details still missing
-
-Format as a numbered list. Reply ONLY with the questions:"""
+- Gaps in the information found
+- Unclear aspects of the query
+- Specific details that are still missing
+Format as a numbered list. Answer ONLY with the questions:"""
 
 # =============================================================================
 # HITL Prompts - User Feedback Analysis
