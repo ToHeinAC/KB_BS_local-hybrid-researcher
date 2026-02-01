@@ -20,61 +20,62 @@ Language code:"""
 # HITL Prompts - Follow-up Questions
 # =============================================================================
 
-FOLLOW_UP_QUESTIONS_DE = """Du bist ein Forschungsassistent innerhalb des Agentensystems mit der Aufgabe, präzise Fragen zu stellen. 
-Du bist in der Lage, tiefe Kontextinformationen aus Konversation mit dem Nutzer und Abfragen der Wissensdatenbank zu extrahieren.
-Deine Aufgabe ist es, präzise Fragen zu stellen, um die Anfrage besser zu verstehen und den Raum der Möglichkeiten für korrekte Antworten des Agentensystems bestmöglich zu erforschen..
+FOLLOW_UP_QUESTIONS_DE = """Du bist Forschungsassistent. Analysiere Anfrage, Kontext und Wissensdatenbank. Stelle präzise Nachfragen.
 
-Der Benutzer hat folgende Anfrage: "{user_query}"
+Anfrage: "{user_query}"
 
-Bisheriger Konversationsverlauf:
-{context}
+Kontext: {context}
 
-Relevante Informationen aus der Wissensdatenbank:
-{retrieval}
+Wissensdatenbank: {retrieval}
 
-Stelle 2-3 präzise Nachfragen, die 
-- präzissieren und 
-- den Raum der Möglichkeiten für korrekte Antworten des Agentensystems bestmöglich erweitern.
-Fokussiere auf:
-- Definition, Bedeutung und Kontext von Begriffen der Anfrage
-- Lücken in den gefundenen Informationen
-- Unklare Aspekte der Anfrage
-- Spezifische Details die noch fehlen
-- Methodische Klärungen der Nachforschung
+Stelle genau 3 Nachfragen:
 
-Gutes Beispiel:
-Anfrage: "Wie hängen Nachhaltigkeit und Profit bie der Windenergieerzeugung zusammen?"
-präzise Nachfragen:
-- Was bedeutet Nachhaltigkeit bezüglich der Windenergieerzeugung?
-- Was ist unter Profit im Zusammenhang mit der Winernergieerzeugung zu verstehen?
-- Sind alle Aspekte des Zusammenhangs zwischen Nachhaltigkeit und Profit im Zusammenhang mit der Windenergieerzeugung zu berücksichtigen oder gibt es einen FOkus auf spezifische Aspekte?    
+Fokus:
+- Begriffsklärung und Kontext
+- Fehlende oder unklare Details  
+- Methodischer Umfang/Fokus
 
-Formatiere als nummerierte Liste. Antworte NUR mit den Fragen:"""
+Beispiel:
+Anfrage: "Nachhaltigkeit und Profit bei Windenergie?"
+1. Was bedeutet "Nachhaltigkeit" hier - ökologisch, ökonomisch, sozial?
+2. "Profit" für Betreiber oder volkswirtschaftlicher Nutzen?
+3. Zeitraum: Aktuelle Situation oder Zukunftsprognose?
 
-FOLLOW_UP_QUESTIONS_EN = """You are a research assistant within the agent system with the task of asking precise questions. 
-You are able to extract in-depth contextual information from conversations with users and queries of the knowledge database.
-Your task is to ask precise questions in order to better understand the query and to explore the range of possibilities for correct answers from the agent system in the best possible way.
-The user has the following query: “{user_query}”
-Previous conversation history:
-{context}
-Relevant information from the knowledge base:
-{retrieval}
-Ask 2-3 precise follow-up questions that 
-- clarify and 
-- expand the range of possibilities for correct answers from the agent system as much as possible.
-Focus on:
-- Definition, meaning, and context of terms in the query
-- Gaps in the information found
-- Unclear aspects of the query
-- Specific details that are still missing
-- Methodological clarifications of the research
-Good example:
-Query: “How are sustainability and profit related in wind energy production?”
-Precise follow-up questions:
-- What does sustainability mean in relation to wind energy production?
-- What is meant by profit in the context of wind energy production?
-- Should all aspects of the relationship between sustainability and profit in relation to wind energy production be taken into account, or is there a focus on specific aspects?
-Format as a numbered list. Answer ONLY with the questions:"""
+Ausgabeformat - genau 3 nummerierte Fragen, keine Erklärungen:
+1. [Frage zur Definition/Kontext]
+2. [Frage zu Details]
+3. [Frage zu Umfang]
+
+Antworte NUR mit den 3 nummerierten Fragen.
+"""
+
+FOLLOW_UP_QUESTIONS_EN = """You are a research assistant. Analyze the query, context, and knowledge base. Ask precise questions.
+
+Query: “{user_query}”
+
+Context: {context}
+
+Knowledge base: {retrieval}
+
+Ask exactly 3 questions:
+
+Focus:
+- Clarification of terms and context
+- Missing or unclear details  
+- Methodological scope/focus
+
+Example:
+Query: “Sustainability and profit in wind energy?”
+1. What does “sustainability” mean here—ecological, economic, social?
+2. “Profit” for operators or economic benefit?
+3. Time frame: Current situation or future forecast?
+
+Output format - exactly 3 numbered questions, no explanations:
+1. [Question about definition/context]
+2. [Question about details]
+3. [Question about scope]
+
+Answer ONLY with the 3 numbered questions."""
 
 # =============================================================================
 # HITL Prompts - User Feedback Analysis
