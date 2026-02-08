@@ -49,6 +49,12 @@ class Settings(BaseSettings):
     max_docs: int = 5
     doc_word_limit: int = 5000
 
+    # Enhanced Reference Following
+    document_registry_path: str = "./kb/document_registry.json"
+    reference_extraction_method: str = "hybrid"  # "regex", "llm", "hybrid"
+    reference_token_budget: int = 50000
+    convergence_same_doc_threshold: int = 3
+
     # Phase 4: Quality Assurance
     enable_quality_checker: bool = True
     quality_threshold: int = 300

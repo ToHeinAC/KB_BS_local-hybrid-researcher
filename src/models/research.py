@@ -29,10 +29,32 @@ class NestedChunk(BaseModel):
     )
 
 
+class ExtractedReference(BaseModel):
+    """Reference extracted by LLM."""
+
+    reference_mention: str = Field(description="Exact text as it appears")
+    reference_type: Literal[
+        "legal_section", "academic_numbered", "academic_shortform", "document_mention"
+    ] = Field(description="Type of reference")
+    target_document_hint: str = Field(
+        default="", description="Best guess at target document name"
+    )
+    confidence: float = Field(default=0.9, ge=0.0, le=1.0)
+
+
+class ExtractedReferenceList(BaseModel):
+    """Container for LLM extraction output."""
+
+    references: list[ExtractedReference] = Field(default_factory=list)
+
+
 class DetectedReference(BaseModel):
     """A reference detected within text."""
 
-    type: Literal["section", "document", "external"] = Field(
+    type: Literal[
+        "section", "document", "external",
+        "legal_section", "academic_numbered", "academic_shortform", "document_mention",
+    ] = Field(
         description="Type of reference",
     )
     target: str = Field(description="Reference target (section number, doc name, URL)")
@@ -47,6 +69,14 @@ class DetectedReference(BaseModel):
     nested_chunks: list[NestedChunk] = Field(
         default_factory=list,
         description="Chunks retrieved from following this reference",
+    )
+    document_context: str | None = Field(
+        default=None,
+        description="Resolved document name hint",
+    )
+    extraction_method: Literal["regex", "llm"] = Field(
+        default="regex",
+        description="How this reference was detected",
     )
 
 

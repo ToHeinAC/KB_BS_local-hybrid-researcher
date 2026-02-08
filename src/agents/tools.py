@@ -1,12 +1,21 @@
 """Tool definitions for the research agent."""
 
+import difflib
+import json
 import logging
 import re
+from collections import Counter
+from pathlib import Path
 
 from src.config import settings
-from src.models.research import ChunkWithInfo, DetectedReference, NestedChunk
+from src.models.research import (
+    ChunkWithInfo,
+    DetectedReference,
+    ExtractedReferenceList,
+    NestedChunk,
+)
 from src.models.results import VectorResult
-from src.prompts import INFO_EXTRACTION_PROMPT
+from src.prompts import INFO_EXTRACTION_PROMPT, REFERENCE_EXTRACTION_PROMPT
 from src.services.chromadb_client import ChromaDBClient
 from src.services.ollama_client import OllamaClient
 
@@ -305,3 +314,384 @@ def create_chunk_with_info(
         extracted_info=extracted,
         relevance_score=result.relevance_score,
     )
+
+
+# =============================================================================
+# Document Registry
+# =============================================================================
+
+_document_registry: dict | None = None
+
+
+def load_document_registry() -> dict:
+    """Load document registry from JSON file (singleton).
+
+    Returns:
+        Registry dict with 'collections' key, or empty dict on error.
+    """
+    global _document_registry
+    if _document_registry is not None:
+        return _document_registry
+
+    registry_path = Path(settings.document_registry_path)
+    if not registry_path.exists():
+        logger.warning(f"Document registry not found: {registry_path}")
+        _document_registry = {"collections": {}}
+        return _document_registry
+
+    try:
+        with open(registry_path) as f:
+            _document_registry = json.load(f)
+        logger.info(f"Loaded document registry from {registry_path}")
+    except (json.JSONDecodeError, OSError) as e:
+        logger.warning(f"Failed to load document registry: {e}")
+        _document_registry = {"collections": {}}
+
+    return _document_registry
+
+
+def resolve_document_name(
+    doc_ref: str,
+    collection_hint: str | None = None,
+) -> tuple[str | None, str | None]:
+    """Resolve a document reference to (filename, collection_key).
+
+    Uses 3-stage greedy matching:
+    1. Exact synonym match (case-insensitive)
+    2. Fuzzy match via SequenceMatcher (threshold 0.7)
+    3. Substring match on filename
+
+    Args:
+        doc_ref: Document reference text to resolve
+        collection_hint: Optional collection to search first
+
+    Returns:
+        (filename, collection_key) or (None, None) if unresolved
+    """
+    registry = load_document_registry()
+    collections = registry.get("collections", {})
+    if not collections:
+        return None, None
+
+    doc_ref_lower = doc_ref.lower().strip()
+
+    # Order collections: hint first if given
+    ordered_keys = list(collections.keys())
+    if collection_hint and collection_hint in ordered_keys:
+        ordered_keys.remove(collection_hint)
+        ordered_keys.insert(0, collection_hint)
+
+    # Stage 1: Exact synonym match (case-insensitive)
+    for coll_key in ordered_keys:
+        for doc in collections[coll_key].get("documents", []):
+            for synonym in doc.get("synonyms", []):
+                if synonym.lower() == doc_ref_lower:
+                    return doc["filename"], coll_key
+
+    # Stage 2: Fuzzy match (threshold 0.7)
+    best_score = 0.0
+    best_match: tuple[str | None, str | None] = (None, None)
+    for coll_key in ordered_keys:
+        for doc in collections[coll_key].get("documents", []):
+            for synonym in doc.get("synonyms", []):
+                ratio = difflib.SequenceMatcher(
+                    None, doc_ref_lower, synonym.lower()
+                ).ratio()
+                if ratio > best_score and ratio >= 0.7:
+                    best_score = ratio
+                    best_match = (doc["filename"], coll_key)
+
+    if best_match[0] is not None:
+        return best_match
+
+    # Stage 3: Substring match on filename
+    for coll_key in ordered_keys:
+        for doc in collections[coll_key].get("documents", []):
+            fname_lower = doc["filename"].lower()
+            if doc_ref_lower in fname_lower or fname_lower.startswith(doc_ref_lower):
+                return doc["filename"], coll_key
+
+    logger.debug(f"Could not resolve document reference: {doc_ref}")
+    return None, None
+
+
+# =============================================================================
+# LLM Reference Extraction
+# =============================================================================
+
+# Mapping from LLM reference types to DetectedReference types
+_LLM_TYPE_MAP = {
+    "legal_section": "legal_section",
+    "academic_numbered": "academic_numbered",
+    "academic_shortform": "academic_shortform",
+    "document_mention": "document_mention",
+}
+
+
+def extract_references_llm(text: str) -> list[DetectedReference]:
+    """Extract references using LLM structured output.
+
+    Args:
+        text: Text to extract references from
+
+    Returns:
+        List of DetectedReference objects with extraction_method="llm"
+    """
+    client = get_ollama_client()
+    prompt = REFERENCE_EXTRACTION_PROMPT.format(text=text[:3000])  # Limit input
+
+    try:
+        result = client.generate_structured(prompt, ExtractedReferenceList)
+    except Exception as e:
+        logger.warning(f"LLM reference extraction failed: {e}")
+        return []
+
+    refs = []
+    for ext_ref in result.references:
+        ref_type = _LLM_TYPE_MAP.get(ext_ref.reference_type, ext_ref.reference_type)
+        doc_context = ext_ref.target_document_hint or None
+
+        refs.append(
+            DetectedReference(
+                type=ref_type,
+                target=ext_ref.reference_mention,
+                original_text=ext_ref.reference_mention,
+                extraction_method="llm",
+                document_context=doc_context,
+            )
+        )
+
+    logger.debug(f"LLM extracted {len(refs)} references")
+    return refs
+
+
+# =============================================================================
+# Hybrid Detection
+# =============================================================================
+
+
+def detect_references_hybrid(text: str) -> list[DetectedReference]:
+    """Detect references using both regex and LLM, deduplicated.
+
+    Runs regex first (fast), then LLM (thorough), deduplicates by type:target key.
+
+    Args:
+        text: Text to search for references
+
+    Returns:
+        Deduplicated list of detected references
+    """
+    regex_refs = detect_references(text)
+    llm_refs = extract_references_llm(text)
+
+    # Build seen set from regex results
+    seen = set()
+    combined = []
+    for ref in regex_refs:
+        key = f"{ref.type}:{ref.target}".lower()
+        seen.add(key)
+        combined.append(ref)
+
+    # Add LLM refs that aren't duplicates
+    for ref in llm_refs:
+        key = f"{ref.type}:{ref.target}".lower()
+        if key not in seen:
+            # Also check if the target text appears in any existing ref
+            is_dup = any(
+                ref.target.lower() in existing.target.lower()
+                or existing.target.lower() in ref.target.lower()
+                for existing in combined
+            )
+            if not is_dup:
+                seen.add(key)
+                combined.append(ref)
+
+    logger.debug(
+        f"Hybrid detection: {len(regex_refs)} regex + {len(llm_refs)} llm "
+        f"= {len(combined)} unique"
+    )
+    return combined
+
+
+# =============================================================================
+# Enhanced Resolution
+# =============================================================================
+
+
+def resolve_reference_enhanced(
+    ref: DetectedReference,
+    current_doc: str,
+    visited: set[str] | None = None,
+    depth: int = 0,
+    token_count: int = 0,
+) -> list[NestedChunk]:
+    """Resolve a reference with scoped search when document is known.
+
+    Routes by reference type:
+    - legal_section/section: resolve doc via registry -> scoped search
+    - document/document_mention: registry lookup -> scoped search
+    - academic_*: broad vector search with citation query
+    - external: not resolved
+
+    Args:
+        ref: The reference to resolve
+        current_doc: Current document context
+        visited: Set of visited reference keys
+        depth: Current recursion depth
+        token_count: Running token budget usage
+
+    Returns:
+        List of chunks from resolved reference
+    """
+    visited = visited or set()
+
+    if depth >= settings.reference_follow_depth:
+        return []
+
+    if token_count >= settings.reference_token_budget:
+        logger.debug("Token budget exhausted for reference following")
+        return []
+
+    ref_key = f"{ref.type}:{ref.target}"
+    if ref_key in visited:
+        return []
+    visited.add(ref_key)
+
+    if ref.type in ("legal_section", "section"):
+        return _resolve_legal_ref_enhanced(ref, current_doc)
+    elif ref.type in ("document", "document_mention"):
+        return _resolve_document_ref_enhanced(ref)
+    elif ref.type in ("academic_numbered", "academic_shortform"):
+        return _resolve_academic_ref(ref)
+    else:
+        return []
+
+
+def _resolve_legal_ref_enhanced(
+    ref: DetectedReference,
+    current_doc: str,
+) -> list[NestedChunk]:
+    """Resolve a legal section reference with scoped search."""
+    # Try to resolve the target document from hint or text
+    doc_hint = ref.document_context or ""
+    if not doc_hint:
+        # Extract document name from target text (e.g., "§ 133 StrlSchG" -> "StrlSchG")
+        parts = ref.target.split()
+        for part in parts:
+            if len(part) > 2 and not part.startswith("§") and not part.isdigit():
+                doc_hint = part.strip(".,;:()")
+                break
+
+    if doc_hint:
+        filename, collection_key = resolve_document_name(doc_hint)
+        if filename and collection_key:
+            return _vector_search_scoped(
+                f"§ {ref.target}", filename, collection_key
+            )
+
+    # Fallback to broad search
+    return _resolve_section_ref(ref, current_doc)
+
+
+def _resolve_document_ref_enhanced(ref: DetectedReference) -> list[NestedChunk]:
+    """Resolve a document mention with registry-based scoping."""
+    doc_hint = ref.document_context or ref.target
+    filename, collection_key = resolve_document_name(doc_hint)
+
+    if filename and collection_key:
+        return _vector_search_scoped(ref.target, filename, collection_key)
+
+    # Fallback to broad search
+    return _resolve_document_ref(ref)
+
+
+def _resolve_academic_ref(ref: DetectedReference) -> list[NestedChunk]:
+    """Resolve academic citation via broad vector search."""
+    query = ref.target
+    results = vector_search(query, top_k=3)
+
+    chunks = []
+    for result in results:
+        if result.relevance_score >= settings.reference_relevance_threshold:
+            chunks.append(
+                NestedChunk(
+                    chunk=result.chunk_text,
+                    document=result.doc_name,
+                    relevance_score=result.relevance_score,
+                )
+            )
+    return chunks
+
+
+def _vector_search_scoped(
+    query: str,
+    document_filename: str,
+    collection_key: str,
+    top_k: int = 5,
+) -> list[NestedChunk]:
+    """Search within a specific collection, post-filtered by document name.
+
+    Args:
+        query: Search query
+        document_filename: Target document filename to filter by
+        collection_key: Collection to search in
+        top_k: Number of results to retrieve (before filtering)
+
+    Returns:
+        Filtered list of NestedChunk objects
+    """
+    client = get_chromadb_client()
+    try:
+        results = client.search(query, collection_key, top_k=top_k)
+    except Exception as e:
+        logger.warning(f"Scoped search failed for {collection_key}: {e}")
+        return []
+
+    # Post-filter by document name
+    doc_base = document_filename.lower().replace(".pdf", "")
+    chunks = []
+    for result in results:
+        result_doc = result.doc_name.lower()
+        if (
+            doc_base in result_doc
+            or result_doc in doc_base
+            or document_filename.lower() in result_doc
+        ):
+            if result.relevance_score >= settings.reference_relevance_threshold:
+                chunks.append(
+                    NestedChunk(
+                        chunk=result.chunk_text,
+                        document=result.doc_name,
+                        relevance_score=result.relevance_score,
+                    )
+                )
+
+    logger.debug(
+        f"Scoped search for '{query}' in {collection_key}/{document_filename}: "
+        f"{len(chunks)} results"
+    )
+    return chunks
+
+
+# =============================================================================
+# Convergence Detection
+# =============================================================================
+
+
+def detect_convergence(doc_history: list[str]) -> bool:
+    """Check if any document appears >= convergence threshold times.
+
+    Indicates the rabbithole is circling back to the same documents.
+
+    Args:
+        doc_history: List of document names encountered during traversal
+
+    Returns:
+        True if convergence detected
+    """
+    if not doc_history:
+        return False
+
+    counts = Counter(doc_history)
+    threshold = settings.convergence_same_doc_threshold
+    return any(count >= threshold for count in counts.values())

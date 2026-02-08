@@ -132,61 +132,46 @@ Return condensed, relevant information only."""
     return llm.invoke(prompt).content
 ```
 
-### Step B: Reference Detection
+### Step B: Reference Detection (Hybrid)
 
-Within `extracted_info`, detect reference patterns:
-- "see section X" / "siehe Abschnitt X"
-- "cf. § Y" / "gemäß § Y"
-- "see document Z" / "siehe Dokument Z"
-- "Article N of [regulation]"
+Within `extracted_info`, detect references using configurable method (`reference_extraction_method`):
+
+**Regex** (`detect_references()`): 7 hardcoded patterns for German/English section, document, and URL references.
+
+**LLM** (`extract_references_llm()`): Uses `REFERENCE_EXTRACTION_PROMPT` with few-shot examples to extract 4 types: `legal_section`, `academic_numbered`, `academic_shortform`, `document_mention`. Returns `ExtractedReferenceList` via `generate_structured()`.
+
+**Hybrid** (`detect_references_hybrid()`): Runs regex first (fast), then LLM (thorough), deduplicates by `type:target` key + substring overlap.
 
 ```python
 class DetectedReference(BaseModel):
-    type: Literal["section", "document", "external"]
+    type: Literal["section", "document", "external",
+                   "legal_section", "academic_numbered",
+                   "academic_shortform", "document_mention"]
     target: str
     original_text: str
-
-def detect_references(text: str, llm: ChatOllama) -> list[DetectedReference]:
-    """Detect references within extracted info."""
-    structured_llm = llm.with_structured_output(
-        list[DetectedReference], method="json_mode"
-    )
-    # ...
+    document_context: str | None = None   # Resolved doc name hint
+    extraction_method: Literal["regex", "llm"] = "regex"
 ```
 
-### Step C: Reference Resolution & Following
+### Step C: Reference Resolution & Following (Enhanced)
 
-For each detected reference:
+For each detected reference, `resolve_reference_enhanced()` routes by type:
 
 | Reference Type | Resolution Strategy |
 |---------------|---------------------|
-| Section | Regex search in same document PDF |
-| Document | Use document_mapping.json or filename grep |
-| External | Mark for optional web search phase |
+| `legal_section` / `section` | Registry resolve doc name -> scoped vector search in that collection/document. Fallback: broad search. |
+| `document` / `document_mention` | Registry lookup -> scoped vector search. Fallback: broad search. |
+| `academic_numbered` / `academic_shortform` | Broad vector search with citation text. |
+| `external` | Not resolved. |
 
-```python
-def resolve_reference(
-    ref: DetectedReference,
-    current_doc: str,
-    doc_mapping: dict,
-) -> list[ResolvedChunk]:
-    """Resolve reference and retrieve content."""
+**Document Registry** (`kb/document_registry.json`): Maps PDF filenames to synonyms across 4 collections. `resolve_document_name()` uses 3-stage matching: exact synonym > fuzzy (0.7) > substring.
 
-    if ref.type == "section":
-        # Search same document for section
-        return search_section_in_doc(current_doc, ref.target)
+**Scoped Search** (`_vector_search_scoped()`): Searches specific collection via `chromadb_client.search()`, post-filters by `doc_name` matching target filename.
 
-    elif ref.type == "document":
-        # Map to file and retrieve
-        target_file = doc_mapping.get(ref.target)
-        if target_file:
-            return retrieve_chunks_from_doc(target_file)
-        # Fallback: grep for similar filenames
-        return grep_for_document(ref.target)
-
-    else:  # external
-        return []  # Handled in Phase 4 web search
-```
+**Additional guards:**
+- Token budget (`reference_token_budget`, default 50K tokens)
+- Convergence detection (`detect_convergence()`: same doc >= 3 times)
+- Depth limit + visited set (unchanged)
 
 ### Step D: Relevance Filtering
 
@@ -282,40 +267,43 @@ for state in graph.stream(input_state, config, stream_mode="values"):
     render_research_status()
 ```
 
-### Extract References Tool
+### Extract References Tools
 
 ```python
-@tool
-def extract_references(text: str) -> list[DetectedReference]:
-    """Detect references within text.
+def detect_references(text: str) -> list[DetectedReference]:
+    """Detect references via regex patterns (7 patterns).
+    Returns list with extraction_method="regex"."""
 
-    Identifies patterns like:
-    - "see section X"
-    - "cf. § Y"
-    - "see document Z"
+def extract_references_llm(text: str) -> list[DetectedReference]:
+    """Detect references via LLM structured output.
+    Uses REFERENCE_EXTRACTION_PROMPT with few-shot examples.
+    Returns list with extraction_method="llm"."""
 
-    Returns:
-        List of detected references with type and target
-    """
+def detect_references_hybrid(text: str) -> list[DetectedReference]:
+    """Run regex + LLM, deduplicate by type:target key.
+    Default method (reference_extraction_method="hybrid")."""
 ```
 
-### Resolve Reference Tool
+### Resolve Reference Tools
 
 ```python
-@tool
-def resolve_reference(
+def resolve_reference_enhanced(
     ref: DetectedReference,
     current_doc: str,
-) -> list[ResolvedChunk]:
-    """Find content for detected reference.
+    visited: set[str] | None = None,
+    depth: int = 0,
+    token_count: int = 0,
+) -> list[NestedChunk]:
+    """Resolve with scoped search when document is known.
+    Routes by ref type, uses document registry for scoping.
+    Respects token budget and depth limits."""
 
-    Args:
-        ref: The detected reference
-        current_doc: Document where reference was found
-
-    Returns:
-        Retrieved chunks from resolved reference
-    """
+def resolve_document_name(
+    doc_ref: str,
+    collection_hint: str | None = None,
+) -> tuple[str | None, str | None]:
+    """Resolve document reference to (filename, collection_key).
+    3-stage: exact synonym > fuzzy 0.7 > substring."""
 ```
 
 ### Generate Summary Tool
@@ -452,27 +440,25 @@ The Streamlit UI uses the ToDo approval component and resumes with `process_hitl
 
 ## Loop Prevention
 
-To prevent infinite loops:
+To prevent infinite loops and runaway reference following:
 
 ```python
 # Configuration constants
-TODO_MAX_ITEMS = 15           # Max tasks in list
-REFERENCE_FOLLOW_DEPTH = 2    # Max nesting levels
-MAX_ITERATIONS_PER_TASK = 3   # Prevent loops
+TODO_MAX_ITEMS = 15                    # Max tasks in list
+REFERENCE_FOLLOW_DEPTH = 2            # Max nesting levels
+MAX_ITERATIONS_PER_TASK = 3           # Prevent loops
+REFERENCE_TOKEN_BUDGET = 50000        # Max tokens for ref following per task
+CONVERGENCE_SAME_DOC_THRESHOLD = 3    # Stop when same doc appears N times
 
 # Track visited references
 visited_refs: set[str] = set()
 
-def should_follow_reference(ref: DetectedReference, depth: int) -> bool:
-    """Check if reference should be followed."""
-    ref_key = f"{ref.type}:{ref.target}"
+# In resolve_reference_enhanced():
+# - Depth check
+# - Visited check
+# - Token budget check (token_count >= reference_token_budget)
 
-    if ref_key in visited_refs:
-        return False  # Already visited
-
-    if depth >= REFERENCE_FOLLOW_DEPTH:
-        return False  # Too deep
-
-    visited_refs.add(ref_key)
-    return True
+# In execute_task():
+# - Convergence check via detect_convergence(doc_history)
+#   Stops chunk processing loop when same document appears >= threshold times
 ```

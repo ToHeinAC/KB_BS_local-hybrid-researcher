@@ -23,7 +23,8 @@ Classical RAG lacks deep contextual understanding and cannot follow inter-docume
 ├────────────────────────────────────────────────────────────────────┤
 │  Phase 3: Deep Context Extraction (Rabbithole Magic)                │
 │  For each task:                                                      │
-│    Vector Search → Extract Info → Detect Refs → Follow Refs         │
+│    Vector Search → Extract Info → Hybrid Ref Detection →            │
+│    Registry-Scoped Resolution → Token Budget → Convergence Check    │
 │    → Filter by Relevance → Update ToDoList → Loop until done        │
 ├────────────────────────────────────────────────────────────────────┤
 │  Phase 4: Synthesis + Quality Assurance                             │
@@ -124,6 +125,9 @@ Edit `.env` for your setup:
 - `OLLAMA_NUM_CTX=131072`: 128K context for dual 4090s (adjust if needed)
 - `OLLAMA_SAFE_LIMIT=0.9`: Stop at 90% to prevent OOM
 - `QUALITY_THRESHOLD=300`: Minimum quality score (0-400)
+- `REFERENCE_EXTRACTION_METHOD=hybrid`: Reference detection method (`regex`, `llm`, `hybrid`)
+- `REFERENCE_TOKEN_BUDGET=50000`: Max tokens for reference following per task
+- `CONVERGENCE_SAME_DOC_THRESHOLD=3`: Stop following when same doc appears N times
 
 ## Directory Structure
 
@@ -147,6 +151,7 @@ KB_BS_local-hybrid-researcher/
 ├── tests/                 # Pytest tests
 └── kb/                    # Knowledge base (pre-existing)
     ├── database/          # ChromaDB collections
+    ├── document_registry.json   # Document-to-synonym mapping for scoped search
     ├── GLageKon__db_inserted/   # Source PDFs for GLageKon
     ├── NORM__db_inserted/       # Source PDFs for NORM
     ├── StrlSch__db_inserted/    # Source PDFs for StrlSch
@@ -160,7 +165,7 @@ KB_BS_local-hybrid-researcher/
 3. **Structured JSON Outputs**: All LLM responses via Pydantic + `json_mode`
 4. **Fully Local**: Ollama-only, no external API calls
 5. **Safe Exit**: Streamlit button to cleanly terminate (port-aware)
-6. **Reference Following**: Deep rabbithole traversal with relevance filtering
+6. **Reference Following**: Deep rabbithole traversal with hybrid detection (regex+LLM), document registry scoping, and relevance filtering
 
 ## Coding Standards
 
@@ -219,7 +224,27 @@ KB_BS_local-hybrid-researcher/
 - [x] **Graph Entry Point Enhancement**: Supports HITL resume via `hitl_process_response` routing
 - [x] **Coverage Metrics in Checkpoints**: Knowledge gaps and dedup ratios shown in UI
 
-### Deferred to Week 3+
+### Enhanced Reference Following (Week 3) - COMPLETE
+- [x] **Hybrid Reference Detection**: Configurable `regex`, `llm`, or `hybrid` extraction method
+  - Regex: 7 hardcoded patterns (German/English sections, documents, URLs)
+  - LLM: `REFERENCE_EXTRACTION_PROMPT` with few-shot examples via `generate_structured()`
+  - Hybrid: runs both, deduplicates by `type:target` key + substring overlap
+- [x] **Document Registry** (`kb/document_registry.json`): Maps PDFs to synonyms across 4 collections
+  - `load_document_registry()`: singleton loader
+  - `resolve_document_name()`: 3-stage matching (exact synonym > fuzzy 0.7 > substring)
+- [x] **Scoped Passage Retrieval**: `_vector_search_scoped()` searches within resolved document's collection
+  - Post-filters by `doc_name` matching the resolved filename
+- [x] **Enhanced Resolution**: `resolve_reference_enhanced()` routes by ref type
+  - `legal_section`/`section`: registry resolve -> scoped search (fallback: broad)
+  - `document`/`document_mention`: registry lookup -> scoped search (fallback: broad)
+  - `academic_numbered`/`academic_shortform`: broad vector search
+- [x] **Token Budget Tracking**: `reference_token_budget` (default 50K) stops reference following when exhausted
+- [x] **Convergence Detection**: `detect_convergence()` stops when same document appears >= threshold times
+- [x] **New Pydantic Models**: `ExtractedReference`, `ExtractedReferenceList` for LLM structured output
+- [x] **Extended `DetectedReference`**: Added `document_context`, `extraction_method` fields
+- [x] **39 Unit Tests**: `tests/test_reference_extraction.py` (registry, regex, LLM mock, hybrid, resolution, convergence)
+
+### Deferred to Week 4+
 - [ ] Progressive disclosure / knowledge pyramid
 - [ ] Three-tier memory architecture
 - [ ] Orchestrator-worker parallelization

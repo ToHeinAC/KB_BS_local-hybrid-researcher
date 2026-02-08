@@ -249,6 +249,42 @@ Include source citations in the format [Document_name.pdf, Page X] where applica
 # Research Prompts - Quality Check
 # =============================================================================
 
+# =============================================================================
+# Reference Extraction Prompt (for LLM-based reference detection)
+# =============================================================================
+
+REFERENCE_EXTRACTION_PROMPT = """Extract all references from the following text.
+
+For each reference found, classify it as one of these types:
+- legal_section: Legal paragraph/section references (e.g., "§ 133 des Strahlenschutzgesetzes", "Section 5.2 of the Atomic Energy Act")
+- academic_numbered: Numbered citations (e.g., "[253]", "[12, 15]")
+- academic_shortform: Author-year citations (e.g., "[Townsend79]", "[Mueller2020]")
+- document_mention: Named document references (e.g., "Kreislaufwirtschaftsgesetz", "KTA 1401", "ICRP Publication 103")
+
+For each reference, provide:
+- reference_mention: The exact text as it appears
+- reference_type: One of the four types above
+- target_document_hint: Best guess at the target document name (empty string if unknown)
+- confidence: 0.0 to 1.0
+
+Examples:
+
+Text: "gemäß § 133 des Strahlenschutzgesetzes"
+-> {{"reference_mention": "§ 133 des Strahlenschutzgesetzes", "reference_type": "legal_section", "target_document_hint": "Strahlenschutzgesetz", "confidence": 0.95}}
+
+Text: "see [253] for details"
+-> {{"reference_mention": "[253]", "reference_type": "academic_numbered", "target_document_hint": "", "confidence": 0.9}}
+
+Text: "as shown by [Townsend79]"
+-> {{"reference_mention": "[Townsend79]", "reference_type": "academic_shortform", "target_document_hint": "", "confidence": 0.85}}
+
+Text: "Die Anforderungen der KTA 1401 sind zu beachten"
+-> {{"reference_mention": "KTA 1401", "reference_type": "document_mention", "target_document_hint": "KTA 1401", "confidence": 0.95}}
+
+Now extract references from this text:
+
+{text}"""
+
 QUALITY_CHECK_PROMPT = """Evaluate the quality of this research summary.
 
 Summary:

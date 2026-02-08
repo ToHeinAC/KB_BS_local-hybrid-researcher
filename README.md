@@ -26,7 +26,7 @@ streamlit run src/ui/app.py --server.port 8511
 - **Iterative Retrieval-HITL Loop**: Integrated vector search during the clarification phase to provide smarter, context-aware follow-up questions.
 - **Convergence Detection**: Automated loop termination based on information coverage, knowledge gaps, and content deduplication.
 - **Multi-Angle Search**: Generates original, broader, and alternative queries in parallel to ensure maximum document coverage.
-- **Deep Reference Following**: Automatically detects and follows inter-document references to discover hidden connections.
+- **Deep Reference Following**: Hybrid regex+LLM detection with document registry-based scoped resolution, token budget tracking, and convergence detection.
 - **Full Human-In-The-Loop**: Checkpoints for query refinement, task list approval, and final result verification.
 - **Privacy-First & Local**: Powered by Ollama and local ChromaDB, ensuring all research data stays on your machine.
 - **Source Attribution**: Detailed citations with clickable PDF links and page numbers.

@@ -49,6 +49,12 @@ REFERENCE_FOLLOW_DEPTH=2         # Max nesting levels
 REFERENCE_RELEVANCE_THRESHOLD=0.6
 MAX_ITERATIONS_PER_TASK=3        # Prevent loops per task
 
+# Enhanced reference following
+DOCUMENT_REGISTRY_PATH=./kb/document_registry.json  # Document-synonym mapping
+REFERENCE_EXTRACTION_METHOD=hybrid   # "regex", "llm", or "hybrid"
+REFERENCE_TOKEN_BUDGET=50000         # Max tokens for reference following per task
+CONVERGENCE_SAME_DOC_THRESHOLD=3     # Stop when same doc appears N times
+
 # Document search limits
 MAX_DOCS=5                       # Documents to analyze per task
 DOC_WORD_LIMIT=5000              # Max words per document
@@ -184,6 +190,12 @@ class Settings(BaseSettings):
     max_iterations_per_task: int = 3
     max_docs: int = 5
     doc_word_limit: int = 5000
+
+    # Enhanced Reference Following
+    document_registry_path: str = "./kb/document_registry.json"
+    reference_extraction_method: str = "hybrid"  # "regex", "llm", "hybrid"
+    reference_token_budget: int = 50000
+    convergence_same_doc_threshold: int = 3
 
     # Phase 4
     enable_quality_checker: bool = True

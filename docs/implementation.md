@@ -61,6 +61,24 @@
 - [x] Loop prevention (visited refs, max iterations)
 - [x] Tests for agent and tools
 
+### Phase 3.5: Enhanced Reference Following
+- [x] **Hybrid Reference Detection** (`detect_references_hybrid()`):
+  - Regex (7 patterns) + LLM (`REFERENCE_EXTRACTION_PROMPT`) with deduplication
+  - Configurable via `reference_extraction_method` setting: `"regex"`, `"llm"`, `"hybrid"`
+- [x] **Document Registry** (`kb/document_registry.json`):
+  - Maps PDF filenames to synonyms across 4 collections
+  - `load_document_registry()`: singleton loader
+  - `resolve_document_name()`: 3-stage matching (exact > fuzzy 0.7 > substring)
+- [x] **Enhanced Resolution** (`resolve_reference_enhanced()`):
+  - Routes by ref type: legal -> registry scoped, document -> registry scoped, academic -> broad
+  - `_vector_search_scoped()`: searches specific collection, post-filters by document name
+- [x] **Traversal Controls**:
+  - Token budget tracking (`reference_token_budget`, default 50K)
+  - Convergence detection (`detect_convergence()`, threshold 3)
+- [x] **New Models**: `ExtractedReference`, `ExtractedReferenceList` in `src/models/research.py`
+- [x] **Extended `DetectedReference`**: `document_context`, `extraction_method` fields
+- [x] **39 Tests**: `tests/test_reference_extraction.py`
+
 ### Phase 4: Synthesis + Quality (Research Phase 4)
 - [x] `synthesize` node (LLM synthesis from extracted findings)
 - [x] `quality_check` node (optional, 0-400 scoring)
@@ -256,10 +274,10 @@ def test_graph_execution():
 
 | Challenge | Root Cause | Mitigation |
 |-----------|-----------|-----------|
-| **Infinite reference loops** | Circular cross-references | Maintain `visited_refs` set, track recursion depth |
-| **Reference resolution ambiguity** | Multiple matches | Use document_mapping.json, fallback to scoring |
-| **Hallucinated references** | LLM invents citations | Strict pattern matching, validate all refs |
-| **Over-following tangential refs** | Poor relevance filter | Set threshold=0.6+, manual review |
+| **Infinite reference loops** | Circular cross-references | Maintain `visited_refs` set, track recursion depth, convergence detection |
+| **Reference resolution ambiguity** | Multiple matches | Document registry with 3-stage matching, scoped search within collection |
+| **Hallucinated references** | LLM invents citations | Hybrid: regex provides baseline, LLM adds coverage, dedup filters noise |
+| **Over-following tangential refs** | Poor relevance filter | Set threshold=0.6+, token budget (50K), convergence (same doc >= 3) |
 | **Report bloat** | Including everything | Strict extractive summarization |
 | **Long execution times** | Deep recursion | Default N=3, M=4, depth=2 |
 | **Ollama structured output failures** | Wrong method | Use `method="json_mode"` for <30B models |

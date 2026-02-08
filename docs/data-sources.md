@@ -165,40 +165,53 @@ results = client.search_all(
 
 ---
 
-## Document Mapping
+## Document Registry
 
-For reference resolution, maintain a mapping file:
+For reference resolution, the system uses a **document registry** (`kb/document_registry.json`) that maps PDF filenames to human-readable synonyms across all 4 collections.
 
-### document_mapping.json
+### document_registry.json
 
 ```json
 {
-  "StrlSchG": "kb/StrlSch__db_inserted/010_StrlSchG.pdf",
-  "StrlSchV": "kb/StrlSch__db_inserted/015_StrlSchV.pdf",
-  "Strahlenschutzgesetz": "kb/StrlSch__db_inserted/010_StrlSchG.pdf",
-  "Strahlenschutzverordnung": "kb/StrlSch__db_inserted/015_StrlSchV.pdf"
+  "collections": {
+    "StrlSch": {
+      "documents": [
+        {"filename": "StrlSchG.pdf", "synonyms": ["Strahlenschutzgesetz", "StrlSchG", "StrSchG"]},
+        {"filename": "StrlSchV.pdf", "synonyms": ["Strahlenschutzverordnung", "StrlSchV"]},
+        {"filename": "AtG.pdf", "synonyms": ["Atomgesetz", "AtG", "Atomic Energy Act"]},
+        {"filename": "KTA 1401_2017-11.pdf", "synonyms": ["KTA 1401"]}
+      ]
+    },
+    "NORM": {
+      "documents": [
+        {"filename": "ICRP_103.pdf", "synonyms": ["ICRP 103", "ICRP Publication 103"]},
+        {"filename": "Trinkwasserverordnung.pdf", "synonyms": ["Trinkwasserverordnung", "TrinkwV"]}
+      ]
+    }
+  }
 }
 ```
 
 ### Usage in Reference Resolution
 
 ```python
-def resolve_document_reference(ref_name: str, mapping: dict) -> str | None:
-    """Resolve document reference to file path."""
+from src.agents.tools import load_document_registry, resolve_document_name
 
-    # Direct match
-    if ref_name in mapping:
-        return mapping[ref_name]
+# Singleton loader
+registry = load_document_registry()
 
-    # Partial match (case-insensitive)
-    ref_lower = ref_name.lower()
-    for key, path in mapping.items():
-        if ref_lower in key.lower() or key.lower() in ref_lower:
-            return path
+# 3-stage resolution: exact synonym > fuzzy (0.7) > substring
+filename, collection_key = resolve_document_name("Strahlenschutzgesetz")
+# -> ("StrlSchG.pdf", "StrlSch")
 
-    # Fallback: grep all *__db_inserted folders for similar filenames
-    return grep_for_document(ref_name)
+filename, collection_key = resolve_document_name("KTA 1401", collection_hint="StrlSch")
+# -> ("KTA 1401_2017-11.pdf", "StrlSch")
+
+filename, collection_key = resolve_document_name("NonexistentDoc")
+# -> (None, None)
 ```
+
+The resolved `(filename, collection_key)` is used by `_vector_search_scoped()` to search within the specific collection and post-filter by document name, enabling precise reference following.
 
 ---
 

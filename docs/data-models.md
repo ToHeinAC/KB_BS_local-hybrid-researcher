@@ -62,13 +62,29 @@ class NestedChunk(BaseModel):
     extracted_info: str
     relevance_score: float
 
+class ExtractedReference(BaseModel):
+    """Reference extracted by LLM (structured output model)."""
+    reference_mention: str           # Exact text as it appears
+    reference_type: Literal["legal_section", "academic_numbered",
+                            "academic_shortform", "document_mention"]
+    target_document_hint: str = ""   # Best guess at target document name
+    confidence: float = 0.9          # 0.0 to 1.0
+
+class ExtractedReferenceList(BaseModel):
+    """Container for LLM extraction output."""
+    references: list[ExtractedReference] = []
+
 class DetectedReference(BaseModel):
     """A reference detected within text."""
-    type: Literal["section", "document", "external"]
+    type: Literal["section", "document", "external",
+                   "legal_section", "academic_numbered",
+                   "academic_shortform", "document_mention"]
     target: str
     original_text: str = ""
     found: bool = False
     nested_chunks: list[NestedChunk] = []
+    document_context: str | None = None   # Resolved document name hint (NEW)
+    extraction_method: Literal["regex", "llm"] = "regex"  # How detected (NEW)
 
 class ChunkWithInfo(BaseModel):
     """A chunk from vector DB with extracted info and references."""

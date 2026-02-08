@@ -1,5 +1,6 @@
 # Knowledge base data (large files)
-kb/
+kb/*
+!kb/document_registry.json
 
 # Python
 __pycache__/

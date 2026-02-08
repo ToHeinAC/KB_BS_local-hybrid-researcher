@@ -9,9 +9,12 @@ from pydantic import BaseModel
 from src.agents.state import AgentState, get_next_task_id
 from src.agents.tools import (
     create_chunk_with_info,
+    detect_convergence,
     detect_references,
+    detect_references_hybrid,
     filter_by_relevance,
     resolve_reference,
+    resolve_reference_enhanced,
     vector_search,
 )
 from src.config import settings
@@ -233,31 +236,50 @@ def execute_task(state: AgentState) -> dict:
 
     # Process results into chunks with info
     chunks: list[ChunkWithInfo] = []
+    doc_history: list[str] = []
+    token_count = 0
     for result in results:
         chunk = create_chunk_with_info(result, analysis.original_query)
 
-        # Detect and follow references
+        # Detect and follow references (configurable method)
         if chunk.extracted_info:
-            refs = detect_references(chunk.extracted_info)
+            if settings.reference_extraction_method == "hybrid":
+                refs = detect_references_hybrid(chunk.extracted_info)
+            elif settings.reference_extraction_method == "llm":
+                from src.agents.tools import extract_references_llm
+                refs = extract_references_llm(chunk.extracted_info)
+            else:
+                refs = detect_references(chunk.extracted_info)
+
             current_depth = state.get("current_depth", 0)
             for ref in refs:
                 ref_key = f"{ref.type}:{ref.target}"
                 if not context.has_visited_ref(ref_key):
-                    # Pass depth+1 since we're following a reference from the initial search
-                    nested = resolve_reference(
+                    nested = resolve_reference_enhanced(
                         ref,
                         chunk.document,
                         visited=set(context.metadata.visited_refs),
                         depth=current_depth + 1,
+                        token_count=token_count,
                     )
                     ref.nested_chunks = nested
                     ref.found = len(nested) > 0
                     context.mark_ref_visited(ref_key)
+                    # Track token budget
+                    for nc in nested:
+                        token_count += len(nc.chunk) // 4
+                        doc_history.append(nc.document)
 
             chunk.references = refs
 
         chunks.append(chunk)
+        doc_history.append(chunk.document)
         context.add_document_reference(chunk.document)
+
+        # Check convergence across document history
+        if detect_convergence(doc_history):
+            logger.info("Convergence detected in reference following, stopping early")
+            break
 
     # Filter by relevance
     chunks = filter_by_relevance(chunks, analysis.original_query)
