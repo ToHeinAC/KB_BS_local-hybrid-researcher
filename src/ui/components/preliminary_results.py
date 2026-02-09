@@ -34,13 +34,16 @@ def render_preliminary_results() -> None:
 
     with st.expander("Vorlaeufige Ergebnisse", expanded=True):
         # Render by task
-        for task in completed_tasks:
+        for idx, task in enumerate(completed_tasks, 1):
             task_id = task.get("id")
-            task_desc = task.get("task", "")[:50]
+            task_desc = task.get("task", "")
+            short = task_desc[:60] + "..." if len(task_desc) > 60 else task_desc
 
             with st.expander(
-                f":white_check_mark: Task {task_id}: {task_desc}...", expanded=False
+                f"\u2705 Aufgabe {idx}: {short}", expanded=False
             ):
+                if len(task_desc) > 60:
+                    st.caption(task_desc)
                 _render_task_results(task_id, search_queries)
 
 

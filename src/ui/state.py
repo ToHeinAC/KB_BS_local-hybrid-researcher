@@ -46,6 +46,10 @@ class SessionState:
     messages: list[str] = field(default_factory=list)
     hitl_result: dict | None = None  # Store HITL phase results for display
 
+    # Deferred graph execution
+    pending_graph_input: dict | None = None
+    pending_graph_config: dict | None = None
+
     # UI state
     show_debug: bool = False
     error: str | None = None

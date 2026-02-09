@@ -285,7 +285,16 @@ def execute_task(state: AgentState) -> dict:
             break
 
     # Filter by relevance
+    pre_filter_count = len(chunks)
     chunks = filter_by_relevance(chunks, analysis.original_query)
+    logger.info(
+        "Task %s: %d results from search, %d chunks pre-filter, %d post-filter, %d with extracted_info",
+        task_id,
+        len(results),
+        pre_filter_count,
+        len(chunks),
+        sum(1 for c in chunks if c.extracted_info),
+    )
 
     # Add to research context
     search_result = SearchQueryResult(
@@ -355,6 +364,12 @@ def synthesize(state: AgentState) -> dict:
                 )
 
     if not all_info:
+        total_chunks = sum(len(sq.chunks) for sq in context.search_queries)
+        logger.warning(
+            "Synthesize: no extracted_info found. search_queries=%d, total_chunks=%d",
+            len(context.search_queries),
+            total_chunks,
+        )
         return {
             "phase": "quality_check",
             "messages": ["No information to synthesize"],

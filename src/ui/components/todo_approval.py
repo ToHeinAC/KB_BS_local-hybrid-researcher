@@ -48,12 +48,13 @@ def render_todo_approval() -> HITLDecision | None:
     removed_ids = []
 
     for i, task in enumerate(tasks):
-        with st.container():
+        short = task["task"][:60] + "..." if len(task["task"]) > 60 else task["task"]
+        with st.expander(f"Aufgabe {i + 1}: {short}", expanded=True):
             col1, col2 = st.columns([4, 1])
 
             with col1:
                 new_task = st.text_input(
-                    f"Aufgabe {task['id']}",
+                    f"Aufgabe {i + 1}",
                     value=task["task"],
                     key=f"task_{task['id']}",
                 )
@@ -79,8 +80,6 @@ def render_todo_approval() -> HITLDecision | None:
                 })
             else:
                 removed_ids.append(task["id"])
-
-            st.divider()
 
     # Add new task
     with st.expander("Neue Aufgabe hinzufuegen"):

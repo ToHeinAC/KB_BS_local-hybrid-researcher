@@ -49,6 +49,16 @@ HEADER_IMAGE = ASSETS_DIR / "Header_fuer_Chatbot.png"
 # Version info
 VERSION = "V2.2"
 
+# Phase labels for live status updates during graph execution
+PHASE_LABELS = {
+    "generate_todo": "Erstelle Aufgaben",
+    "execute_tasks": "Fuehre Recherche durch",
+    "synthesize": "Synthesisiere Ergebnisse",
+    "quality_check": "Pruefe Qualitaet",
+    "attribute_sources": "Fuege Quellen hinzu",
+    "complete": "Abgeschlossen",
+}
+
 LICENSE_FILE = Path(__file__).parent.parent.parent / "assets" / "LICENCE"
 
 
@@ -128,12 +138,43 @@ def _render_preliminary_results() -> None:
                     st.text(msg)
 
 
-def _run_graph_stream(graph, input_state: dict, config: dict) -> None:
+def _run_graph_with_live_updates(
+    graph, input_state: dict, config: dict, status_container
+) -> None:
+    """Run graph streaming with lightweight status updates.
+
+    Uses st.status-style progress instead of full side panel rendering
+    to avoid overhead from re-rendering expander widgets on every emission.
+
+    Args:
+        graph: The research graph
+        input_state: Initial state dict
+        config: Graph config
+        status_container: st.empty() placeholder for lightweight status updates
+    """
     last_state: dict | None = None
     for state in graph.stream(input_state, config, stream_mode="values"):
         last_state = state
         update_agent_state(state)
-
+        phase = state.get("phase", "")
+        todo_list = state.get("todo_list", [])
+        completed = sum(1 for t in todo_list if t.get("completed"))
+        total = len(todo_list)
+        task_id = state.get("current_task_id")
+        # Find current task text
+        task_text = ""
+        if task_id and todo_list:
+            for t in todo_list:
+                if t.get("id") == task_id:
+                    task_text = t.get("task", "")[:60]
+                    break
+        phase_label = PHASE_LABELS.get(phase, phase)
+        with status_container.container():
+            st.markdown(f"**{phase_label}**")
+            if total > 0:
+                st.progress(completed / total, text=f"{completed}/{total} Aufgaben")
+            if task_text:
+                st.caption(f"Aufgabe: {task_text}")
     if last_state:
         update_agent_state(last_state)
 
@@ -327,8 +368,25 @@ def main():
             render_messages()
 
         with todo_col:
-            # Side panel with progress, spinner, and task list
-            render_todo_side_panel()
+            status_placeholder = st.empty()
+            if session.pending_graph_input is not None:
+                pending_input = session.pending_graph_input
+                pending_config = session.pending_graph_config
+                session.pending_graph_input = None
+                session.pending_graph_config = None
+                try:
+                    graph = create_research_graph()
+                    _run_graph_with_live_updates(
+                        graph, pending_input, pending_config, status_placeholder
+                    )
+                    add_message(f"Phase: {get_current_phase()}")
+                except Exception as e:
+                    logger.exception("Graph execution failed")
+                    set_error(f"Research failed: {e}")
+                st.rerun()
+            else:
+                with status_placeholder.container():
+                    render_todo_side_panel()
 
         # Results display - check for completion
         if session.final_report:
@@ -412,10 +470,8 @@ def _start_research_from_hitl(hitl_result: dict) -> None:
 
         config = {"configurable": {"thread_id": thread_id}}
 
-        _run_graph_stream(graph, initial_state, config)
-
-        add_message(f"Phase: {get_current_phase()}")
-
+        session.pending_graph_input = initial_state
+        session.pending_graph_config = config
         st.rerun()
 
     except Exception as e:
@@ -451,9 +507,8 @@ def _start_research(query: str) -> None:
 
         config = {"configurable": {"thread_id": thread_id}}
 
-        _run_graph_stream(graph, initial_state, config)
-
-        add_message(f"Phase: {get_current_phase()}")
+        session.pending_graph_input = initial_state
+        session.pending_graph_config = config
 
     except Exception as e:
         logger.exception("Research failed")
@@ -552,9 +607,6 @@ def _resume_with_decision(decision: dict) -> None:
     try:
         add_message("Resuming research with user input...")
 
-        # Create graph
-        graph = create_research_graph()
-
         config = {"configurable": {"thread_id": session.thread_id}}
 
         # Get current state and update with decision
@@ -562,9 +614,8 @@ def _resume_with_decision(decision: dict) -> None:
         current_state["hitl_decision"] = decision
         current_state["hitl_pending"] = False
 
-        _run_graph_stream(graph, current_state, config)
-
-        add_message(f"Phase: {get_current_phase()}")
+        session.pending_graph_input = current_state
+        session.pending_graph_config = config
 
     except Exception as e:
         logger.exception("Resume failed")
