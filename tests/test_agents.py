@@ -220,8 +220,8 @@ class TestRouteEntryPoint:
         result = route_entry_point(state)
         assert result == "hitl_init"
 
-    def test_decision_without_hitl_active_routes_to_hitl_init(self):
-        """Test that decision without hitl_active routes to hitl_init."""
+    def test_decision_without_hitl_active_routes_to_process_hitl_todo(self):
+        """Test that decision without hitl_active routes to process_hitl_todo."""
         from src.agents.graph import route_entry_point
 
         state = {
@@ -229,5 +229,5 @@ class TestRouteEntryPoint:
             "hitl_decision": {"approved": True},
         }
         result = route_entry_point(state)
-        # With hitl_active=False, decision doesn't trigger process_response
-        assert result == "hitl_init"
+        # With hitl_active=False, decision triggers todo processing (post-approval)
+        assert result == "process_hitl_todo"

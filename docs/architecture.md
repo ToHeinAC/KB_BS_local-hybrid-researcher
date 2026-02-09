@@ -363,14 +363,18 @@ This prevents re-loading the embedding model and reconnecting to services on eve
 The `route_entry_point()` function in `graph.py` handles multiple entry scenarios:
 
 ```python
-def route_entry_point(state) -> Literal["hitl_init", "hitl_process_response", "generate_todo"]:
-    # 1. research_queries present → generate_todo (skip HITL)
-    # 2. phase == "generate_todo" → generate_todo
-    # 3. hitl_decision + hitl_active → hitl_process_response (resume)
-    # 4. else → hitl_init (start new)
+def route_entry_point(state) -> Literal["hitl_init", "hitl_process_response", "generate_todo", "process_hitl_todo"]:
+    # 1. hitl_decision + !hitl_active → process_hitl_todo (post-approval resume)
+    # 2. hitl_decision + hitl_active → hitl_process_response (iterative HITL resume)
+    # 3. research_queries present → generate_todo (skip HITL)
+    # 4. phase == "generate_todo" → generate_todo
+    # 5. else → hitl_init (start new)
 ```
 
 This enables:
+- **Resume after todo approval**: When user approves/modifies tasks (`hitl_decision` present, `hitl_active=False`)
 - **Skip HITL**: When UI chat-based HITL has already produced research_queries
-- **Resume HITL**: When user responds to an interrupted HITL session
+- **Resume HITL**: When user responds to an interrupted iterative HITL session
 - **New HITL**: Default behavior when starting fresh
+
+**Key invariant**: `_start_research_from_hitl()` sets `hitl_active=False` before entering the graph, so post-approval resume never misroutes to `hitl_process_response`.

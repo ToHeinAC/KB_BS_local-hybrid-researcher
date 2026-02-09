@@ -116,8 +116,10 @@
   - `_get_hitl_service()` in `hitl_panel.py`
   - `get_chromadb_client()` in `app.py`
 - [x] **Graph Entry Point Enhancement** (`graph.py`):
-  - `route_entry_point()` now routes to `hitl_process_response` on resume
-  - Supports HITL continuation when `hitl_decision` + `hitl_active` present
+  - `route_entry_point()` returns 4 targets: `hitl_init`, `hitl_process_response`, `generate_todo`, `process_hitl_todo`
+  - Priority: todo-approval resume (`hitl_decision + !hitl_active`) checked first
+  - Iterative HITL resume (`hitl_decision + hitl_active`) checked second
+  - `_start_research_from_hitl()` sets `hitl_active=False` to prevent misrouting
 - [x] **Coverage Metrics in Checkpoints** (`nodes.py`):
   - `hitl_generate_questions()` includes coverage, gaps, dedup ratios
   - UI displays knowledge gaps in expander
@@ -129,12 +131,19 @@
 - [x] Error handling and recovery
 - [x] Logging and observability
 
+### Phase 6.6: UI Localization & Layout Fixes
+- [x] **German localization** of todo approval panel (`todo_approval.py`):
+  - All labels, buttons, and messages translated to German
+- [x] **Layout fix**: HITL summary and checkpoints moved inside column layout for consistent rendering
+- [x] **Removed unused** `render_connection_status()` import and sidebar call
+
 ### Phase 8: Testing Improvements
 - [x] `TestRouteEntryPoint` class for graph routing logic
   - `test_route_to_hitl_init_on_new_session`
   - `test_route_to_hitl_process_response_on_resume`
   - `test_route_to_generate_todo_with_research_queries`
   - `test_route_to_generate_todo_with_phase`
+  - `test_decision_without_hitl_active_routes_to_process_hitl_todo`
 
 ---
 

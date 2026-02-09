@@ -21,7 +21,7 @@ from src.ui.components import (
     render_todo_display,
     render_todo_side_panel,
 )
-from src.ui.components.safe_exit import render_connection_status
+
 from src.ui.components.todo_display import render_messages
 from src.ui.state import (
     add_message,
@@ -179,9 +179,6 @@ def render_sidebar():
     with st.sidebar:
         st.header("Einstellungen")
 
-        # Connection status
-        render_connection_status()
-
         # Database selection expander
         with st.expander("Wissensdatenbank", expanded=True):
             use_ext_db = st.checkbox(
@@ -313,33 +310,32 @@ def main():
         # Research in progress
         phase = get_current_phase()
 
-        # Show HITL summary if available (after HITL phase completes) - full width
-        if session.hitl_result:
-            render_hitl_summary()
-
-        # HITL checkpoints during research - full width
-        if session.hitl_pending:
-            checkpoint_type = (
-                session.hitl_checkpoint.get("checkpoint_type", "")
-                if session.hitl_checkpoint
-                else ""
-            )
-
-            if checkpoint_type == "todo_approve":
-                decision = render_todo_approval()
-                if decision:
-                    _resume_with_decision(decision.model_dump())
-                    st.rerun()
-
-            elif checkpoint_type == "iterative_hitl":
-                # Graph-based iterative HITL checkpoint
-                _render_iterative_hitl_checkpoint()
-                return  # Don't continue rendering until user responds
-
-        # Column layout: 2/3 main content, 1/3 todo side panel
+        # Column layout: 2/3 main content, 1/3 todo side panel (always visible)
         main_col, todo_col = st.columns([2, 1])
 
         with main_col:
+            # Show HITL summary if available (after HITL phase completes)
+            if session.hitl_result:
+                render_hitl_summary()
+
+            # HITL checkpoints during research
+            if session.hitl_pending:
+                checkpoint_type = (
+                    session.hitl_checkpoint.get("checkpoint_type", "")
+                    if session.hitl_checkpoint
+                    else ""
+                )
+
+                if checkpoint_type == "todo_approve":
+                    decision = render_todo_approval()
+                    if decision:
+                        _resume_with_decision(decision.model_dump())
+                        st.rerun()
+
+                elif checkpoint_type == "iterative_hitl":
+                    # Graph-based iterative HITL checkpoint
+                    _render_iterative_hitl_checkpoint()
+
             # Progress status (spinner-based)
             render_research_status()
 
@@ -427,6 +423,7 @@ def _start_research_from_hitl(hitl_result: dict) -> None:
 
         # Skip analyze phase since we have HITL results - go directly to generate_todo
         initial_state["phase"] = "generate_todo"
+        initial_state["hitl_active"] = False  # Chat-based HITL already done
 
         # Add database selection to state
         if session.selected_database:

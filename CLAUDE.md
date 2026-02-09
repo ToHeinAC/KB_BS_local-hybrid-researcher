@@ -221,8 +221,13 @@ KB_BS_local-hybrid-researcher/
   - `_perform_hitl_retrieval()` uses `search_by_database_name()` when DB selected
 - [x] **Active Database Indicator**: Sidebar shows currently selected database
 - [x] **Cached Service Clients**: `@st.cache_resource` for ChromaDB/Ollama clients (faster reloads)
-- [x] **Graph Entry Point Enhancement**: Supports HITL resume via `hitl_process_response` routing
+- [x] **Graph Entry Point Enhancement**: 4-way router (`hitl_init`, `hitl_process_response`, `generate_todo`, `process_hitl_todo`)
+  - Todo-approval resume: `hitl_decision + !hitl_active` -> `process_hitl_todo`
+  - Iterative HITL resume: `hitl_decision + hitl_active` -> `hitl_process_response`
+  - `_start_research_from_hitl()` sets `hitl_active=False` to prevent misrouting
 - [x] **Coverage Metrics in Checkpoints**: Knowledge gaps and dedup ratios shown in UI
+- [x] **German Localization**: Todo approval panel fully translated (buttons, labels, messages)
+- [x] **Layout Fix**: HITL summary/checkpoints moved inside column layout for consistent rendering
 
 ### Enhanced Reference Following (Week 3) - COMPLETE
 - [x] **Hybrid Reference Detection**: Configurable `regex`, `llm`, or `hybrid` extraction method

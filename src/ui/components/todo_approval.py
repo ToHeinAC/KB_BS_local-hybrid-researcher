@@ -23,14 +23,14 @@ def render_todo_approval() -> HITLDecision | None:
     if checkpoint_type != "todo_approve":
         return None
 
-    st.subheader("Research Tasks")
-    st.info("Review and approve the research tasks. You can edit, remove, or add tasks.")
+    st.subheader("Forschungsaufgaben")
+    st.info("Pruefen und genehmigen Sie die Forschungsaufgaben. Sie koennen Aufgaben bearbeiten, entfernen oder hinzufuegen.")
 
     content = checkpoint.get("content", {})
     items_data = content.get("items", [])
 
     if not items_data:
-        st.warning("No tasks generated")
+        st.warning("Keine Aufgaben generiert")
         return None
 
     # Convert to editable format
@@ -53,12 +53,12 @@ def render_todo_approval() -> HITLDecision | None:
 
             with col1:
                 new_task = st.text_input(
-                    f"Task {task['id']}",
+                    f"Aufgabe {task['id']}",
                     value=task["task"],
                     key=f"task_{task['id']}",
                 )
                 new_context = st.text_input(
-                    "Context",
+                    "Kontext",
                     value=task["context"],
                     key=f"context_{task['id']}",
                     label_visibility="collapsed",
@@ -66,7 +66,7 @@ def render_todo_approval() -> HITLDecision | None:
 
             with col2:
                 include = st.checkbox(
-                    "Include",
+                    "Einbeziehen",
                     value=True,
                     key=f"include_{task['id']}",
                 )
@@ -83,13 +83,13 @@ def render_todo_approval() -> HITLDecision | None:
             st.divider()
 
     # Add new task
-    with st.expander("Add new task"):
+    with st.expander("Neue Aufgabe hinzufuegen"):
         new_task_text = st.text_input(
-            "New task description",
+            "Neue Aufgabenbeschreibung",
             key="new_task_text",
         )
         new_task_context = st.text_input(
-            "Context (optional)",
+            "Kontext (optional)",
             key="new_task_context",
         )
 
@@ -97,7 +97,7 @@ def render_todo_approval() -> HITLDecision | None:
     col1, col2, col3 = st.columns([1, 1, 2])
 
     with col1:
-        if st.button("Approve Tasks", type="primary"):
+        if st.button("Aufgaben genehmigen", type="primary"):
             modifications = {
                 "edited_items": edited_tasks,
                 "removed_ids": removed_ids,
@@ -116,7 +116,7 @@ def render_todo_approval() -> HITLDecision | None:
             )
 
     with col2:
-        if st.button("Use as-is", type="secondary"):
+        if st.button("Unveraendert uebernehmen", type="secondary"):
             clear_hitl_state()
             return HITLDecision(
                 approved=True,
