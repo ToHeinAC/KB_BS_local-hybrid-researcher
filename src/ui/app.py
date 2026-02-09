@@ -129,30 +129,10 @@ def _render_preliminary_results() -> None:
 
 
 def _run_graph_stream(graph, input_state: dict, config: dict) -> None:
-    # Create column placeholders for streaming updates
-    main_col_placeholder = st.empty()
-    todo_col_placeholder = st.empty()
-
     last_state: dict | None = None
     for state in graph.stream(input_state, config, stream_mode="values"):
         last_state = state
         update_agent_state(state)
-
-        phase = get_current_phase()
-
-        # Use column layout during streaming
-        col1, col2 = st.columns([2, 1])
-
-        with col1:
-            with main_col_placeholder.container():
-                render_research_status()
-                if phase not in ["idle", "analyze"]:
-                    render_preliminary_results()
-                render_messages()
-
-        with col2:
-            with todo_col_placeholder.container():
-                render_todo_side_panel()
 
     if last_state:
         update_agent_state(last_state)

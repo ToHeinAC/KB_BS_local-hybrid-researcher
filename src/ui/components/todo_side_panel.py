@@ -45,42 +45,54 @@ def render_todo_side_panel() -> None:
             st.success(f"**{phase_label}**")
         else:
             st.info(f"**{phase_label}**")
-        st.caption(phase_desc)
 
-        # Current task with spinner effect
+        # Current task with verbose spinner for execute_tasks phase
         current_task_id = (
             session.agent_state.get("current_task_id")
             if session.agent_state
             else None
         )
-        if current_task_id and todo_list:
-            current_task = next(
-                (t for t in todo_list if t.get("id") == current_task_id), None
-            )
+
+        if phase == "execute_tasks" and current_task_id and todo_list:
+            # Find current task and its 1-based position
+            current_task = None
+            position = 0
+            for idx, t in enumerate(todo_list, 1):
+                if t.get("id") == current_task_id:
+                    current_task = t
+                    position = idx
+                    break
+
             if current_task:
-                task_text = current_task.get("task", "")[:50]
-                with st.spinner(f"Bearbeite: {task_text}..."):
-                    # Spinner shows while this block is active
-                    # Since we're just displaying, it will show briefly
-                    pass
+                task_text = current_task.get("task", "")[:80]
+                total = len(todo_list)
+                with st.spinner(f"Aufgabe {position}/{total}: {task_text}"):
+                    st.markdown(
+                        f"*Durchsuche Wissensdatenbank fuer Aufgabe {position}...*"
+                    )
+        else:
+            st.caption(phase_desc)
 
         st.divider()
 
-        # Compact task list
+        # Compact task list with sequential numbering
         if todo_list:
             st.markdown("**Aufgaben:**")
-            for item in todo_list:
-                task_id = item.get("id")
-                task = item.get("task", "")[:40]
+            for idx, item in enumerate(todo_list, 1):
+                task = item.get("task", "")
                 completed = item.get("completed", False)
+                task_id = item.get("id")
 
                 if completed:
-                    icon = ":white_check_mark:"
+                    icon = "\u2705"
                 elif task_id == current_task_id:
-                    icon = ":hourglass_flowing_sand:"
+                    icon = "\u23f3"
                 else:
-                    icon = ":clipboard:"
+                    icon = "\U0001f4cb"
 
-                st.markdown(f"{icon} **{task_id}**: {task}...")
+                short = task[:40] + "..." if len(task) > 40 else task
+                is_current = task_id == current_task_id
+                with st.expander(f"{icon} {idx}. {short}", expanded=is_current):
+                    st.markdown(task)
         else:
             st.caption("Keine Aufgaben vorhanden")

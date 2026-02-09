@@ -176,6 +176,9 @@ def process_hitl_todo(state: AgentState) -> dict:
 
     if decision.approved:
         todo_list = hitl_service.apply_todo_modifications(todo_list, decision)
+        # Renumber tasks sequentially after removals/additions
+        for idx, item in enumerate(todo_list.items):
+            item.id = idx + 1
 
     return {
         "todo_list": [item.model_dump() for item in todo_list.items],

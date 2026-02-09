@@ -124,6 +124,20 @@
   - `hitl_generate_questions()` includes coverage, gaps, dedup ratios
   - UI displays knowledge gaps in expander
 
+### Phase 6.7: Todo Side Panel & Streaming Improvements
+- [x] **Expander-based task list** (`todo_side_panel.py`):
+  - Each task rendered as `st.expander` with icon + sequential number + truncated header
+  - Full task text shown inside expander body (previously truncated to 40 chars)
+  - Currently executing task auto-expanded; others collapsed
+  - Unicode emoji chars used directly (`:colon_emoji:` shortcodes don't render in expander labels)
+- [x] **Verbose task spinner** during `execute_tasks` phase:
+  - Shows `Aufgabe {position}/{total}: {task_text}` with up to 80 chars
+  - Phase description shown via `st.caption` for all other phases
+- [x] **Simplified graph streaming** (`app.py`):
+  - Removed inline column layout from `_run_graph_stream()` — UI renders via Streamlit rerun cycle
+- [x] **Sequential task ID renumbering** (`nodes.py`):
+  - `process_hitl_todo` renumbers task IDs sequentially after user removals/additions
+
 ### Phase 7: Polish
 - [x] Multi-collection search
 - [ ] Query history and caching

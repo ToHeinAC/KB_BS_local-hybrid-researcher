@@ -228,6 +228,14 @@ KB_BS_local-hybrid-researcher/
 - [x] **Coverage Metrics in Checkpoints**: Knowledge gaps and dedup ratios shown in UI
 - [x] **German Localization**: Todo approval panel fully translated (buttons, labels, messages)
 - [x] **Layout Fix**: HITL summary/checkpoints moved inside column layout for consistent rendering
+- [x] **Todo Side Panel Expanders**: Task list uses `st.expander` per task instead of truncated text
+  - Header: icon + sequential number + truncated label (40 chars)
+  - Body: full untruncated task text via `st.markdown`
+  - Currently executing task auto-expanded (`expanded=is_current`)
+  - Unicode emoji chars (shortcodes don't render in expander labels)
+- [x] **Verbose Task Spinner**: `execute_tasks` phase shows `Aufgabe {n}/{total}: {task_text}` in spinner
+- [x] **Simplified Graph Streaming**: Removed inline column layout from `_run_graph_stream()` (UI renders via rerun)
+- [x] **Sequential Task ID Renumbering**: `process_hitl_todo` renumbers task IDs after user modifications
 
 ### Enhanced Reference Following (Week 3) - COMPLETE
 - [x] **Hybrid Reference Detection**: Configurable `regex`, `llm`, or `hybrid` extraction method
