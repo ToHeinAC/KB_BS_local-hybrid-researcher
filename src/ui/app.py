@@ -59,6 +59,15 @@ PHASE_LABELS = {
     "complete": "Abgeschlossen",
 }
 
+# Subtask labels for spinner detail
+SUBTASK_LABELS = {
+    "generate_todo": "Plane Forschungsschritte",
+    "execute_tasks": "Vektorsuche & Referenzverfolgung",
+    "synthesize": "Erstelle Zusammenfassung",
+    "quality_check": "Validiere Ergebnisse",
+    "attribute_sources": "Generiere Zitationen",
+}
+
 LICENSE_FILE = Path(__file__).parent.parent.parent / "assets" / "LICENCE"
 
 
@@ -138,8 +147,49 @@ def _render_preliminary_results() -> None:
                     st.text(msg)
 
 
+def _render_task_result_expander(
+    container, index: int, task: dict, search_query: dict
+) -> None:
+    """Render a single completed task's results as a closed expander.
+
+    Args:
+        container: Streamlit container to render into
+        index: Zero-based task index
+        task: Task dict with 'task' text
+        search_query: SearchQueryResult dict with 'chunks'
+    """
+    task_text = task.get("task", "")
+    short = task_text[:60] + "..." if len(task_text) > 60 else task_text
+    chunks = search_query.get("chunks", [])
+
+    with container:
+        with st.expander(f"\u2705 Aufgabe {index + 1}: {short}", expanded=False):
+            if len(task_text) > 60:
+                st.caption(task_text)
+            if chunks:
+                st.markdown(f"**{len(chunks)} Chunks gefunden:**")
+                for j, chunk in enumerate(chunks):
+                    if not isinstance(chunk, dict):
+                        continue
+                    doc = chunk.get("document", "Unbekannt")
+                    page = chunk.get("page")
+                    extracted = chunk.get("extracted_info")
+                    relevance = chunk.get("relevance_score", 0)
+                    header = f"Chunk {j + 1}: {doc}"
+                    if page:
+                        header += f" (S. {page})"
+                    with st.expander(header, expanded=False):
+                        if extracted:
+                            st.write(extracted)
+                        if relevance:
+                            st.caption(f"Relevanz: {relevance:.2f}")
+            else:
+                st.caption("Keine relevanten Chunks gefunden")
+
+
 def _run_graph_with_live_updates(
-    graph, input_state: dict, config: dict, status_container
+    graph, input_state: dict, config: dict, status_container,
+    results_container=None, main_status_container=None,
 ) -> None:
     """Run graph streaming with lightweight status updates.
 
@@ -151,14 +201,16 @@ def _run_graph_with_live_updates(
         input_state: Initial state dict
         config: Graph config
         status_container: st.empty() placeholder for lightweight status updates
+        results_container: Optional st.container() for incremental task results
+        main_status_container: Optional st.empty() for main-column spinner
     """
     last_state: dict | None = None
+    prev_query_count = 0
     for state in graph.stream(input_state, config, stream_mode="values"):
         last_state = state
         update_agent_state(state)
         phase = state.get("phase", "")
         todo_list = state.get("todo_list", [])
-        completed = sum(1 for t in todo_list if t.get("completed"))
         total = len(todo_list)
         task_id = state.get("current_task_id")
         # Find current task text
@@ -169,12 +221,43 @@ def _run_graph_with_live_updates(
                     task_text = t.get("task", "")[:60]
                     break
         phase_label = PHASE_LABELS.get(phase, phase)
+        subtask = SUBTASK_LABELS.get(phase, "")
+        # Refresh side panel with current state
         with status_container.container():
-            st.markdown(f"**{phase_label}**")
-            if total > 0:
-                st.progress(completed / total, text=f"{completed}/{total} Aufgaben")
-            if task_text:
-                st.caption(f"Aufgabe: {task_text}")
+            render_todo_side_panel()
+
+        # Main column spinner
+        if main_status_container is not None:
+            if task_text and total > 0:
+                position = next(
+                    (i for i, t in enumerate(todo_list, 1) if t.get("id") == task_id),
+                    0,
+                )
+                spinner_text = f"Aufgabe {position}/{total}: {task_text}"
+            else:
+                spinner_text = phase_label
+            if subtask:
+                spinner_text += f" — {subtask}"
+            with main_status_container.container():
+                with st.spinner(spinner_text):
+                    st.caption(spinner_text)
+
+        # Render newly completed task results incrementally
+        if results_container is not None:
+            search_queries = state.get("research_context", {}).get(
+                "search_queries", []
+            )
+            if len(search_queries) > prev_query_count:
+                completed_tasks = [t for t in todo_list if t.get("completed")]
+                for i in range(prev_query_count, len(search_queries)):
+                    if i < len(completed_tasks):
+                        _render_task_result_expander(
+                            results_container,
+                            i,
+                            completed_tasks[i],
+                            search_queries[i],
+                        )
+                prev_query_count = len(search_queries)
     if last_state:
         update_agent_state(last_state)
 
@@ -357,19 +440,29 @@ def main():
                     # Graph-based iterative HITL checkpoint
                     _render_iterative_hitl_checkpoint()
 
-            # Progress status (spinner-based)
-            render_research_status()
-
-            # Preliminary results with nested expanders
-            if phase not in ["idle", "analyze"]:
-                render_preliminary_results()
+            # Preliminary results area (placeholder for streaming + post-rerun)
+            results_container = st.container()
+            is_streaming = session.pending_graph_input is not None
+            if is_streaming:
+                # Main-column spinner placeholder for live updates during streaming
+                main_status_placeholder = st.empty()
+            else:
+                # Progress status (spinner-based)
+                render_research_status()
+                if phase not in ["idle", "analyze"]:
+                    with results_container:
+                        render_preliminary_results()
 
             # Activity log
             render_messages()
 
         with todo_col:
             status_placeholder = st.empty()
-            if session.pending_graph_input is not None:
+            if is_streaming:
+                # Render initial side panel inside placeholder so streaming can refresh it
+                with status_placeholder.container():
+                    render_todo_side_panel()
+
                 pending_input = session.pending_graph_input
                 pending_config = session.pending_graph_config
                 session.pending_graph_input = None
@@ -377,7 +470,9 @@ def main():
                 try:
                     graph = create_research_graph()
                     _run_graph_with_live_updates(
-                        graph, pending_input, pending_config, status_placeholder
+                        graph, pending_input, pending_config,
+                        status_placeholder, results_container,
+                        main_status_placeholder,
                     )
                     add_message(f"Phase: {get_current_phase()}")
                 except Exception as e:
