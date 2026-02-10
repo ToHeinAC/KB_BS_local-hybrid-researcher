@@ -27,13 +27,18 @@
 │  ├─ generate_todo: generate ToDo items                                   │
 │  └─ hitl_approve_todo: checkpoint (user approves/modifies)               │
 │                                                                          │
-│  Phase 3: Deep Context Extraction (Rabbithole Magic)                    │
-│  ├─ execute_task: vector search → extracted_info → reference following   │
-│  ├─ Filter by relevance (threshold 0.6)                                  │
+│  Phase 3: Deep Context Extraction (with Graded Classification)           │
+│  ├─ execute_task: vector search → extract info + quotes → classify tier  │
+│  ├─ Reference following → classify nested chunks → task summary          │
+│  ├─ Accumulate by tier (primary/secondary/tertiary)                      │
 │  └─ Loop until all tasks completed                                       │
 │                                                                          │
-│  Phase 4: Synthesis & Quality Assurance                                  │
-│  ├─ synthesize: combine extracted_info into an answer                    │
+│  Phase 3.5: Pre-Synthesis Relevance Validation (NEW)                     │
+│  └─ validate_relevance: filter drift against query_anchor                │
+│                                                                          │
+│  Phase 4: Query-Anchored Synthesis & Quality Assurance                   │
+│  ├─ synthesize: tiered context + HITL summary + preserved quotes         │
+│  ├─ Language enforcement (generate_structured_with_language)             │
 │  └─ quality_check: optional QA scoring (0-400)                           │
 │                                                                          │
 │  Phase 5: Source Attribution                                             │
@@ -104,9 +109,62 @@ class AgentState(TypedDict):
     additional_context: str       # Summary from HITL analysis
     detected_language: str        # de or en
 
+    # Graded Context Management (NEW)
+    query_anchor: dict            # Immutable reference to original intent
+    hitl_context_summary: str     # Synthesized HITL findings for synthesis
+    primary_context: list[dict]   # Tier 1: Direct, high-relevance findings
+    secondary_context: list[dict] # Tier 2: Reference-followed, medium-relevance
+    tertiary_context: list[dict]  # Tier 3: Deep references, HITL retrieval
+    task_summaries: list[dict]    # Per-task structured summaries
+    preserved_quotes: list[dict]  # Critical verbatim quotes
+
     # UI settings
     selected_database: str | None
     k_results: int
+```
+
+### Query Anchor Structure (NEW)
+
+Created in `hitl_finalize`, immutable throughout execution:
+
+```python
+query_anchor = {
+    "original_query": str,        # User's original question
+    "detected_language": str,     # "de" or "en"
+    "key_entities": list[str],    # Extracted entities from HITL
+    "scope": str,                 # Research scope
+    "hitl_refinements": list[str],# User's clarifications during HITL
+    "created_at": str,            # ISO timestamp
+}
+```
+
+### Tiered Context Entry Structure (NEW)
+
+Each entry in `primary_context`, `secondary_context`, `tertiary_context`:
+
+```python
+{
+    "chunk": str,                 # Text content (limited to 2000 chars)
+    "document": str,              # Source document name
+    "page": int | None,           # Page number
+    "extracted_info": str,        # Condensed relevant passages
+    "relevance_score": float,     # Original vector search score
+    "context_tier": int,          # 1, 2, or 3
+    "context_weight": float,      # 0.0-1.0 weight for synthesis
+    "depth": int,                 # Recursion depth when found
+    "source_type": str,           # "vector_search", "reference", "hitl"
+}
+```
+
+### Preserved Quote Structure (NEW)
+
+```python
+{
+    "quote": str,                 # Exact verbatim text
+    "source": str,                # Source document name
+    "page": int,                  # Page number
+    "relevance_reason": str,      # Why this must be preserved verbatim
+}
 ```
 
 ### QueryAnalysis (Pydantic model, serialized to state)
@@ -268,23 +326,39 @@ The growing JSON structure that accumulates all research findings:
 3. **HITL Checkpoint**: User approves/modifies tasks
 4. **Output**: Approved ToDoList
 
-### Phase 3: Deep Context Extraction
+### Phase 3: Deep Context Extraction (with Graded Classification)
 
 For each ToDoList item:
 
 1. **Vector Search**: Search ChromaDB (either a selected database directory or all collections)
-2. **Information Extraction**: Condense relevant passages into `extracted_info`
-3. **Reference Detection**: Identify section/document/external refs
-4. **Reference Following**: Resolve and retrieve nested chunks
-5. **Relevance Filtering**: Keep only chunks above threshold
-6. **ToDoList Update**: Mark task complete and continue to next task
+2. **Information Extraction**: Condense relevant passages into `extracted_info` + preserve critical quotes
+3. **Context Classification**: Classify each chunk into Tier 1/2/3 based on relevance, depth, entity match
+4. **Reference Detection**: Identify section/document/external refs
+5. **Reference Following**: Resolve and retrieve nested chunks (classified into Tier 2/3)
+6. **Task Summary**: Generate structured summary with key findings and relevance score
+7. **ToDoList Update**: Mark task complete and continue to next task
 
-Output: Fully populated ResearchContext
+Output: Fully populated ResearchContext + tiered context (primary/secondary/tertiary) + task_summaries + preserved_quotes
 
-### Phase 4: Synthesis + Quality Assurance
+### Phase 3.5: Pre-Synthesis Relevance Validation (NEW)
 
-1. **Synthesis**: Build a single coherent answer from extracted findings
-2. **Quality Check** (optional): Score 0-400 across 4 dimensions
+1. **validate_relevance node**: Scores accumulated context against query_anchor
+2. **Drift Detection**: Filters items below relevance threshold (0.5 for primary, 0.4 secondary, 0.3 tertiary)
+3. **Warning Log**: Logs when >30% of accumulated context is filtered as drift
+
+Output: Filtered tiered context ready for synthesis
+
+### Phase 4: Query-Anchored Synthesis + Quality Assurance
+
+1. **Enhanced Synthesis**: Uses `SYNTHESIS_PROMPT_ENHANCED` with tiered structure:
+   - Primary findings (highest confidence)
+   - Secondary findings (supporting)
+   - Tertiary findings (background)
+   - HITL context summary
+   - Preserved quotes
+   - Task summaries
+2. **Language Enforcement**: `generate_structured_with_language()` validates output language
+3. **Quality Check** (optional): Score 0-400 across 4 dimensions
 
 ### Phase 5: Source Attribution
 

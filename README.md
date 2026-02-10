@@ -27,6 +27,11 @@ streamlit run src/ui/app.py --server.port 8511
 - **Convergence Detection**: Automated loop termination based on information coverage, knowledge gaps, and content deduplication.
 - **Multi-Angle Search**: Generates original, broader, and alternative queries in parallel to ensure maximum document coverage.
 - **Deep Reference Following**: Hybrid regex+LLM detection with document registry-based scoped resolution, token budget tracking, and convergence detection.
+- **Graded Context Management**: Tiered classification (primary/secondary/tertiary) prevents query drift and ensures synthesis quality.
+- **Verbatim Quote Preservation**: Critical legal/technical quotes extracted and preserved for precision.
+- **Query-Anchored Synthesis**: Final answers stay anchored to original intent with HITL context included.
+- **Language Enforcement**: Strict single-language output with validation and retry on mismatch.
+- **Pre-Synthesis Drift Detection**: Filters irrelevant accumulated context before synthesis.
 - **Full Human-In-The-Loop**: Checkpoints for query refinement, task list approval, and final result verification.
 - **Privacy-First & Local**: Powered by Ollama and local ChromaDB, ensuring all research data stays on your machine.
 - **Source Attribution**: Detailed citations with clickable PDF links and page numbers.

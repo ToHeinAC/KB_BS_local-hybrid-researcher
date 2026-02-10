@@ -12,10 +12,16 @@ from src.models.research import (
     ChunkWithInfo,
     DetectedReference,
     ExtractedReferenceList,
+    InfoExtractionWithQuotes,
     NestedChunk,
+    PreservedQuote,
 )
 from src.models.results import VectorResult
-from src.prompts import INFO_EXTRACTION_PROMPT, REFERENCE_EXTRACTION_PROMPT
+from src.prompts import (
+    INFO_EXTRACTION_PROMPT,
+    INFO_EXTRACTION_WITH_QUOTES_PROMPT,
+    REFERENCE_EXTRACTION_PROMPT,
+)
 from src.services.chromadb_client import ChromaDBClient
 from src.services.ollama_client import OllamaClient
 
@@ -94,6 +100,52 @@ def extract_info(
         logger.warning(f"Failed to extract info: {e}")
         # Return truncated original if extraction fails
         return chunk_text[:500]
+
+
+def extract_info_with_quotes(
+    chunk_text: str,
+    query: str,
+    query_anchor: dict,
+    source_doc: str = "",
+    page: int = 0,
+) -> dict:
+    """Extract info while preserving critical verbatim quotes.
+
+    Args:
+        chunk_text: The chunk text to extract from
+        query: The search query for context
+        query_anchor: Query anchor with key_entities
+        source_doc: Source document name for quote attribution
+        page: Page number for quote attribution
+
+    Returns:
+        Dict with "extracted_info" and "preserved_quotes"
+    """
+    client = get_ollama_client()
+    key_entities = query_anchor.get("key_entities", [])
+
+    prompt = INFO_EXTRACTION_WITH_QUOTES_PROMPT.format(
+        query=query,
+        key_entities=", ".join(key_entities) if key_entities else "none specified",
+        chunk_text=chunk_text[:3000],  # Limit input
+    )
+
+    try:
+        result = client.generate_structured(prompt, InfoExtractionWithQuotes)
+
+        # Add source attribution to quotes
+        for quote in result.preserved_quotes:
+            quote.source = source_doc
+            quote.page = page
+
+        return result.model_dump()
+    except Exception as e:
+        logger.warning(f"Failed to extract info with quotes: {e}")
+        # Fallback to simple extraction
+        return {
+            "extracted_info": extract_info(chunk_text, query),
+            "preserved_quotes": [],
+        }
 
 
 # Reference detection patterns (German and English)
@@ -292,28 +344,141 @@ def create_chunk_with_info(
     result: VectorResult,
     query: str,
     extract: bool = True,
-) -> ChunkWithInfo:
-    """Create ChunkWithInfo from VectorResult.
+    query_anchor: dict | None = None,
+    preserve_quotes: bool = False,
+) -> tuple[ChunkWithInfo, list[dict]]:
+    """Create ChunkWithInfo from VectorResult, optionally with preserved quotes.
 
     Args:
         result: Vector search result
         query: Original query
         extract: Whether to extract info using LLM
+        query_anchor: Query anchor for quote extraction (required if preserve_quotes=True)
+        preserve_quotes: Whether to extract and preserve verbatim quotes
 
     Returns:
-        ChunkWithInfo instance
+        Tuple of (ChunkWithInfo instance, list of preserved quote dicts)
     """
     extracted = None
-    if extract:
-        extracted = extract_info(result.chunk_text, query)
+    preserved_quotes = []
 
-    return ChunkWithInfo(
+    if extract:
+        if preserve_quotes and query_anchor:
+            # Use enhanced extraction with quote preservation
+            extraction_result = extract_info_with_quotes(
+                chunk_text=result.chunk_text,
+                query=query,
+                query_anchor=query_anchor,
+                source_doc=result.doc_name,
+                page=result.page_number or 0,
+            )
+            extracted = extraction_result.get("extracted_info", "")
+            preserved_quotes = extraction_result.get("preserved_quotes", [])
+        else:
+            # Simple extraction
+            extracted = extract_info(result.chunk_text, query)
+
+    chunk = ChunkWithInfo(
         chunk=result.chunk_text,
         document=result.doc_name,
         page=result.page_number,
         extracted_info=extracted,
         relevance_score=result.relevance_score,
     )
+
+    return chunk, preserved_quotes
+
+
+# =============================================================================
+# Graded Context Classification (Phase B)
+# =============================================================================
+
+
+def classify_context_tier(
+    chunk: ChunkWithInfo,
+    query_anchor: dict,
+    depth: int = 0,
+    source_type: str = "vector_search",
+) -> tuple[int, float]:
+    """Classify chunk into context tier with weight.
+
+    Tier 1 (Primary): Direct search, high relevance, matches query entities
+    Tier 2 (Secondary): Depth-1 references or medium relevance
+    Tier 3 (Tertiary): Depth-2+ or HITL retrieval
+
+    Args:
+        chunk: The chunk to classify
+        query_anchor: Immutable query reference with key_entities
+        depth: Current recursion depth (0 = direct search)
+        source_type: How this chunk was obtained ("vector_search", "reference", "hitl")
+
+    Returns:
+        (tier, weight): 1-3 tier and 0.0-1.0 weight
+    """
+    relevance = chunk.relevance_score or 0.0
+    key_entities = query_anchor.get("key_entities", [])
+
+    # Check for entity match (boosts tier 1 eligibility)
+    entity_match = False
+    chunk_text_lower = chunk.chunk.lower()
+    for entity in key_entities:
+        if entity.lower() in chunk_text_lower:
+            entity_match = True
+            break
+
+    # Tier 1: Direct search, high relevance (≥0.85), or entity match
+    if (source_type == "vector_search" and depth == 0):
+        if relevance >= 0.85 or entity_match:
+            weight = 1.0 if entity_match else 0.95
+            return (1, weight)
+        elif relevance >= 0.7:
+            # High-medium relevance direct search still tier 1
+            return (1, 0.85 * relevance)
+
+    # Tier 2: Depth-1 references or medium relevance (0.6-0.85)
+    if depth == 1 or (0.6 <= relevance < 0.85 and source_type == "vector_search"):
+        weight = 0.7 * relevance
+        return (2, max(weight, 0.42))  # Minimum 0.42 for tier 2
+
+    # Tier 3: Depth-2+, HITL retrieval, or lower relevance
+    if source_type == "hitl":
+        weight = 0.5  # HITL retrieval has fixed weight
+    else:
+        weight = 0.4 * relevance
+
+    return (3, max(weight, 0.2))  # Minimum 0.2 for tier 3
+
+
+def create_tiered_context_entry(
+    chunk: ChunkWithInfo,
+    tier: int,
+    weight: float,
+    depth: int = 0,
+    source_type: str = "vector_search",
+) -> dict:
+    """Create a context entry dict with tier metadata.
+
+    Args:
+        chunk: The source chunk
+        tier: Context tier (1, 2, or 3)
+        weight: Context weight (0.0-1.0)
+        depth: Recursion depth when found
+        source_type: How this chunk was obtained
+
+    Returns:
+        Dict representation for tiered context storage
+    """
+    return {
+        "chunk": chunk.chunk[:2000],  # Limit chunk size
+        "document": chunk.document,
+        "page": chunk.page,
+        "extracted_info": chunk.extracted_info,
+        "relevance_score": chunk.relevance_score,
+        "context_tier": tier,
+        "context_weight": weight,
+        "depth": depth,
+        "source_type": source_type,
+    }
 
 
 # =============================================================================

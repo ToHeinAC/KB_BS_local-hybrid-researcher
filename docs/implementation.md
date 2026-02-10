@@ -79,8 +79,67 @@
 - [x] **Extended `DetectedReference`**: `document_context`, `extraction_method` fields
 - [x] **39 Tests**: `tests/test_reference_extraction.py`
 
+### Phase 3.7: Graded Context Management (NEW)
+
+Prevents query drift and ensures synthesis quality through tiered context classification:
+
+- [x] **Query Anchor & HITL Context Preservation** (Phase A):
+  - `query_anchor`: Immutable reference to original intent created in `hitl_finalize`
+  - `hitl_context_summary`: LLM-synthesized HITL conversation for synthesis
+  - `HITL_CONTEXT_SUMMARY_PROMPT` in `src/prompts.py`
+  - `_summarize_hitl_context()` helper in `nodes.py`
+
+- [x] **Strict Language Enforcement** (Phase F):
+  - `generate_structured_with_language()` in `OllamaClient`
+  - `_validate_language()`: German/English marker heuristics
+  - Automatic retry with stronger language instruction on mismatch
+
+- [x] **Graded Context Classification** (Phase B):
+  - `classify_context_tier()`: Assigns Tier 1/2/3 based on source, depth, relevance
+  - `create_tiered_context_entry()`: Creates weighted context dicts
+  - Chunks accumulated into `primary_context`, `secondary_context`, `tertiary_context`
+  - Tier 1: Direct search, relevance ≥0.85 or entity match (weight 1.0)
+  - Tier 2: Depth-1 refs or medium relevance 0.6-0.85 (weight 0.7)
+  - Tier 3: Depth-2+ or HITL retrieval (weight 0.4)
+
+- [x] **Verbatim Quote Preservation** (Phase C):
+  - `PreservedQuote`, `InfoExtractionWithQuotes` models in `src/models/research.py`
+  - `extract_info_with_quotes()`: Returns condensed info + critical verbatim quotes
+  - `INFO_EXTRACTION_WITH_QUOTES_PROMPT` for legal/technical precision
+  - Modified `create_chunk_with_info()` returns (chunk, quotes) tuple
+
+- [x] **Per-Task Structured Summary** (Phase D):
+  - `_generate_task_summary()`: Creates summary with key findings and relevance score
+  - `_calculate_task_relevance()`: Word/entity overlap scoring
+  - `task_summaries` state field accumulated during task execution
+  - `TASK_SUMMARY_PROMPT` in `src/prompts.py`
+
+- [x] **Pre-Synthesis Relevance Validation** (Phase G):
+  - `validate_relevance()` node: Filters drift before synthesis
+  - `_score_and_filter_context()`: Scores against query_anchor entities
+  - Threshold: 0.5 primary, 0.4 secondary, 0.3 tertiary
+  - Logs warning when >30% of accumulated context is filtered
+  - `RELEVANCE_SCORING_PROMPT` in `src/prompts.py`
+
+- [x] **Query-Anchored Synthesis** (Phase E):
+  - `SYNTHESIS_PROMPT_ENHANCED`: Tiered context structure with explicit instructions
+  - Modified `synthesize()` uses graded context + language enforcement
+  - Includes `hitl_context_summary`, `preserved_quotes`, `task_summaries`
+  - Falls back to legacy synthesis if no graded context available
+
+- [x] **New Pydantic Models** in `src/models/results.py`:
+  - `SynthesisOutputEnhanced`: With query_coverage (0-100) and remaining_gaps
+  - `TaskSummaryOutput`: For per-task summary generation
+  - `RelevanceScoreOutput`: For relevance scoring
+
+- [x] **Graph Update** in `src/agents/graph.py`:
+  - Added `validate_relevance` node between `execute_task` and `synthesize`
+  - `route_after_execute()` now routes to `validate_relevance` instead of `synthesize`
+  - `route_after_validate_relevance()` always routes to `synthesize`
+
 ### Phase 4: Synthesis + Quality (Research Phase 4)
 - [x] `synthesize` node (LLM synthesis from extracted findings)
+- [x] Enhanced `synthesize` with tiered context, preserved quotes, language enforcement
 - [x] `quality_check` node (optional, 0-400 scoring)
 - [x] Tests for synthesis + QA
 
@@ -301,6 +360,10 @@ def test_graph_execution():
 | **Reference resolution ambiguity** | Multiple matches | Document registry with 3-stage matching, scoped search within collection |
 | **Hallucinated references** | LLM invents citations | Hybrid: regex provides baseline, LLM adds coverage, dedup filters noise |
 | **Over-following tangential refs** | Poor relevance filter | Set threshold=0.6+, token budget (50K), convergence (same doc >= 3) |
+| **Query drift during synthesis** | Accumulating irrelevant context | Graded context tiers, pre-synthesis relevance validation, query_anchor |
+| **Lost HITL context** | HITL findings not used in synthesis | `hitl_context_summary` and `tertiary_context` from HITL retrieval |
+| **Mixed language output** | LLM ignores language instruction | `generate_structured_with_language()` with validation and retry |
+| **Lost legal/technical precision** | Summarization paraphrases quotes | `preserved_quotes` extracted verbatim during info extraction |
 | **Report bloat** | Including everything | Strict extractive summarization |
 | **Long execution times** | Deep recursion | Default N=3, M=4, depth=2 |
 | **Ollama structured output failures** | Wrong method | Use `method="json_mode"` for <30B models |

@@ -62,6 +62,21 @@ class NestedChunk(BaseModel):
     extracted_info: str
     relevance_score: float
 
+
+class PreservedQuote(BaseModel):
+    """A verbatim quote preserved for legal/technical precision (NEW)."""
+    quote: str                    # Exact verbatim text
+    relevance_reason: str = ""    # Why this must be preserved verbatim
+    source: str = ""              # Source document name
+    page: int = 0                 # Page number if available
+
+
+class InfoExtractionWithQuotes(BaseModel):
+    """Result of info extraction with preserved quotes (NEW)."""
+    extracted_info: str           # Condensed relevant information
+    preserved_quotes: list[PreservedQuote] = []  # Critical verbatim quotes
+
+
 class ExtractedReference(BaseModel):
     """Reference extracted by LLM (structured output model)."""
     reference_mention: str           # Exact text as it appears
@@ -324,6 +339,36 @@ class FinalReport(BaseModel):
 
 ## Document Models
 
+### SynthesisOutputEnhanced (NEW)
+
+```python
+class SynthesisOutputEnhanced(BaseModel):
+    """Enhanced synthesis output with query coverage tracking."""
+    summary: str                  # Comprehensive answer in target language
+    key_findings: list[str] = []  # List of most important findings
+    query_coverage: int = 50      # How completely query was answered (0-100)
+    remaining_gaps: list[str] = [] # Unanswered aspects of the query
+```
+
+### TaskSummaryOutput (NEW)
+
+```python
+class TaskSummaryOutput(BaseModel):
+    """Output for per-task structured summary."""
+    summary: str                  # Concise task summary
+    key_findings: list[str] = []  # List of discrete findings
+    gaps: list[str] = []          # Identified gaps or limitations
+```
+
+### RelevanceScoreOutput (NEW)
+
+```python
+class RelevanceScoreOutput(BaseModel):
+    """Output for relevance scoring."""
+    relevance_score: int          # Relevance score 0-100
+    reasoning: str = ""           # Brief explanation of the score
+```
+
 ### PDFMetadata
 
 ```python
@@ -406,6 +451,63 @@ max_tokens_allowed: int       # Budget constraint (default 4000)
 research_queries: list[str]   # Generated search queries
 additional_context: str       # Summary from analysis
 detected_language: str        # "de" or "en"
+
+# Graded Context Management (NEW)
+query_anchor: dict            # Immutable reference to original intent
+hitl_context_summary: str     # Synthesized HITL findings for synthesis
+primary_context: list[dict]   # Tier 1: Direct, high-relevance findings
+secondary_context: list[dict] # Tier 2: Reference-followed, medium-relevance
+tertiary_context: list[dict]  # Tier 3: Deep references, HITL retrieval
+task_summaries: list[dict]    # Per-task structured summaries
+preserved_quotes: list[dict]  # Critical verbatim quotes
+```
+
+### Query Anchor Structure (NEW)
+
+Created in `hitl_finalize`, immutable throughout execution:
+
+```python
+query_anchor = {
+    "original_query": str,        # User's original question
+    "detected_language": str,     # "de" or "en"
+    "key_entities": list[str],    # Extracted entities from HITL
+    "scope": str,                 # Research scope
+    "hitl_refinements": list[str],# User's clarifications during HITL
+    "created_at": str,            # ISO timestamp
+}
+```
+
+### Tiered Context Entry Structure (NEW)
+
+Each entry in `primary_context`, `secondary_context`, `tertiary_context`:
+
+```python
+context_entry = {
+    "chunk": str,                 # Text content (limited to 2000 chars)
+    "document": str,              # Source document name
+    "page": int | None,           # Page number
+    "extracted_info": str,        # Condensed relevant passages
+    "relevance_score": float,     # Original vector search score
+    "context_tier": int,          # 1, 2, or 3
+    "context_weight": float,      # 0.0-1.0 weight for synthesis
+    "depth": int,                 # Recursion depth when found
+    "source_type": str,           # "vector_search", "reference", "hitl"
+}
+```
+
+### Task Summary Structure (NEW)
+
+```python
+task_summary = {
+    "task_id": int,               # Task ID
+    "task_text": str,             # Task description
+    "summary": str,               # Generated summary
+    "key_findings": list[str],    # Discrete findings
+    "gaps": list[str],            # Identified gaps
+    "preserved_quotes": list[dict], # Quotes from this task
+    "sources": list[str],         # Source documents
+    "relevance_to_query": float,  # 0.0-1.0 relevance score
+}
 ```
 
 ### Iterative HITL Checkpoint Content

@@ -228,6 +228,54 @@ Text chunk:
 
 Extracted relevant information (in the same language as the chunk):"""
 
+INFO_EXTRACTION_WITH_QUOTES_PROMPT = """Given this search query: "{query}"
+Key entities to look for: {key_entities}
+
+Extract relevant information from this text chunk.
+
+Text chunk:
+{chunk_text}
+
+Provide:
+1. extracted_info: Condensed relevant passages (same language as chunk)
+2. preserved_quotes: List of exact verbatim quotes that are critical for accuracy
+   - Legal definitions with exact numbers/thresholds
+   - Technical specifications with units
+   - Named regulations with section numbers
+   - Statements that should not be paraphrased
+
+For preserved_quotes, include:
+- quote: The exact text (copy verbatim, do not paraphrase)
+- relevance_reason: Why this must be preserved verbatim
+
+Return as JSON."""
+
+# =============================================================================
+# Research Prompts - Task Summary
+# =============================================================================
+
+TASK_SUMMARY_PROMPT = """Summarize the findings for this research task.
+
+Task: "{task}"
+Original Research Query: "{original_query}"
+
+Findings:
+{findings}
+
+Critical Quotes (preserve exactly):
+{preserved_quotes}
+
+Create a summary (in {language}) that:
+1. Directly addresses how this task contributes to answering the original query
+2. Includes key facts with source citations
+3. Preserves any critical verbatim quotes
+4. Notes any gaps or limitations
+
+Return JSON with:
+- summary: Concise task summary
+- key_findings: List of discrete findings
+- gaps: Any identified gaps"""
+
 # =============================================================================
 # Research Prompts - Synthesis
 # =============================================================================
@@ -244,6 +292,47 @@ Provide:
 2. key_findings: List of the most important findings
 
 Include source citations in the format [Document_name.pdf, Page X] where applicable."""
+
+SYNTHESIS_PROMPT_ENHANCED = """Synthesize research findings into a comprehensive answer.
+
+CRITICAL: Your answer MUST directly address the original query. Do not drift into tangential topics.
+
+## Original Query
+"{original_query}"
+
+## User Intent (from clarification conversation)
+{hitl_context_summary}
+
+## Primary Findings (highest confidence, use these first)
+{primary_findings}
+
+## Supporting Findings (use to add depth)
+{secondary_findings}
+
+## Background Context (use only if gaps remain)
+{tertiary_findings}
+
+## Critical Verbatim Quotes (include exactly as written when relevant)
+{preserved_quotes}
+
+## Task Summaries
+{task_summaries}
+
+---
+
+INSTRUCTIONS:
+1. Answer ONLY in {language}. Do not mix languages.
+2. Begin with a direct answer to the original query.
+3. Support claims with citations: [Document.pdf, Page X]
+4. Include preserved quotes for legal/technical precision.
+5. Acknowledge gaps identified during research.
+6. Structure: Overview → Details → Limitations
+
+Provide:
+1. summary: Comprehensive answer (strictly in {language})
+2. key_findings: List of most important findings
+3. query_coverage: How completely the query was answered (0-100)
+4. remaining_gaps: Any unanswered aspects"""
 
 # =============================================================================
 # Research Prompts - Quality Check
@@ -284,6 +373,53 @@ Text: "Die Anforderungen der KTA 1401 sind zu beachten"
 Now extract references from this text:
 
 {text}"""
+
+# =============================================================================
+# HITL Context Summary Prompt (for synthesis)
+# =============================================================================
+
+HITL_CONTEXT_SUMMARY_PROMPT = """Summarize the research clarification conversation.
+
+Original Query: "{query}"
+
+Conversation:
+{conversation}
+
+Retrieved Context (from knowledge base during clarification):
+{retrieval}
+
+Identified Knowledge Gaps:
+{gaps}
+
+Create a concise summary (in {language}) covering:
+1. User's refined intent and scope
+2. Key clarifications from the conversation
+3. Most relevant findings from retrieval
+4. Remaining gaps to address
+
+This summary will guide the final answer synthesis.
+
+Summary:"""
+
+# =============================================================================
+# Research Prompts - Relevance Scoring (Pre-Synthesis Validation)
+# =============================================================================
+
+RELEVANCE_SCORING_PROMPT = """Score how relevant this text is to answering the query.
+
+Query: "{query}"
+Key entities: {entities}
+
+Text: "{text}"
+
+Score from 0-100:
+- 100: Directly answers the query
+- 75: Provides key supporting information
+- 50: Related but tangential
+- 25: Only loosely connected
+- 0: Irrelevant
+
+Return JSON: {{"relevance_score": N, "reasoning": "brief explanation"}}"""
 
 QUALITY_CHECK_PROMPT = """Evaluate the quality of this research summary.
 

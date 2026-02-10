@@ -81,6 +81,23 @@ class AgentState(TypedDict, total=False):
     additional_context: str  # From HITL analysis summary
     detected_language: str  # Language detected from user query
 
+    # Graded Context Management (Phase A-E improvements)
+    query_anchor: dict  # Immutable reference to original intent
+    # Structure: {"original_query": str, "detected_language": str,
+    #             "key_entities": list[str], "scope": str,
+    #             "hitl_refinements": list[str], "created_at": str}
+    hitl_context_summary: str  # Synthesized HITL findings for synthesis
+    primary_context: list[dict]  # Tier 1: Direct, high-relevance findings
+    secondary_context: list[dict]  # Tier 2: Reference-followed, medium-relevance
+    tertiary_context: list[dict]  # Tier 3: Deep references, HITL retrieval
+    task_summaries: list[dict]  # Per-task structured summaries
+    # Structure: {"task_id": int, "summary": str, "key_findings": list[str],
+    #             "preserved_quotes": list[dict], "sources": list[str],
+    #             "relevance_to_query": float}
+    preserved_quotes: list[dict]  # Critical verbatim quotes
+    # Structure: {"quote": str, "source": str, "page": int,
+    #             "relevance_reason": str}
+
 
 def create_initial_state(query: str) -> AgentState:
     """Create initial agent state for a new research session.
@@ -144,6 +161,14 @@ def create_initial_state(query: str) -> AgentState:
         research_queries=[],
         additional_context="",
         detected_language="de",
+        # Graded Context Management
+        query_anchor={},
+        hitl_context_summary="",
+        primary_context=[],
+        secondary_context=[],
+        tertiary_context=[],
+        task_summaries=[],
+        preserved_quotes=[],
     )
 
 

@@ -8,7 +8,9 @@ from pydantic import BaseModel
 
 from src.agents.state import AgentState, get_next_task_id
 from src.agents.tools import (
+    classify_context_tier,
     create_chunk_with_info,
+    create_tiered_context_entry,
     detect_convergence,
     detect_references,
     detect_references_hybrid,
@@ -26,10 +28,23 @@ from src.models.research import (
     ResearchContextMetadata,
     SearchQueryResult,
 )
-from src.models.results import FinalReport, Finding, LinkedSource, QualityAssessment, Source
+from src.models.results import (
+    FinalReport,
+    Finding,
+    LinkedSource,
+    QualityAssessment,
+    RelevanceScoreOutput,
+    Source,
+    SynthesisOutputEnhanced,
+    TaskSummaryOutput,
+)
 from src.prompts import (
+    HITL_CONTEXT_SUMMARY_PROMPT,
     QUALITY_CHECK_PROMPT,
+    RELEVANCE_SCORING_PROMPT,
     SYNTHESIS_PROMPT,
+    SYNTHESIS_PROMPT_ENHANCED,
+    TASK_SUMMARY_PROMPT,
     TODO_GENERATION_PROMPT,
 )
 from src.services.hitl_service import HITLService
@@ -196,17 +211,17 @@ def process_hitl_todo(state: AgentState) -> dict:
 
 
 def execute_task(state: AgentState) -> dict:
-    """Execute a single research task.
+    """Execute a single research task with graded context classification.
 
     Args:
         state: Current agent state
 
     Returns:
-        State update with research results
+        State update with research results and tiered context
     """
     task_id = state.get("current_task_id")
     if task_id is None:
-        return {"phase": "synthesize"}
+        return {"phase": "validate_relevance"}
 
     # Find current task
     todo_list = state.get("todo_list", [])
@@ -217,7 +232,7 @@ def execute_task(state: AgentState) -> dict:
             break
 
     if not current_task or current_task.completed:
-        return {"phase": "synthesize"}
+        return {"phase": "validate_relevance"}
 
     analysis = QueryAnalysis.model_validate(state["query_analysis"])
     context = ResearchContext.model_validate(
@@ -226,6 +241,12 @@ def execute_task(state: AgentState) -> dict:
             {"search_queries": [], "metadata": ResearchContextMetadata().model_dump()},
         )
     )
+
+    # Get query anchor for context classification
+    query_anchor = state.get("query_anchor", {
+        "original_query": analysis.original_query,
+        "key_entities": analysis.entities,
+    })
 
     # Perform vector search
     query = f"{current_task.task} {' '.join(analysis.key_concepts)}"
@@ -237,12 +258,49 @@ def execute_task(state: AgentState) -> dict:
         selected_database=selected_database,
     )
 
-    # Process results into chunks with info
+    # Get existing tiered context and preserved quotes
+    primary_context = list(state.get("primary_context", []))
+    secondary_context = list(state.get("secondary_context", []))
+    tertiary_context = list(state.get("tertiary_context", []))
+    preserved_quotes = list(state.get("preserved_quotes", []))
+
+    # Process results into chunks with info and classify into tiers
     chunks: list[ChunkWithInfo] = []
     doc_history: list[str] = []
     token_count = 0
+
     for result in results:
-        chunk = create_chunk_with_info(result, analysis.original_query)
+        # Use enhanced extraction with quote preservation (Phase C)
+        chunk, quotes = create_chunk_with_info(
+            result,
+            analysis.original_query,
+            query_anchor=query_anchor,
+            preserve_quotes=True,
+        )
+        preserved_quotes.extend(quotes)
+
+        # Classify into tier (Phase B)
+        tier, weight = classify_context_tier(
+            chunk=chunk,
+            query_anchor=query_anchor,
+            depth=0,
+            source_type="vector_search",
+        )
+        context_entry = create_tiered_context_entry(
+            chunk=chunk,
+            tier=tier,
+            weight=weight,
+            depth=0,
+            source_type="vector_search",
+        )
+
+        # Add to appropriate tier
+        if tier == 1:
+            primary_context.append(context_entry)
+        elif tier == 2:
+            secondary_context.append(context_entry)
+        else:
+            tertiary_context.append(context_entry)
 
         # Detect and follow references (configurable method)
         if chunk.extracted_info:
@@ -268,10 +326,38 @@ def execute_task(state: AgentState) -> dict:
                     ref.nested_chunks = nested
                     ref.found = len(nested) > 0
                     context.mark_ref_visited(ref_key)
-                    # Track token budget
+
+                    # Classify nested chunks into tiers (Phase B)
                     for nc in nested:
                         token_count += len(nc.chunk) // 4
                         doc_history.append(nc.document)
+
+                        # Create a ChunkWithInfo for classification
+                        nested_chunk = ChunkWithInfo(
+                            chunk=nc.chunk,
+                            document=nc.document,
+                            extracted_info=nc.extracted_info,
+                            relevance_score=nc.relevance_score,
+                        )
+                        nc_tier, nc_weight = classify_context_tier(
+                            chunk=nested_chunk,
+                            query_anchor=query_anchor,
+                            depth=current_depth + 1,
+                            source_type="reference",
+                        )
+                        nc_entry = create_tiered_context_entry(
+                            chunk=nested_chunk,
+                            tier=nc_tier,
+                            weight=nc_weight,
+                            depth=current_depth + 1,
+                            source_type="reference",
+                        )
+
+                        # Nested chunks go to tier 2 or 3
+                        if nc_tier == 2:
+                            secondary_context.append(nc_entry)
+                        else:
+                            tertiary_context.append(nc_entry)
 
             chunk.references = refs
 
@@ -304,6 +390,16 @@ def execute_task(state: AgentState) -> dict:
     context.search_queries.append(search_result)
     context.metadata.total_iterations += 1
 
+    # Generate task summary (Phase D)
+    task_summaries = list(state.get("task_summaries", []))
+    task_summary = _generate_task_summary(
+        task=current_task,
+        chunks=chunks,
+        preserved_quotes=preserved_quotes,
+        query_anchor=query_anchor,
+    )
+    task_summaries.append(task_summary)
+
     # Mark task completed (use list comprehension to avoid mutating during iteration)
     todo_list = [
         {**item, "completed": True} if item.get("id") == task_id else item
@@ -322,9 +418,135 @@ def execute_task(state: AgentState) -> dict:
         "todo_list": todo_list,
         "current_task_id": next_task_id,
         "current_depth": 0,  # Reset depth after each task
-        "phase": "execute_tasks" if next_task_id else "synthesize",
-        "messages": [f"Completed task {task_id}: found {len(chunks)} relevant chunks"],
+        "phase": "execute_tasks" if next_task_id else "validate_relevance",
+        # Graded context (Phase B)
+        "primary_context": primary_context,
+        "secondary_context": secondary_context,
+        "tertiary_context": tertiary_context,
+        # Preserved quotes (Phase C)
+        "preserved_quotes": preserved_quotes,
+        # Task summaries (Phase D)
+        "task_summaries": task_summaries,
+        "messages": [f"Completed task {task_id}: found {len(chunks)} relevant chunks, {len(preserved_quotes)} quotes"],
     }
+
+
+# --- Phase 3.5: Pre-Synthesis Relevance Validation (Phase G) ---
+
+
+def validate_relevance(state: AgentState) -> dict:
+    """Validate accumulated context is relevant to original query.
+
+    Runs before synthesis to filter drift. Scores each context item
+    against the original query and filters out low-relevance items.
+
+    Args:
+        state: Current agent state
+
+    Returns:
+        State update with filtered tiered context
+    """
+    query_anchor = state.get("query_anchor", {})
+    original_query = query_anchor.get("original_query", state.get("query", ""))
+    key_entities = query_anchor.get("key_entities", [])
+
+    # Score and filter primary context
+    primary_context = state.get("primary_context", [])
+    scored_primary = _score_and_filter_context(
+        primary_context, original_query, key_entities, threshold=0.5
+    )
+
+    # Score and filter secondary context (slightly lower threshold)
+    secondary_context = state.get("secondary_context", [])
+    scored_secondary = _score_and_filter_context(
+        secondary_context, original_query, key_entities, threshold=0.4
+    )
+
+    # Tertiary context: light filtering (keep most of it)
+    tertiary_context = state.get("tertiary_context", [])
+    scored_tertiary = _score_and_filter_context(
+        tertiary_context, original_query, key_entities, threshold=0.3
+    )
+
+    # Log drift detection
+    original_count = len(primary_context) + len(secondary_context)
+    filtered_count = len(scored_primary) + len(scored_secondary)
+    if original_count > 0 and filtered_count < original_count * 0.7:
+        logger.warning(
+            f"Query drift detected: filtered {original_count - filtered_count} "
+            f"items ({100 * (original_count - filtered_count) / original_count:.0f}%) "
+            f"from accumulated context"
+        )
+
+    return {
+        "primary_context": scored_primary,
+        "secondary_context": scored_secondary,
+        "tertiary_context": scored_tertiary,
+        "phase": "synthesize",
+        "messages": [
+            f"Relevance validation: {len(scored_primary)} primary, "
+            f"{len(scored_secondary)} secondary, {len(scored_tertiary)} tertiary items retained"
+        ],
+    }
+
+
+def _score_and_filter_context(
+    context_items: list[dict],
+    query: str,
+    key_entities: list[str],
+    threshold: float = 0.5,
+) -> list[dict]:
+    """Score context items against query and filter by threshold.
+
+    Uses simple keyword/entity matching for efficiency.
+    For high-stakes filtering, could use LLM scoring.
+
+    Args:
+        context_items: List of context dicts to score
+        query: Original query
+        key_entities: Key entities from query
+        threshold: Minimum relevance score to keep (0.0-1.0)
+
+    Returns:
+        Filtered and sorted list of context items
+    """
+    query_lower = query.lower()
+    query_words = set(query_lower.split())
+
+    scored_items = []
+    for item in context_items:
+        # Get text to score
+        text = item.get("extracted_info") or item.get("chunk", "") or item.get("text", "")
+        text_lower = text.lower()
+
+        # Word overlap score
+        text_words = set(text_lower.split())
+        if query_words:
+            word_score = len(query_words & text_words) / len(query_words)
+        else:
+            word_score = 0.0
+
+        # Entity match score
+        entity_score = 0.0
+        if key_entities:
+            matches = sum(1 for e in key_entities if e.lower() in text_lower)
+            entity_score = matches / len(key_entities)
+
+        # Combined relevance score
+        relevance = 0.6 * word_score + 0.4 * entity_score
+
+        # Boost by existing context weight if present
+        existing_weight = item.get("context_weight", 0.5)
+        final_relevance = 0.7 * relevance + 0.3 * existing_weight
+
+        if final_relevance >= threshold:
+            item["final_relevance"] = final_relevance
+            scored_items.append(item)
+
+    # Sort by final relevance (highest first)
+    scored_items.sort(key=lambda x: x.get("final_relevance", 0), reverse=True)
+
+    return scored_items
 
 
 # --- Phase 4: Synthesis ---
@@ -338,7 +560,10 @@ class SynthesisOutput(BaseModel):
 
 
 def synthesize(state: AgentState) -> dict:
-    """Synthesize research findings into a coherent summary.
+    """Synthesize research findings with graded context and query anchoring.
+
+    Uses tiered context (primary, secondary, tertiary) and includes
+    HITL context summary and preserved quotes for comprehensive synthesis.
 
     Args:
         state: Current agent state
@@ -350,61 +575,172 @@ def synthesize(state: AgentState) -> dict:
     analysis = QueryAnalysis.model_validate(state["query_analysis"])
     client = get_ollama_client()
 
-    # Collect all extracted info
-    all_info = []
-    for search_result in context.search_queries:
-        for chunk in search_result.chunks:
-            if chunk.extracted_info:
-                all_info.append(
-                    {
+    # Get query anchor for language enforcement
+    query_anchor = state.get("query_anchor", {
+        "original_query": analysis.original_query,
+        "detected_language": analysis.detected_language,
+    })
+    language = query_anchor.get("detected_language", analysis.detected_language)
+
+    # Get graded context (Phase B/G)
+    primary_context = state.get("primary_context", [])
+    secondary_context = state.get("secondary_context", [])
+    tertiary_context = state.get("tertiary_context", [])
+
+    # Format tiered findings
+    primary_findings = _format_tiered_findings(primary_context[:15])
+    secondary_findings = _format_tiered_findings(secondary_context[:10])
+    tertiary_findings = _format_tiered_findings(tertiary_context[:5])
+
+    # Get preserved quotes (Phase C)
+    preserved_quotes = state.get("preserved_quotes", [])
+    quotes_text = json.dumps(preserved_quotes[:10], ensure_ascii=False) if preserved_quotes else "[]"
+
+    # Get task summaries (Phase D)
+    task_summaries = state.get("task_summaries", [])
+    summaries_text = "\n".join([
+        f"Task {ts.get('task_id', '?')}: {ts.get('summary', 'No summary')}"
+        for ts in task_summaries
+    ]) if task_summaries else "No task summaries available"
+
+    # Get HITL context summary (Phase A)
+    hitl_context_summary = state.get("hitl_context_summary", "")
+
+    # Fallback to old synthesis if no graded context available
+    if not primary_context and not secondary_context:
+        # Use legacy synthesis
+        all_info = []
+        for search_result in context.search_queries:
+            for chunk in search_result.chunks:
+                if chunk.extracted_info:
+                    all_info.append({
                         "text": chunk.extracted_info,
                         "source": chunk.document,
                         "page": chunk.page,
-                    }
-                )
+                    })
 
-    if not all_info:
-        total_chunks = sum(len(sq.chunks) for sq in context.search_queries)
-        logger.warning(
-            "Synthesize: no extracted_info found. search_queries=%d, total_chunks=%d",
-            len(context.search_queries),
-            total_chunks,
+        if not all_info:
+            total_chunks = sum(len(sq.chunks) for sq in context.search_queries)
+            logger.warning(
+                "Synthesize: no extracted_info found. search_queries=%d, total_chunks=%d",
+                len(context.search_queries),
+                total_chunks,
+            )
+            return {
+                "phase": "quality_check",
+                "messages": ["No information to synthesize"],
+            }
+
+        max_synthesis_docs = settings.max_docs * 4
+        info_text = json.dumps(all_info[:max_synthesis_docs], ensure_ascii=False, indent=2)
+
+        prompt = SYNTHESIS_PROMPT.format(
+            original_query=analysis.original_query,
+            findings=info_text,
+            language=language,
         )
+
+        try:
+            result = client.generate_structured(prompt, SynthesisOutput)
+            for i, sq in enumerate(context.search_queries):
+                if i == 0:
+                    sq.summary = result.summary
+        except Exception as e:
+            logger.warning(f"Synthesis failed: {e}")
+            result = SynthesisOutput(
+                summary="Synthesis failed. Please review individual findings.",
+                key_findings=[],
+            )
+
         return {
+            "research_context": context.model_dump(),
             "phase": "quality_check",
-            "messages": ["No information to synthesize"],
+            "messages": [f"Synthesized {len(all_info)} findings (legacy mode)"],
         }
 
-    # Truncate if too long (use config setting for max docs in synthesis)
-    max_synthesis_docs = settings.max_docs * 4  # 4x for synthesis context
-    info_text = json.dumps(all_info[:max_synthesis_docs], ensure_ascii=False, indent=2)
-
-    prompt = SYNTHESIS_PROMPT.format(
-        original_query=analysis.original_query,
-        findings=info_text,
-        language=analysis.detected_language,
+    # Use enhanced synthesis with graded context (Phase E)
+    prompt = SYNTHESIS_PROMPT_ENHANCED.format(
+        original_query=query_anchor.get("original_query", analysis.original_query),
+        hitl_context_summary=hitl_context_summary or "No clarification conversation recorded",
+        primary_findings=primary_findings or "No primary findings",
+        secondary_findings=secondary_findings or "No secondary findings",
+        tertiary_findings=tertiary_findings or "No tertiary findings",
+        preserved_quotes=quotes_text,
+        task_summaries=summaries_text,
+        language=language,
     )
 
     try:
-        result = client.generate_structured(prompt, SynthesisOutput)
+        # Use language-enforced generation (Phase F)
+        result = client.generate_structured_with_language(
+            prompt,
+            SynthesisOutputEnhanced,
+            target_language=language,
+        )
 
-        # Update search queries with summaries
+        # Update search queries with summary
         for i, sq in enumerate(context.search_queries):
-            if i == 0:  # Add overall summary to first query
+            if i == 0:
                 sq.summary = result.summary
 
+        logger.info(
+            f"Enhanced synthesis complete: query_coverage={result.query_coverage}%, "
+            f"gaps={len(result.remaining_gaps)}"
+        )
+
     except Exception as e:
-        logger.warning(f"Synthesis failed: {e}")
-        result = SynthesisOutput(
+        logger.warning(f"Enhanced synthesis failed: {e}")
+        result = SynthesisOutputEnhanced(
             summary="Synthesis failed. Please review individual findings.",
             key_findings=[],
+            query_coverage=0,
+            remaining_gaps=["Synthesis failed due to error"],
         )
 
     return {
         "research_context": context.model_dump(),
         "phase": "quality_check",
-        "messages": [f"Synthesized {len(all_info)} findings"],
+        "messages": [
+            f"Synthesized {len(primary_context)} primary, {len(secondary_context)} secondary findings",
+            f"Query coverage: {result.query_coverage}%",
+        ],
     }
+
+
+def _format_tiered_findings(context_items: list[dict], max_chars: int = 8000) -> str:
+    """Format tiered context items into a string for synthesis.
+
+    Args:
+        context_items: List of context dicts with extracted_info
+        max_chars: Maximum characters to include
+
+    Returns:
+        Formatted string with findings
+    """
+    if not context_items:
+        return ""
+
+    findings = []
+    total_chars = 0
+
+    for item in context_items:
+        text = item.get("extracted_info") or item.get("text") or item.get("chunk", "")
+        if not text:
+            continue
+
+        source = item.get("document", "Unknown")
+        page = item.get("page", "?")
+        weight = item.get("context_weight", 0.5)
+
+        finding = f"[{source}, Page {page}] (weight: {weight:.2f}): {text[:500]}"
+
+        if total_chars + len(finding) > max_chars:
+            break
+
+        findings.append(finding)
+        total_chars += len(finding)
+
+    return "\n\n".join(findings)
 
 
 # --- Phase 4b: Quality Check ---
@@ -831,6 +1167,7 @@ def hitl_finalize(state: AgentState) -> dict:
     """Finalize HITL conversation and prepare for Phase 2.
 
     Step 4 of Enhanced Phase 1. Generates research queries and hands off to Phase 2.
+    Creates immutable query_anchor and summarizes HITL context for synthesis.
 
     Args:
         state: Current agent state
@@ -844,6 +1181,7 @@ def hitl_finalize(state: AgentState) -> dict:
 
     # Finalize and get research queries
     result = finalize_hitl_conversation(hitl_state, max_queries=5)
+    language = result.get("detected_language", "de")
 
     # Build query analysis from HITL results
     analysis_dict = {
@@ -853,26 +1191,255 @@ def hitl_finalize(state: AgentState) -> dict:
         "scope": result.get("scope", ""),
         "assumed_context": [result.get("context", "")] if result.get("context") else [],
         "clarification_needed": False,
-        "detected_language": result.get("detected_language", "de"),
+        "detected_language": language,
         "hitl_refinements": [
             f"Summary: {result.get('summary', '')}",
         ],
     }
 
+    # Create immutable query anchor (Phase A)
+    hitl_conversation_history = state.get("hitl_conversation_history", [])
+    query_anchor = {
+        "original_query": state["query"],
+        "detected_language": language,
+        "key_entities": result.get("entities", []),
+        "scope": result.get("scope", ""),
+        "hitl_refinements": [
+            msg["content"] for msg in hitl_conversation_history
+            if msg.get("role") == "user"
+        ],
+        "created_at": datetime.now().isoformat(),
+    }
+
+    # Generate HITL context summary for synthesis (Phase A)
+    hitl_context_summary = _summarize_hitl_context(
+        query=state["query"],
+        conversation=hitl_conversation_history,
+        retrieval=state.get("query_retrieval", ""),
+        knowledge_gaps=state.get("knowledge_gaps", []),
+        language=language,
+    )
+
+    # Move HITL retrieval to tertiary context (Phase A)
+    tertiary_context = _convert_hitl_retrieval_to_context(
+        state.get("query_retrieval", ""),
+        state.get("retrieval_history", {}),
+    )
+
     return {
         "research_queries": result.get("research_queries", []),
         "additional_context": result.get("summary", ""),
         "query_analysis": analysis_dict,
-        "detected_language": result.get("detected_language", "de"),
+        "detected_language": language,
         "hitl_active": False,
         "hitl_pending": False,
         "hitl_state": None,  # Clear HITL state
         "phase": "generate_todo",
+        # Graded context management fields
+        "query_anchor": query_anchor,
+        "hitl_context_summary": hitl_context_summary,
+        "tertiary_context": tertiary_context,
         "messages": [
             f"HITL finalized: {len(result.get('research_queries', []))} research queries generated",
             f"Termination reason: {state.get('hitl_termination_reason', 'unknown')}",
         ],
     }
+
+
+# --- Phase D Helpers: Per-Task Structured Summary ---
+
+
+def _generate_task_summary(
+    task: ToDoItem,
+    chunks: list[ChunkWithInfo],
+    preserved_quotes: list[dict],
+    query_anchor: dict,
+) -> dict:
+    """Generate structured summary for completed task.
+
+    Args:
+        task: The completed task
+        chunks: Chunks found for this task
+        preserved_quotes: Quotes extracted from this task's chunks
+        query_anchor: Immutable query reference
+
+    Returns:
+        Task summary dict
+    """
+    client = get_ollama_client()
+    language = query_anchor.get("detected_language", "de")
+    original_query = query_anchor.get("original_query", "")
+
+    # Collect findings text
+    findings_text = []
+    sources = []
+    for chunk in chunks[:5]:  # Limit to top 5 chunks
+        if chunk.extracted_info:
+            findings_text.append(chunk.extracted_info)
+            sources.append(chunk.document)
+
+    # Format quotes
+    quotes_text = json.dumps(preserved_quotes[:5], ensure_ascii=False) if preserved_quotes else "[]"
+
+    # Calculate relevance score
+    relevance_score = _calculate_task_relevance(
+        task_text=task.task,
+        original_query=original_query,
+        key_entities=query_anchor.get("key_entities", []),
+    )
+
+    prompt = TASK_SUMMARY_PROMPT.format(
+        task=task.task,
+        original_query=original_query,
+        findings="\n".join(findings_text[:3]) if findings_text else "No findings extracted",
+        preserved_quotes=quotes_text,
+        language=language,
+    )
+
+    try:
+        result = client.generate_structured(prompt, TaskSummaryOutput)
+        return {
+            "task_id": task.id,
+            "task_text": task.task,
+            "summary": result.summary,
+            "key_findings": result.key_findings,
+            "gaps": result.gaps,
+            "preserved_quotes": preserved_quotes,
+            "sources": list(set(sources)),
+            "relevance_to_query": relevance_score,
+        }
+    except Exception as e:
+        logger.warning(f"Failed to generate task summary: {e}")
+        return {
+            "task_id": task.id,
+            "task_text": task.task,
+            "summary": f"Completed task: {task.task}",
+            "key_findings": [],
+            "gaps": [],
+            "preserved_quotes": preserved_quotes,
+            "sources": list(set(sources)),
+            "relevance_to_query": relevance_score,
+        }
+
+
+def _calculate_task_relevance(
+    task_text: str,
+    original_query: str,
+    key_entities: list[str],
+) -> float:
+    """Calculate relevance of task to original query.
+
+    Uses simple keyword overlap scoring.
+
+    Args:
+        task_text: The task description
+        original_query: Original user query
+        key_entities: Key entities from query
+
+    Returns:
+        Relevance score 0.0-1.0
+    """
+    task_lower = task_text.lower()
+    query_lower = original_query.lower()
+
+    # Word overlap score
+    query_words = set(query_lower.split())
+    task_words = set(task_lower.split())
+    if not query_words:
+        return 0.5
+    word_overlap = len(query_words & task_words) / len(query_words)
+
+    # Entity match score
+    entity_score = 0.0
+    if key_entities:
+        matches = sum(1 for e in key_entities if e.lower() in task_lower)
+        entity_score = matches / len(key_entities)
+
+    # Combined score (weighted average)
+    return min(1.0, 0.6 * word_overlap + 0.4 * entity_score)
+
+
+# --- Phase A Helpers: HITL Context Preservation ---
+
+
+def _summarize_hitl_context(
+    query: str,
+    conversation: list[dict],
+    retrieval: str,
+    knowledge_gaps: list[str],
+    language: str,
+) -> str:
+    """Summarize HITL conversation and retrieval for synthesis.
+
+    Args:
+        query: Original user query
+        conversation: HITL conversation history
+        retrieval: Accumulated retrieval text from HITL
+        knowledge_gaps: Identified knowledge gaps
+        language: Target language (de/en)
+
+    Returns:
+        Summarized HITL context string
+    """
+    if not conversation and not retrieval:
+        return ""
+
+    client = get_ollama_client()
+
+    # Format conversation
+    conv_text = "\n".join(
+        f"{'User' if msg.get('role') == 'user' else 'Assistant'}: {msg.get('content', '')}"
+        for msg in conversation
+    )
+
+    # Format gaps
+    gaps_text = "\n".join(f"- {gap}" for gap in knowledge_gaps) if knowledge_gaps else "None identified"
+
+    # Truncate retrieval if too long
+    retrieval_truncated = retrieval[:4000] if len(retrieval) > 4000 else retrieval
+
+    prompt = HITL_CONTEXT_SUMMARY_PROMPT.format(
+        query=query,
+        conversation=conv_text or "No conversation recorded",
+        retrieval=retrieval_truncated or "No retrieval performed",
+        gaps=gaps_text,
+        language=language,
+    )
+
+    try:
+        return client.generate(prompt)
+    except Exception as e:
+        logger.warning(f"Failed to summarize HITL context: {e}")
+        return f"HITL Summary: Query '{query}' with {len(conversation)} conversation turns."
+
+
+def _convert_hitl_retrieval_to_context(
+    query_retrieval: str,
+    retrieval_history: dict,
+) -> list[dict]:
+    """Convert HITL retrieval text to tertiary context entries.
+
+    Args:
+        query_retrieval: Accumulated retrieval text
+        retrieval_history: Per-iteration retrieval metadata
+
+    Returns:
+        List of context dicts for tertiary_context
+    """
+    if not query_retrieval:
+        return []
+
+    # Create a single context entry from the accumulated retrieval
+    # In the future, this could be parsed to extract individual chunks
+    return [
+        {
+            "source_type": "hitl_retrieval",
+            "text": query_retrieval[:10000],  # Limit size
+            "context_tier": 3,
+            "context_weight": 0.4,
+            "iteration_count": len(retrieval_history),
+        }
+    ]
 
 
 # --- Enhanced Phase 1: Multi-Query Retrieval Nodes ---

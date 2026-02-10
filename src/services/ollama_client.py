@@ -238,3 +238,89 @@ JSON response:"""
         except Exception as e:
             logger.warning(f"Ollama not available: {e}")
             return False
+
+    def generate_structured_with_language(
+        self,
+        prompt: str,
+        response_model: type[T],
+        target_language: str,
+        max_retries: int = 2,
+    ) -> T:
+        """Generate structured output with language enforcement.
+
+        If output contains significant other-language content, retry with
+        stronger language instruction.
+
+        Args:
+            prompt: The prompt to send
+            response_model: Pydantic model for response
+            target_language: Target language code ('de' or 'en')
+            max_retries: Number of retries for language validation
+
+        Returns:
+            Parsed response as Pydantic model instance
+        """
+        result = self.generate_structured(prompt, response_model)
+
+        # Validate language
+        if not self._validate_language(result, target_language):
+            logger.warning(
+                f"Language validation failed for target '{target_language}', retrying"
+            )
+            # Retry with explicit language enforcement
+            lang_name = "German" if target_language == "de" else "English"
+            enforced_prompt = f"""CRITICAL LANGUAGE REQUIREMENT: You MUST respond ONLY in {lang_name}.
+Do NOT use any other language. All text in your response must be in {lang_name}.
+WICHTIG/IMPORTANT: Antworte NUR auf {lang_name}.
+
+{prompt}"""
+            result = self.generate_structured(enforced_prompt, response_model)
+
+        return result
+
+    def _validate_language(self, result: BaseModel, target: str) -> bool:
+        """Check if result is primarily in target language.
+
+        Uses a simple heuristic based on common language markers.
+
+        Args:
+            result: Pydantic model result to validate
+            target: Target language code ('de' or 'en')
+
+        Returns:
+            True if result appears to be in target language
+        """
+        # Get text representation
+        text = str(result.model_dump())
+        text_lower = text.lower()
+
+        # Common German markers (weighted by specificity)
+        german_markers = [
+            " der ", " die ", " das ", " und ", " ist ", " für ", " mit ",
+            " ein ", " eine ", " einer ", " einem ", " den ", " dem ",
+            " auf ", " bei ", " nach ", " über ", " unter ", " durch ",
+            " wird ", " werden ", " wurde ", " wurden ", " sind ", " waren ",
+            " kann ", " können ", " muss ", " müssen ", " soll ", " sollte ",
+            " nicht ", " auch ", " oder ", " aber ", " wenn ", " dann ",
+        ]
+        # Common English markers
+        english_markers = [
+            " the ", " and ", " is ", " for ", " with ", " of ", " to ",
+            " a ", " an ", " in ", " on ", " at ", " by ", " from ",
+            " that ", " this ", " are ", " was ", " were ", " have ",
+            " has ", " had ", " will ", " would ", " can ", " could ",
+            " should ", " may ", " might ", " must ", " shall ",
+        ]
+
+        # Count occurrences (not just presence)
+        german_count = sum(text_lower.count(m) for m in german_markers)
+        english_count = sum(text_lower.count(m) for m in english_markers)
+
+        # If very little text, assume valid
+        if german_count + english_count < 3:
+            return True
+
+        if target == "de":
+            return german_count >= english_count
+        else:
+            return english_count >= german_count

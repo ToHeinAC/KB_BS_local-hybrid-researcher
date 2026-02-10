@@ -6,7 +6,7 @@ A fully local, privacy-first research system that performs **deep reference-foll
 
 Classical RAG lacks deep contextual understanding and cannot follow inter-document relationships. This agent solves it by iteratively "digging into the rabbithole" - following references, building context, and discovering document interconnections.
 
-## Architecture (5 Phases)
+## Architecture (5 Phases + Graded Context)
 
 ```
 ┌────────────────────────────────────────────────────────────────────┐
@@ -16,24 +16,57 @@ Classical RAG lacks deep contextual understanding and cannot follow inter-docume
 │  │  hitl_init → hitl_generate_questions ↔ hitl_process_response │  │
 │  │  → hitl_finalize (on /end, max_iterations, or convergence)   │  │
 │  └──────────────────────────────────────────────────────────────┘  │
-│  Output: research_queries[], coverage_score, query_analysis         │
+│  Output: research_queries[], query_anchor, hitl_context_summary     │
 ├────────────────────────────────────────────────────────────────────┤
 │  Phase 2: Research Planning                                         │
 │  QueryAnalysis → ToDoList (3-5 tasks, max 15)                       │
 ├────────────────────────────────────────────────────────────────────┤
-│  Phase 3: Deep Context Extraction (Rabbithole Magic)                │
+│  Phase 3: Deep Context Extraction (with Graded Classification)      │
 │  For each task:                                                      │
-│    Vector Search → Extract Info → Hybrid Ref Detection →            │
-│    Registry-Scoped Resolution → Token Budget → Convergence Check    │
-│    → Filter by Relevance → Update ToDoList → Loop until done        │
+│    Vector Search → Extract Info + Quotes → Classify Tier →          │
+│    Hybrid Ref Detection → Registry-Scoped Resolution →              │
+│    Token Budget → Convergence Check → Generate Task Summary →       │
+│    Accumulate by Tier (primary/secondary/tertiary) → Next Task      │
 ├────────────────────────────────────────────────────────────────────┤
-│  Phase 4: Synthesis + Quality Assurance                             │
-│  Summaries → Rerank → Quality Check → Gap Analysis → Report         │
+│  Phase 3.5: Pre-Synthesis Relevance Validation (NEW)                │
+│  validate_relevance: Filter drift against query_anchor              │
+├────────────────────────────────────────────────────────────────────┤
+│  Phase 4: Query-Anchored Synthesis + Quality Assurance              │
+│  Tiered Context + HITL Summary + Preserved Quotes → Synthesis       │
+│  Language Enforcement → Quality Check → Gap Analysis → Report       │
 ├────────────────────────────────────────────────────────────────────┤
 │  Phase 5: Source Attribution                                        │
 │  Add citations → Resolve paths → Generate clickable links           │
 └────────────────────────────────────────────────────────────────────┘
 ```
+
+### Graded Context Management (NEW)
+
+The system now uses **tiered context classification** to prevent query drift and ensure synthesis quality:
+
+```
+┌──────────────────────────────────────────────────────────────────┐
+│  TIER 1: Primary Context (weight 1.0)                            │
+│  ├─ Direct vector search results for current task                │
+│  ├─ Highest relevance score chunks (≥0.85)                       │
+│  └─ Explicitly matches key entities from query_anchor            │
+├──────────────────────────────────────────────────────────────────┤
+│  TIER 2: Secondary Context (weight 0.7)                          │
+│  ├─ Rabbithole depth-1 references (direct citations)             │
+│  └─ Medium relevance score chunks (0.6-0.85)                     │
+├──────────────────────────────────────────────────────────────────┤
+│  TIER 3: Tertiary Context (weight 0.4)                           │
+│  ├─ Rabbithole depth-2 references                                │
+│  └─ HITL retrieval chunks (query_retrieval)                      │
+└──────────────────────────────────────────────────────────────────┘
+```
+
+**Key Features:**
+- **Query Anchor**: Immutable reference to original intent created in `hitl_finalize`
+- **Preserved Quotes**: Verbatim extraction of legal/technical language
+- **Task Summaries**: Per-task structured summaries with relevance scoring
+- **Drift Detection**: Pre-synthesis filtering warns when >30% of context is irrelevant
+- **Language Enforcement**: Strict single-language output with retry on mismatch
 
 ### Enhanced Phase 1: Iterative HITL with Multi-Vector Retrieval
 
@@ -76,7 +109,16 @@ The enhanced iterative HITL system provides intelligent query refinement through
 - `knowledge_gaps`: Identified gaps from retrieval analysis
 - `retrieval_dedup_ratios`: Dedup ratio per iteration for convergence detection
 - `hitl_conversation_history`: Full conversation for context
-- `query_retrieval`: Accumulated retrieval text (persists after HITL, not used in Phase 2+)
+- `query_retrieval`: Accumulated retrieval text (converted to tertiary_context in finalize)
+
+**Graded Context State Fields** (NEW):
+- `query_anchor`: Immutable reference to original intent (created in hitl_finalize)
+- `hitl_context_summary`: Synthesized HITL findings for final synthesis
+- `primary_context`: Tier 1 high-confidence findings (list of dicts)
+- `secondary_context`: Tier 2 supporting findings (list of dicts)
+- `tertiary_context`: Tier 3 background context (list of dicts)
+- `task_summaries`: Per-task structured summaries with relevance scores
+- `preserved_quotes`: Critical verbatim quotes for legal/technical precision
 
 ## Tech Stack (LangChain v1.0+)
 
@@ -257,9 +299,40 @@ KB_BS_local-hybrid-researcher/
 - [x] **Extended `DetectedReference`**: Added `document_context`, `extraction_method` fields
 - [x] **39 Unit Tests**: `tests/test_reference_extraction.py` (registry, regex, LLM mock, hybrid, resolution, convergence)
 
-### Deferred to Week 4+
-- [ ] Progressive disclosure / knowledge pyramid
-- [ ] Three-tier memory architecture
+### Graded Context Management (Week 4) - COMPLETE
+- [x] **Query Anchor & HITL Context Preservation** (Phase A)
+  - `query_anchor`: Immutable reference to original intent
+  - `hitl_context_summary`: LLM-synthesized HITL conversation for synthesis
+  - `HITL_CONTEXT_SUMMARY_PROMPT` in `src/prompts.py`
+- [x] **Strict Language Enforcement** (Phase F)
+  - `generate_structured_with_language()` in OllamaClient
+  - Language validation with German/English marker heuristics
+  - Automatic retry with stronger language instruction on mismatch
+- [x] **Graded Context Classification** (Phase B)
+  - `classify_context_tier()`: Assigns Tier 1/2/3 based on source, depth, relevance
+  - `create_tiered_context_entry()`: Creates weighted context dicts
+  - Chunks accumulated into `primary_context`, `secondary_context`, `tertiary_context`
+- [x] **Verbatim Quote Preservation** (Phase C)
+  - `PreservedQuote`, `InfoExtractionWithQuotes` models in `src/models/research.py`
+  - `extract_info_with_quotes()`: Returns condensed info + critical verbatim quotes
+  - `INFO_EXTRACTION_WITH_QUOTES_PROMPT` for legal/technical precision
+- [x] **Per-Task Structured Summary** (Phase D)
+  - `_generate_task_summary()`: Creates summary with key findings and relevance score
+  - `task_summaries` state field accumulated during task execution
+  - `TASK_SUMMARY_PROMPT` in `src/prompts.py`
+- [x] **Pre-Synthesis Relevance Validation** (Phase G)
+  - `validate_relevance()` node: Filters drift before synthesis
+  - `_score_and_filter_context()`: Scores against query_anchor entities
+  - Logs warning when >30% of accumulated context is filtered
+- [x] **Query-Anchored Synthesis** (Phase E)
+  - `SYNTHESIS_PROMPT_ENHANCED`: Tiered context structure with explicit instructions
+  - Modified `synthesize()` uses graded context + language enforcement
+  - Includes `hitl_context_summary`, `preserved_quotes`, `task_summaries`
+- [x] **New Pydantic Models**: `SynthesisOutputEnhanced`, `TaskSummaryOutput`, `RelevanceScoreOutput`
+- [x] **Graph Update**: Added `validate_relevance` node between `execute_task` and `synthesize`
+- [x] **84+ Unit Tests**: All existing tests pass (22 model, 23 agent, 39 reference extraction)
+
+### Deferred to Week 5+
 - [ ] Orchestrator-worker parallelization
 - [ ] RAG Triad automated validation
 - [ ] CI/CD integration

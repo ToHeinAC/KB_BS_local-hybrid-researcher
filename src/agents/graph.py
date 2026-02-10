@@ -14,6 +14,7 @@ from src.agents.nodes import (
     process_hitl_todo,
     quality_check,
     synthesize,
+    validate_relevance,
     # Enhanced Phase 1: Iterative HITL nodes
     hitl_init,
     hitl_generate_questions,
@@ -153,11 +154,18 @@ def route_after_hitl_todo(
 
 def route_after_execute(
     state: AgentState,
-) -> Literal["execute_task", "synthesize"]:
+) -> Literal["execute_task", "validate_relevance"]:
     """Route after task execution."""
     phase = state.get("phase", "")
     if phase == "execute_tasks" and state.get("current_task_id") is not None:
         return "execute_task"
+    return "validate_relevance"
+
+
+def route_after_validate_relevance(
+    state: AgentState,
+) -> Literal["synthesize"]:
+    """Route after relevance validation - always go to synthesis."""
     return "synthesize"
 
 
@@ -204,6 +212,7 @@ def create_research_graph() -> StateGraph:
     graph.add_node("hitl_approve_todo", hitl_approve_todo)
     graph.add_node("process_hitl_todo", process_hitl_todo)
     graph.add_node("execute_task", execute_task)
+    graph.add_node("validate_relevance", validate_relevance)  # Phase G
     graph.add_node("synthesize", synthesize)
     graph.add_node("quality_check", quality_check)
     graph.add_node("attribute_sources", attribute_sources)
@@ -319,6 +328,15 @@ def create_research_graph() -> StateGraph:
         route_after_execute,
         {
             "execute_task": "execute_task",
+            "validate_relevance": "validate_relevance",
+        },
+    )
+
+    # Phase 3.5: Pre-Synthesis Relevance Validation (Phase G)
+    graph.add_conditional_edges(
+        "validate_relevance",
+        route_after_validate_relevance,
+        {
             "synthesize": "synthesize",
         },
     )

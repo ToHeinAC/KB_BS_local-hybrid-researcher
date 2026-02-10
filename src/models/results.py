@@ -237,6 +237,57 @@ class FinalReport(BaseModel):
     )
 
 
+class SynthesisOutputEnhanced(BaseModel):
+    """Enhanced synthesis output with query coverage tracking."""
+
+    summary: str = Field(
+        ...,
+        description="Comprehensive answer in the specified language only"
+    )
+    key_findings: list[str] = Field(
+        default_factory=list,
+        description="List of most important findings"
+    )
+    query_coverage: int = Field(
+        default=50,
+        ge=0,
+        le=100,
+        description="How completely the query was answered (0-100)"
+    )
+    remaining_gaps: list[str] = Field(
+        default_factory=list,
+        description="Unanswered aspects of the query"
+    )
+
+
+class TaskSummaryOutput(BaseModel):
+    """Output for per-task structured summary."""
+
+    summary: str = Field(description="Concise task summary")
+    key_findings: list[str] = Field(
+        default_factory=list,
+        description="List of discrete findings"
+    )
+    gaps: list[str] = Field(
+        default_factory=list,
+        description="Identified gaps or limitations"
+    )
+
+
+class RelevanceScoreOutput(BaseModel):
+    """Output for relevance scoring."""
+
+    relevance_score: int = Field(
+        ge=0,
+        le=100,
+        description="Relevance score 0-100"
+    )
+    reasoning: str = Field(
+        default="",
+        description="Brief explanation of the score"
+    )
+
+
 class PDFMetadata(BaseModel):
     """PDF document metadata."""
 

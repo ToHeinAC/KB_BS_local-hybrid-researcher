@@ -29,6 +29,30 @@ class NestedChunk(BaseModel):
     )
 
 
+class PreservedQuote(BaseModel):
+    """A verbatim quote preserved for legal/technical precision."""
+
+    quote: str = Field(description="Exact verbatim text")
+    relevance_reason: str = Field(
+        default="",
+        description="Why this quote must be preserved verbatim"
+    )
+    source: str = Field(default="", description="Source document name")
+    page: int = Field(default=0, description="Page number if available")
+
+
+class InfoExtractionWithQuotes(BaseModel):
+    """Result of info extraction with preserved quotes."""
+
+    extracted_info: str = Field(
+        description="Condensed relevant information (same language as chunk)"
+    )
+    preserved_quotes: list[PreservedQuote] = Field(
+        default_factory=list,
+        description="Critical verbatim quotes that should not be paraphrased"
+    )
+
+
 class ExtractedReference(BaseModel):
     """Reference extracted by LLM."""
 
