@@ -26,11 +26,12 @@ streamlit run src/ui/app.py --server.port 8511
 - **Iterative Retrieval-HITL Loop**: Integrated vector search during the clarification phase to provide smarter, context-aware follow-up questions.
 - **Convergence Detection**: Automated loop termination based on information coverage, knowledge gaps, and content deduplication.
 - **Multi-Angle Search**: Generates original, broader, and alternative queries in parallel to ensure maximum document coverage.
+- **Multi-Query Task Execution**: Each research task generates 3 deduplicated search queries (1 base + 2 LLM-targeted) for comprehensive retrieval.
 - **Deep Reference Following**: Hybrid regex+LLM detection with document registry-based scoped resolution, token budget tracking, and convergence detection.
 - **Graded Context Management**: Tiered classification (primary/secondary/tertiary) prevents query drift and ensures synthesis quality.
 - **Verbatim Quote Preservation**: Critical legal/technical quotes extracted and preserved for precision.
 - **Query-Anchored Synthesis**: Final answers stay anchored to original intent with HITL context included.
-- **Language Enforcement**: Strict single-language output with validation and retry on mismatch.
+- **Language Enforcement**: All 17 content-bearing prompts enforce `{language}`, with validation and retry on mismatch.
 - **Pre-Synthesis Drift Detection**: Filters irrelevant accumulated context before synthesis.
 - **Full Human-In-The-Loop**: Checkpoints for query refinement, task list approval, and final result verification.
 - **Privacy-First & Local**: Powered by Ollama and local ChromaDB, ensuring all research data stays on your machine.

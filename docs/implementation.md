@@ -137,10 +137,59 @@ Prevents query drift and ensures synthesis quality through tiered context classi
   - `route_after_execute()` now routes to `validate_relevance` instead of `synthesize`
   - `route_after_validate_relevance()` always routes to `synthesize`
 
+### Phase 3.8: Prompt Standardization & Multi-Query Task Execution (NEW)
+
+Universal language enforcement and improved search quality:
+
+- [x] **Prompt 4-Section Format**: All 19 prompts reformatted to `### Task / ### Input / ### Rules / ### Output format`
+  - Merged `FOLLOW_UP_QUESTIONS_DE` + `FOLLOW_UP_QUESTIONS_EN` into single `FOLLOW_UP_QUESTIONS_PROMPT` with `{language}`
+  - JSON keys stay in English (structural); only JSON *values* must be in `{language}`
+
+- [x] **Universal `{language}` Enforcement**: All 17 content-bearing prompts include `{language}` template variable
+  - `hitl_service.py` callers (5 functions): `_analyse_user_feedback_llm`, `_generate_knowledge_base_questions_llm`, `generate_alternative_queries_llm`, `analyze_retrieval_context_llm`, `generate_refined_queries_llm`
+  - `nodes.py` callers (5 functions): `generate_todo`, `execute_task`, `quality_check`, `hitl_generate_queries`, `hitl_analyze_retrieval`
+  - 3 functions gained `language: str = "de"` parameter: `generate_alternative_queries_llm`, `analyze_retrieval_context_llm`, `generate_refined_queries_llm`
+  - Only exceptions: `LANGUAGE_DETECTION_PROMPT` (outputs code), `REFERENCE_EXTRACTION_PROMPT` (copies verbatim)
+
+- [x] **Multi-Query Task Execution**: `execute_task()` generates 3 queries per task:
+  - `TASK_SEARCH_QUERIES_PROMPT`: LLM generates 2 targeted queries (core + complementary angle)
+  - `TaskSearchQueries` model in `src/models/query.py`: `query_1`, `query_2` fields
+  - Base query: task text + key concepts (concatenation, no LLM)
+  - Chunk deduplication: `doc_name:page_number:chunk_text[:100]` identity key across all results
+  - Fallback: if LLM generation fails, uses only the base query
+
+- [x] **Task 0 Prepend**: `generate_todo()` always prepends original user query as Task 0
+  - Ensures direct vector search for the original query regardless of LLM-generated tasks
+  - `process_hitl_todo()` renumbers from 0 (was from 1)
+
+- [x] **5-Dimension Quality Scoring**:
+  - Added `query_relevance` (0-100) to `QualityCheckOutput` and `QualityAssessment`
+  - `QualityAssessment.overall_score`: 0-500 (was 0-400)
+  - `quality_threshold` default: 375 (was 300)
+  - `QUALITY_CHECK_PROMPT` includes `{language}` for issue descriptions
+  - UI (`results_view.py`) and CLI (`main.py`) display `/500`
+
+- [x] **Enhanced `TaskSummaryOutput`**:
+  - `relevance_assessment: str`: Whether findings actually match query intent
+  - `irrelevant_findings: list[str]`: Findings superficially related but not answering the query
+
+- [x] **Relevance Filter Backfill**: `filter_by_relevance()` accepts `min_results: int = 0`
+  - When threshold filtering yields fewer results, backfills from top-scoring rejected chunks
+  - Prevents empty result sets for tasks with low-relevance corpus
+
+- [x] **Language-Aware Extraction**:
+  - `extract_info(chunk_text, query, language="de")`: passes `{language}` to `INFO_EXTRACTION_PROMPT`
+  - `extract_info_with_quotes(...)`: passes `{language}` to `INFO_EXTRACTION_WITH_QUOTES_PROMPT`
+  - `create_chunk_with_info(...)`: accepts `language` param, passes through to extraction functions
+
+- [x] **Config Tuning**: `k_results` default 5→3 in `SessionState`
+
+- [x] **106 Unit Tests**: All pass including new `tests/test_task_search_queries.py`
+
 ### Phase 4: Synthesis + Quality (Research Phase 4)
 - [x] `synthesize` node (LLM synthesis from extracted findings)
 - [x] Enhanced `synthesize` with tiered context, preserved quotes, language enforcement
-- [x] `quality_check` node (optional, 0-400 scoring)
+- [x] `quality_check` node (optional, 0-500 scoring, 5 dimensions)
 - [x] Tests for synthesis + QA
 
 ### Phase 5: Source Attribution (Research Phase 5)
@@ -234,6 +283,8 @@ Prevents query drift and ensures synthesis quality through tiered context classi
 - **Structured JSON output** via `method="json_mode"` for Ollama
 - **LangGraph** for agent orchestration (NOT AgentExecutor)
 - **Docstrings** on public functions (Google style)
+- **Prompt format**: All prompts in `src/prompts.py` use 4-section format (`### Task / ### Input / ### Rules / ### Output format`)
+- **Language enforcement**: Every content-bearing prompt includes `{language}` template variable; callers compute `lang_label = "German" if language == "de" else "English"`
 
 ### Example Function
 

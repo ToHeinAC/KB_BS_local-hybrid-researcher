@@ -80,19 +80,22 @@ def vector_search(
 def extract_info(
     chunk_text: str,
     query: str,
+    language: str = "de",
 ) -> str:
     """Extract relevant information from chunk relative to query.
 
     Args:
         chunk_text: The chunk text to extract from
         query: The search query for context
+        language: Target language for extraction ('de' or 'en')
 
     Returns:
         Extracted relevant information
     """
     client = get_ollama_client()
+    lang_label = "German" if language == "de" else "English"
 
-    prompt = INFO_EXTRACTION_PROMPT.format(query=query, chunk_text=chunk_text)
+    prompt = INFO_EXTRACTION_PROMPT.format(query=query, chunk_text=chunk_text, language=lang_label)
 
     try:
         return client.generate(prompt)
@@ -108,6 +111,7 @@ def extract_info_with_quotes(
     query_anchor: dict,
     source_doc: str = "",
     page: int = 0,
+    language: str = "de",
 ) -> dict:
     """Extract info while preserving critical verbatim quotes.
 
@@ -117,17 +121,20 @@ def extract_info_with_quotes(
         query_anchor: Query anchor with key_entities
         source_doc: Source document name for quote attribution
         page: Page number for quote attribution
+        language: Target language for extraction ('de' or 'en')
 
     Returns:
         Dict with "extracted_info" and "preserved_quotes"
     """
     client = get_ollama_client()
     key_entities = query_anchor.get("key_entities", [])
+    lang_label = "German" if language == "de" else "English"
 
     prompt = INFO_EXTRACTION_WITH_QUOTES_PROMPT.format(
         query=query,
         key_entities=", ".join(key_entities) if key_entities else "none specified",
         chunk_text=chunk_text[:3000],  # Limit input
+        language=lang_label,
     )
 
     try:
@@ -143,7 +150,7 @@ def extract_info_with_quotes(
         logger.warning(f"Failed to extract info with quotes: {e}")
         # Fallback to simple extraction
         return {
-            "extracted_info": extract_info(chunk_text, query),
+            "extracted_info": extract_info(chunk_text, query, language=language),
             "preserved_quotes": [],
         }
 
@@ -315,27 +322,37 @@ def filter_by_relevance(
     chunks: list[ChunkWithInfo],
     query: str,
     threshold: float | None = None,
+    min_results: int = 0,
 ) -> list[ChunkWithInfo]:
-    """Filter chunks by relevance threshold.
+    """Filter chunks by relevance threshold, guaranteeing min_results.
 
     Args:
         chunks: Chunks to filter
         query: Original query for relevance scoring
         threshold: Minimum relevance score (defaults to settings)
+        min_results: Minimum number of chunks to return. If threshold
+            filtering yields fewer, backfill with top-scoring rejected chunks.
 
     Returns:
-        Filtered list of chunks
+        Filtered list of chunks (at least min_results if enough input chunks)
     """
     threshold = threshold or settings.reference_relevance_threshold
 
     filtered = []
+    rejected = []
     for chunk in chunks:
-        # Use existing score or compute new one
         score = chunk.relevance_score or score_relevance(chunk.chunk, query)
+        chunk.relevance_score = score
 
         if score >= threshold:
-            chunk.relevance_score = score
             filtered.append(chunk)
+        else:
+            rejected.append(chunk)
+
+    if len(filtered) < min_results and rejected:
+        rejected.sort(key=lambda c: c.relevance_score or 0.0, reverse=True)
+        needed = min_results - len(filtered)
+        filtered.extend(rejected[:needed])
 
     return filtered
 
@@ -346,6 +363,7 @@ def create_chunk_with_info(
     extract: bool = True,
     query_anchor: dict | None = None,
     preserve_quotes: bool = False,
+    language: str = "de",
 ) -> tuple[ChunkWithInfo, list[dict]]:
     """Create ChunkWithInfo from VectorResult, optionally with preserved quotes.
 
@@ -355,6 +373,7 @@ def create_chunk_with_info(
         extract: Whether to extract info using LLM
         query_anchor: Query anchor for quote extraction (required if preserve_quotes=True)
         preserve_quotes: Whether to extract and preserve verbatim quotes
+        language: Target language for extraction ('de' or 'en')
 
     Returns:
         Tuple of (ChunkWithInfo instance, list of preserved quote dicts)
@@ -371,12 +390,13 @@ def create_chunk_with_info(
                 query_anchor=query_anchor,
                 source_doc=result.doc_name,
                 page=result.page_number or 0,
+                language=language,
             )
             extracted = extraction_result.get("extracted_info", "")
             preserved_quotes = extraction_result.get("preserved_quotes", [])
         else:
             # Simple extraction
-            extracted = extract_info(result.chunk_text, query)
+            extracted = extract_info(result.chunk_text, query, language=language)
 
     chunk = ChunkWithInfo(
         chunk=result.chunk_text,

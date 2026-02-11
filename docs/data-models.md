@@ -270,12 +270,13 @@ class CritiqueResult(BaseModel):
 
 ```python
 class QualityAssessment(BaseModel):
-    """Quality check result with 4-dimension scoring."""
-    overall_score: int  # 0-400
+    """Quality check result with 5-dimension scoring."""
+    overall_score: int  # 0-500
     factual_accuracy: int  # 0-100
     semantic_validity: int  # 0-100
     structural_integrity: int  # 0-100
     citation_correctness: int  # 0-100
+    query_relevance: int  # 0-100 (NEW)
     passes_quality: bool
     issues_found: list[str]
     improvement_suggestions: list[str]
@@ -350,14 +351,25 @@ class SynthesisOutputEnhanced(BaseModel):
     remaining_gaps: list[str] = [] # Unanswered aspects of the query
 ```
 
+### TaskSearchQueries (NEW)
+
+```python
+class TaskSearchQueries(BaseModel):
+    """LLM output: 2 dedicated search queries for a task."""
+    query_1: str   # First search query focusing on core aspects
+    query_2: str   # Second search query exploring related/complementary angle
+```
+
 ### TaskSummaryOutput (NEW)
 
 ```python
 class TaskSummaryOutput(BaseModel):
     """Output for per-task structured summary."""
-    summary: str                  # Concise task summary
-    key_findings: list[str] = []  # List of discrete findings
-    gaps: list[str] = []          # Identified gaps or limitations
+    summary: str                           # Concise task summary
+    key_findings: list[str] = []           # List of discrete findings
+    gaps: list[str] = []                   # Identified gaps or limitations
+    relevance_assessment: str = ""         # Whether findings match query intent
+    irrelevant_findings: list[str] = []    # Findings superficially related but not answering the query
 ```
 
 ### RelevanceScoreOutput (NEW)

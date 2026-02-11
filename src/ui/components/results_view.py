@@ -22,7 +22,7 @@ def render_results_view() -> None:
     # Quality score
     col1, col2, col3 = st.columns(3)
     with col1:
-        st.metric("Quality Score", f"{report.quality_score}/400")
+        st.metric("Quality Score", f"{report.quality_score}/500")
     with col2:
         st.metric("Tasks Completed", report.todo_items_completed)
     with col3:
@@ -62,9 +62,9 @@ def render_results_view() -> None:
     # Quality breakdown
     if report.quality_breakdown:
         st.markdown("### Quality Breakdown")
-        cols = st.columns(4)
+        cols = st.columns(5)
         for i, (dimension, score) in enumerate(report.quality_breakdown.items()):
-            with cols[i % 4]:
+            with cols[i % 5]:
                 st.metric(dimension.replace("_", " ").title(), f"{score}/100")
 
     # Export options
@@ -128,7 +128,7 @@ def _generate_markdown(report: FinalReport) -> str:
         "",
         f"**Query:** {report.query}",
         "",
-        f"**Quality Score:** {report.quality_score}/400",
+        f"**Quality Score:** {report.quality_score}/500",
         f"**Tasks Completed:** {report.todo_items_completed}",
         f"**Research Iterations:** {report.research_iterations}",
         "",

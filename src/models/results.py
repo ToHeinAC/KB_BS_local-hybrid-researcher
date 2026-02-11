@@ -154,12 +154,12 @@ class CritiqueResult(BaseModel):
 
 
 class QualityAssessment(BaseModel):
-    """Quality check result with 4-dimension scoring."""
+    """Quality check result with 5-dimension scoring."""
 
     overall_score: int = Field(
         ge=0,
-        le=400,
-        description="Overall quality score (0-400)",
+        le=500,
+        description="Overall quality score (0-500)",
     )
     factual_accuracy: int = Field(
         ge=0,
@@ -180,6 +180,12 @@ class QualityAssessment(BaseModel):
         ge=0,
         le=100,
         description="Citation correctness score (0-100)",
+    )
+    query_relevance: int = Field(
+        ge=0,
+        le=100,
+        default=0,
+        description="Query relevance score (0-100)",
     )
     passes_quality: bool = Field(description="Whether passes quality threshold")
     issues_found: list[str] = Field(
@@ -271,6 +277,14 @@ class TaskSummaryOutput(BaseModel):
     gaps: list[str] = Field(
         default_factory=list,
         description="Identified gaps or limitations"
+    )
+    relevance_assessment: str = Field(
+        default="",
+        description="Whether findings actually match query intent"
+    )
+    irrelevant_findings: list[str] = Field(
+        default_factory=list,
+        description="Findings superficially related but not answering the query"
     )
 
 

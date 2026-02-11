@@ -37,6 +37,15 @@ class QueryAnalysis(BaseModel):
     )
 
 
+class TaskSearchQueries(BaseModel):
+    """LLM output: 2 dedicated search queries for a task."""
+
+    query_1: str = Field(description="First search query focusing on core aspects")
+    query_2: str = Field(
+        description="Second search query exploring related/complementary angle"
+    )
+
+
 class ToDoItem(BaseModel):
     """A single research task."""
 

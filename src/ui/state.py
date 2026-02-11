@@ -34,7 +34,7 @@ class SessionState:
     # Database selection
     use_ext_database: bool = True
     selected_database: str = ""
-    k_results: int = 5
+    k_results: int = 3
 
     # Settings
     max_search_queries: int = 5

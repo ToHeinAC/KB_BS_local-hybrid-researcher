@@ -13,8 +13,7 @@ from src.models.query import QueryAnalysis, ToDoList
 from src.prompts import (
     ALTERNATIVE_QUERIES_INITIAL_PROMPT,
     ALTERNATIVE_QUERIES_REFINED_PROMPT,
-    FOLLOW_UP_QUESTIONS_DE,
-    FOLLOW_UP_QUESTIONS_EN,
+    FOLLOW_UP_QUESTIONS_PROMPT,
     KNOWLEDGE_BASE_QUESTIONS_PROMPT,
     LANGUAGE_DETECTION_PROMPT,
     REFINED_QUERIES_PROMPT,
@@ -392,19 +391,15 @@ def _generate_follow_up_questions_llm(
         context += f"{role}: {content}\n"
 
     # Prepare retrieval context (with fallback message)
-    if language == "de":
-        retrieval_text = retrieval or "Noch keine Informationen abgerufen."
-    else:
-        retrieval_text = retrieval or "No information retrieved yet."
+    retrieval_text = retrieval or (
+        "Noch keine Informationen abgerufen." if language == "de"
+        else "No information retrieved yet."
+    )
 
-    if language == "de":
-        prompt = FOLLOW_UP_QUESTIONS_DE.format(
-            user_query=user_query, context=context, retrieval=retrieval_text
-        )
-    else:
-        prompt = FOLLOW_UP_QUESTIONS_EN.format(
-            user_query=user_query, context=context, retrieval=retrieval_text
-        )
+    prompt = FOLLOW_UP_QUESTIONS_PROMPT.format(
+        user_query=user_query, context=context, retrieval=retrieval_text,
+        language="German" if language == "de" else "English",
+    )
 
     try:
         return client.generate(prompt)
@@ -431,7 +426,12 @@ def _analyse_user_feedback_llm(state: dict) -> dict:
         content = msg.get("content", "")
         context += f"{role}: {content}\n"
 
-    prompt = USER_FEEDBACK_ANALYSIS_PROMPT.format(user_query=user_query, context=context)
+    language = state.get("detected_language", "de")
+    lang_label = "German" if language == "de" else "English"
+
+    prompt = USER_FEEDBACK_ANALYSIS_PROMPT.format(
+        user_query=user_query, context=context, language=lang_label
+    )
 
     try:
         response = client.generate(prompt)
@@ -467,11 +467,15 @@ def _generate_knowledge_base_questions_llm(state: dict, max_queries: int = 5) ->
         content = msg.get("content", "")
         context += f"{role}: {content}\n"
 
+    language = state.get("detected_language", "de")
+    lang_label = "German" if language == "de" else "English"
+
     prompt = KNOWLEDGE_BASE_QUESTIONS_PROMPT.format(
         max_queries=max_queries,
         user_query=user_query,
         context=context,
         analysis=analysis,
+        language=lang_label,
     )
 
     try:
@@ -763,6 +767,7 @@ def generate_alternative_queries_llm(
     query: str,
     analysis: dict,
     iteration: int,
+    language: str = "de",
 ) -> list[str]:
     """Generate 3 queries: original + broader + alternative angle.
 
@@ -770,6 +775,7 @@ def generate_alternative_queries_llm(
         query: Original user query
         analysis: Current query analysis (may be empty on iteration 0)
         iteration: Current HITL iteration
+        language: Language code ('de' or 'en')
 
     Returns:
         List of 3 queries [original, broader, alternative]
@@ -777,14 +783,17 @@ def generate_alternative_queries_llm(
     import json
 
     client = get_ollama_client()
+    lang_label = "German" if language == "de" else "English"
 
     if iteration == 0 or not analysis:
-        prompt = ALTERNATIVE_QUERIES_INITIAL_PROMPT.format(query=query)
+        prompt = ALTERNATIVE_QUERIES_INITIAL_PROMPT.format(
+            query=query, language=lang_label
+        )
     else:
         gaps = analysis.get("knowledge_gaps", [])
         entities = analysis.get("entities", [])
         prompt = ALTERNATIVE_QUERIES_REFINED_PROMPT.format(
-            query=query, entities=entities, gaps=gaps
+            query=query, entities=entities, gaps=gaps, language=lang_label
         )
 
     try:
@@ -805,12 +814,15 @@ def generate_alternative_queries_llm(
     return [query, f"{query} Hintergrund", f"{query} Anwendung"]
 
 
-def analyze_retrieval_context_llm(query: str, retrieval_text: str) -> dict:
+def analyze_retrieval_context_llm(
+    query: str, retrieval_text: str, language: str = "de"
+) -> dict:
     """Analyze accumulated retrieval for gaps, concepts, scope.
 
     Args:
         query: Original user query
         retrieval_text: Accumulated retrieval text (may be truncated)
+        language: Language code ('de' or 'en')
 
     Returns:
         Dict with key_concepts, entities, scope, knowledge_gaps, coverage_score
@@ -818,12 +830,15 @@ def analyze_retrieval_context_llm(query: str, retrieval_text: str) -> dict:
     import json
 
     client = get_ollama_client()
+    lang_label = "German" if language == "de" else "English"
 
     # Truncate retrieval to avoid token limits
     max_chars = 3000
     truncated = retrieval_text[:max_chars] if len(retrieval_text) > max_chars else retrieval_text
 
-    prompt = RETRIEVAL_ANALYSIS_PROMPT.format(query=query, retrieval=truncated)
+    prompt = RETRIEVAL_ANALYSIS_PROMPT.format(
+        query=query, retrieval=truncated, language=lang_label
+    )
 
     try:
         response = client.generate(prompt)
@@ -854,6 +869,7 @@ def generate_refined_queries_llm(
     query: str,
     user_response: str,
     gaps: list[str],
+    language: str = "de",
 ) -> list[str]:
     """Generate 3 refined queries based on user feedback.
 
@@ -861,6 +877,7 @@ def generate_refined_queries_llm(
         query: Original user query
         user_response: User's response to follow-up questions
         gaps: Identified knowledge gaps
+        language: Language code ('de' or 'en')
 
     Returns:
         List of 3 refined queries
@@ -868,9 +885,10 @@ def generate_refined_queries_llm(
     import json
 
     client = get_ollama_client()
+    lang_label = "German" if language == "de" else "English"
 
     prompt = REFINED_QUERIES_PROMPT.format(
-        query=query, user_response=user_response, gaps=gaps
+        query=query, user_response=user_response, gaps=gaps, language=lang_label
     )
 
     try:

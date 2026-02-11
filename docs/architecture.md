@@ -28,7 +28,8 @@
 │  └─ hitl_approve_todo: checkpoint (user approves/modifies)               │
 │                                                                          │
 │  Phase 3: Deep Context Extraction (with Graded Classification)           │
-│  ├─ execute_task: vector search → extract info + quotes → classify tier  │
+│  ├─ execute_task: LLM multi-query (3) → vector search → extract info    │
+│  │   + quotes → classify tier                                            │
 │  ├─ Reference following → classify nested chunks → task summary          │
 │  ├─ Accumulate by tier (primary/secondary/tertiary)                      │
 │  └─ Loop until all tasks completed                                       │
@@ -39,7 +40,7 @@
 │  Phase 4: Query-Anchored Synthesis & Quality Assurance                   │
 │  ├─ synthesize: tiered context + HITL summary + preserved quotes         │
 │  ├─ Language enforcement (generate_structured_with_language)             │
-│  └─ quality_check: optional QA scoring (0-400)                           │
+│  └─ quality_check: optional QA scoring (0-500, 5 dimensions)             │
 │                                                                          │
 │  Phase 5: Source Attribution                                             │
 │  └─ attribute_sources: build FinalReport with sources                    │
@@ -328,11 +329,12 @@ The growing JSON structure that accumulates all research findings:
 
 ### Phase 3: Deep Context Extraction (with Graded Classification)
 
-For each ToDoList item:
+For each ToDoList item (starting from Task 0 = original query):
 
-1. **Vector Search**: Search ChromaDB (either a selected database directory or all collections)
-2. **Information Extraction**: Condense relevant passages into `extracted_info` + preserve critical quotes
-3. **Context Classification**: Classify each chunk into Tier 1/2/3 based on relevance, depth, entity match
+1. **Multi-Query Generation**: LLM generates 2 targeted queries via `TASK_SEARCH_QUERIES_PROMPT` + 1 base concatenation query
+2. **Vector Search**: Execute all 3 queries against ChromaDB, deduplicate by chunk identity
+3. **Information Extraction**: Condense relevant passages into `extracted_info` + preserve critical quotes (language-aware)
+4. **Context Classification**: Classify each chunk into Tier 1/2/3 based on relevance, depth, entity match
 4. **Reference Detection**: Identify section/document/external refs
 5. **Reference Following**: Resolve and retrieve nested chunks (classified into Tier 2/3)
 6. **Task Summary**: Generate structured summary with key findings and relevance score
@@ -358,7 +360,7 @@ Output: Filtered tiered context ready for synthesis
    - Preserved quotes
    - Task summaries
 2. **Language Enforcement**: `generate_structured_with_language()` validates output language
-3. **Quality Check** (optional): Score 0-400 across 4 dimensions
+3. **Quality Check** (optional): Score 0-500 across 5 dimensions (factual accuracy, semantic validity, structural integrity, citation correctness, query relevance)
 
 ### Phase 5: Source Attribution
 

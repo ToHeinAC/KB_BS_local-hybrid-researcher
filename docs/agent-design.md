@@ -188,21 +188,31 @@ class ScoredChunk(BaseModel):
     extracted_info: str
 
 def filter_by_relevance(
-    chunks: list[str],
+    chunks: list[ChunkWithInfo],
     query: str,
     threshold: float = 0.6,
-) -> list[ScoredChunk]:
-    """Filter chunks by relevance to query."""
-    scored = []
+    min_results: int = 0,
+) -> list[ChunkWithInfo]:
+    """Filter chunks by relevance, guaranteeing min_results.
+
+    If threshold filtering yields fewer than min_results,
+    backfills from top-scoring rejected chunks.
+    """
+    filtered = []
+    rejected = []
     for chunk in chunks:
-        score = compute_relevance(chunk, query)
+        score = chunk.relevance_score or score_relevance(chunk.chunk, query)
+        chunk.relevance_score = score
         if score >= threshold:
-            scored.append(ScoredChunk(
-                chunk=chunk,
-                relevance_score=score,
-                extracted_info=extract_info(chunk, query),
-            ))
-    return scored
+            filtered.append(chunk)
+        else:
+            rejected.append(chunk)
+
+    if len(filtered) < min_results and rejected:
+        rejected.sort(key=lambda c: c.relevance_score or 0.0, reverse=True)
+        filtered.extend(rejected[:min_results - len(filtered)])
+
+    return filtered
 ```
 
 ### Step E: ToDoList Re-evaluation
@@ -330,11 +340,12 @@ def generate_summary(
 def quality_check(summary: QuerySummary) -> QualityAssessment:
     """Validate summary completeness and accuracy.
 
-    Scoring dimensions (0-100 each, 0-400 total):
+    Scoring dimensions (0-100 each, 0-500 total):
     - Factual accuracy
     - Semantic validity
     - Structural integrity
     - Citation correctness
+    - Query relevance
 
     Returns:
         Quality assessment with scores and issues

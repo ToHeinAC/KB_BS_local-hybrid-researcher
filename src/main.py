@@ -87,7 +87,7 @@ def _run_query(query: str) -> None:
         print("=" * 50)
         print(f"\nQuery: {report.get('query', '')}")
         print(f"\nAnswer:\n{report.get('answer', 'No answer generated')}")
-        print(f"\nQuality Score: {report.get('quality_score', 0)}/400")
+        print(f"\nQuality Score: {report.get('quality_score', 0)}/500")
         print(f"Tasks Completed: {report.get('todo_items_completed', 0)}")
 
         if report.get("findings"):

@@ -223,7 +223,7 @@ class TestResultModels:
         """Test QualityAssessment score validation."""
         with pytest.raises(ValueError):
             QualityAssessment(
-                overall_score=500,  # Invalid: max is 400
+                overall_score=600,  # Invalid: max is 500
                 factual_accuracy=90,
                 semantic_validity=85,
                 structural_integrity=88,

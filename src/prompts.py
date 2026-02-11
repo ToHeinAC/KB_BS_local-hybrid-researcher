@@ -3,433 +3,502 @@
 All prompts MUST be defined in this file per project convention.
 Never inline prompt strings in node functions or services.
 Use template variables for dynamic content.
+
+Every prompt follows a strict 4-section format optimised for small
+local LLMs (<=20B parameters):
+
+    ### Task   – one-sentence imperative
+    ### Input  – enumerated variables
+    ### Rules  – numbered constraints
+    ### Output format – exact JSON / text template
 """
 
 # =============================================================================
 # HITL Prompts - Language Detection
 # =============================================================================
 
-LANGUAGE_DETECTION_PROMPT = """Determine the language of the following text.
-Reply with ONLY 'de' for German or 'en' for English.
+LANGUAGE_DETECTION_PROMPT = """### Task
+Detect the language of the user text.
 
-Text: "{user_query}"
+### Input
+- user_text: "{user_query}"
 
-Language code:"""
+### Rules
+1. Reply with ONLY a two-letter language code.
+2. Supported codes: "de" (German), "en" (English).
+3. If uncertain, default to "de".
+4. Do NOT output anything else.
+
+### Output format
+de"""
 
 # =============================================================================
-# HITL Prompts - Follow-up Questions
+# HITL Prompts - Follow-up Questions (merged DE + EN)
 # =============================================================================
 
-FOLLOW_UP_QUESTIONS_DE = """Du bist Forschungsassistent. Analysiere Anfrage, Kontext und Wissensdatenbank. Stelle präzise Nachfragen.
+FOLLOW_UP_QUESTIONS_PROMPT = """### Task
+Generate exactly 3 follow-up questions to clarify the user's research query.
 
-Anfrage: "{user_query}"
+### Input
+- user_query: "{user_query}"
+- conversation_context: {context}
+- knowledge_base_retrieval: {retrieval}
 
-Kontext: {context}
+### Rules
+1. Write all 3 questions in {language}.
+2. Question 1 must clarify terminology or definitions.
+3. Question 2 must identify missing or unclear details.
+4. Question 3 must narrow the methodological scope or focus.
+5. Use the knowledge_base_retrieval to avoid asking about information already available.
+6. Output ONLY the 3 numbered questions, no explanations.
 
-Wissensdatenbank: {retrieval}
-
-Stelle genau 3 Nachfragen:
-
-Fokus:
-- Begriffsklärung und Kontext
-- Fehlende oder unklare Details  
-- Methodischer Umfang/Fokus
-
-Beispiel:
-Anfrage: "Nachhaltigkeit und Profit bei Windenergie?"
-1. Was bedeutet "Nachhaltigkeit" hier - ökologisch, ökonomisch, sozial?
-2. "Profit" für Betreiber oder volkswirtschaftlicher Nutzen?
-3. Zeitraum: Aktuelle Situation oder Zukunftsprognose?
-
-Ausgabeformat - genau 3 nummerierte Fragen, keine Erklärungen:
-1. [Frage zur Definition/Kontext]
-2. [Frage zu Details]
-3. [Frage zu Umfang]
-
-Antworte NUR mit den 3 nummerierten Fragen.
-"""
-
-FOLLOW_UP_QUESTIONS_EN = """You are a research assistant. Analyze the query, context, and knowledge base. Ask precise questions.
-
-Query: “{user_query}”
-
-Context: {context}
-
-Knowledge base: {retrieval}
-
-Ask exactly 3 questions:
-
-Focus:
-- Clarification of terms and context
-- Missing or unclear details  
-- Methodological scope/focus
-
-Example:
-Query: “Sustainability and profit in wind energy?”
-1. What does “sustainability” mean here—ecological, economic, social?
-2. “Profit” for operators or economic benefit?
-3. Time frame: Current situation or future forecast?
-
-Output format - exactly 3 numbered questions, no explanations:
+### Output format
 1. [Question about definition/context]
 2. [Question about details]
-3. [Question about scope]
-
-Answer ONLY with the 3 numbered questions."""
+3. [Question about scope]"""
 
 # =============================================================================
 # HITL Prompts - User Feedback Analysis
 # =============================================================================
 
-USER_FEEDBACK_ANALYSIS_PROMPT = """Analysiere diese Konversation und extrahiere die wichtigsten Informationen.
+USER_FEEDBACK_ANALYSIS_PROMPT = """### Task
+Analyse the conversation and extract key research parameters.
 
-Ursprüngliche Anfrage: "{user_query}"
+### Input
+- original_query: "{user_query}"
+- conversation_history: {context}
+- language: {language}
 
-Konversationsverlauf:
-{context}
+### Rules
+1. Extract named entities, regulations, and technical terms. Preserve exact and precise terminology.
+2. Determine the topical scope of the query.
+3. Capture any additional context the user provided.
+4. Formulate a refined search query incorporating all clarifications.
+5. Write all JSON values in {language}.
+6. Return ONLY valid JSON, no extra text.
 
-Extrahiere und gib als JSON zurück:
-{{"entities": ["Liste relevanter Entitäten/Vorschriften"],
-"scope": "Themenbereich der Anfrage",
-"context": "Zusätzlicher Kontext",
-"refined_query": "Verfeinerte Suchanfrage"}}
-
-JSON:"""
+### Output format
+```json
+{{"entities": ["list of relevant entities/regulations"],
+  "scope": "topic area of the query",
+  "context": "additional context from conversation",
+  "refined_query": "refined search query"}}
+```"""
 
 # =============================================================================
 # HITL Prompts - Knowledge Base Questions Generation
 # =============================================================================
 
-KNOWLEDGE_BASE_QUESTIONS_PROMPT = """Basierend auf dieser Konversation, erstelle {max_queries} optimierte Suchanfragen für eine Wissensdatenbank.
+KNOWLEDGE_BASE_QUESTIONS_PROMPT = """### Task
+Generate {max_queries} optimised search queries for a knowledge base.
 
-Ursprüngliche Anfrage: "{user_query}"
+### Input
+- original_query: "{user_query}"
+- conversation_history: {context}
+- extracted_analysis: {analysis}
+- language: {language}
 
-Konversationsverlauf:
-{context}
+### Rules
+1. Each query must target a different aspect of the original query.
+2. Use domain-specific terminology from the extracted_analysis.
+3. Queries must be specific enough for vector similarity search.
+4. Write all JSON values (queries, summary) in {language}.
+5. Return ONLY valid JSON, no extra text.
 
-Extrahierte Informationen: {analysis}
-
-Erstelle {max_queries} verschiedene, spezifische Suchanfragen, die verschiedene Aspekte der Anfrage abdecken.
-Jede Anfrage sollte auf einen Aspekt fokussiert sein.
-
-Gib als JSON zurück:
-{{"research_queries": ["Anfrage 1", "Anfrage 2", ...],
-"summary": "Kurze Zusammenfassung der Forschungsrichtung"}}
-
-JSON:"""
+### Output format
+```json
+{{"research_queries": ["query_1", "query_2", "..."],
+  "summary": "brief summary of the research direction"}}
+```"""
 
 # =============================================================================
 # HITL Prompts - Alternative Queries Generation
 # =============================================================================
 
-ALTERNATIVE_QUERIES_INITIAL_PROMPT = """Generate 2 alternative search queries for this research question.
+ALTERNATIVE_QUERIES_INITIAL_PROMPT = """### Task
+Generate 2 alternative search queries for the given research question.
 
-Original query: "{query}"
+### Input
+- original_query: "{query}"
+- language: {language}
 
-Create:
-1. broader_scope: A query that explores related/contextual information
-2. alternative_angle: A query that explores implications, challenges, or alternatives
+### Rules
+1. broader_scope: explore related or contextual information.
+2. alternative_angle: explore implications, challenges, or alternatives.
+3. Both queries must stay anchored to the original query's intent.
+4. Write all JSON values in {language}.
+5. Return ONLY valid JSON, no extra text.
 
-Output as JSON:
+### Output format
+```json
 {{"broader_scope": "...", "alternative_angle": "..."}}
+```"""
 
-JSON:"""
+ALTERNATIVE_QUERIES_REFINED_PROMPT = """### Task
+Generate 2 refined search queries based on research progress.
 
-ALTERNATIVE_QUERIES_REFINED_PROMPT = """Generate 2 refined search queries based on the research progress.
+### Input
+- original_query: "{query}"
+- entities_found: {entities}
+- knowledge_gaps: {gaps}
+- language: {language}
 
-Original query: "{query}"
-Entities found: {entities}
-Knowledge gaps: {gaps}
+### Rules
+1. broader_scope: address the identified knowledge gaps.
+2. alternative_angle: explore newly discovered concepts.
+3. Incorporate entities where relevant.
+4. Write all JSON values in {language}.
+5. Return ONLY valid JSON, no extra text.
 
-Create:
-1. broader_scope: A query addressing the identified knowledge gaps
-2. alternative_angle: A query exploring newly mentioned concepts
-
-Output as JSON:
+### Output format
+```json
 {{"broader_scope": "...", "alternative_angle": "..."}}
-
-JSON:"""
+```"""
 
 # =============================================================================
 # HITL Prompts - Retrieval Analysis
 # =============================================================================
 
-RETRIEVAL_ANALYSIS_PROMPT = """User's Research Query: {query}
+RETRIEVAL_ANALYSIS_PROMPT = """### Task
+Analyse the retrieved context against the user's research query.
 
-Retrieved Context (from knowledge base):
-{retrieval}
+### Input
+- user_query: {query}
+- retrieved_context: {retrieval}
+- language: {language}
 
-Perform comprehensive analysis:
-1. KEY CONCEPTS: 5-7 core concepts from query + retrieved content
-2. ENTITIES: Named entities (organizations, dates, technical terms)
-3. SCOPE: Primary focus area
-4. KNOWLEDGE GAPS: Specific missing information (be concrete, not "more details")
-5. COVERAGE: 0-100% estimate considering foundational, intermediate, advanced coverage
+### Rules
+1. Extract 5-7 core concepts from query and retrieved content.
+2. List named entities (organisations, dates, technical terms).
+3. State the primary focus area in one sentence.
+4. List concrete knowledge gaps (not vague phrases like "more details").
+5. Estimate coverage as a decimal 0.00-1.00 considering foundational, intermediate, and advanced coverage.
+6. Write all JSON values in {language}.
+7. Return ONLY valid JSON, no extra text.
 
-Output as JSON:
-{{"key_concepts": ["..."], "entities": ["..."], "scope": "...", "knowledge_gaps": ["..."], "coverage_score": 0.XX}}
-
-JSON:"""
+### Output format
+```json
+{{"key_concepts": ["..."],
+  "entities": ["..."],
+  "scope": "...",
+  "knowledge_gaps": ["..."],
+  "coverage_score": 0.00}}
+```"""
 
 # =============================================================================
 # HITL Prompts - Refined Queries
 # =============================================================================
 
-REFINED_QUERIES_PROMPT = """Original query: "{query}"
-User's clarification: "{user_response}"
-Identified gaps: {gaps}
+REFINED_QUERIES_PROMPT = """### Task
+Generate 3 refined search queries incorporating user feedback.
 
-Generate 3 refined search queries:
-1. query_1: Addresses the identified knowledge gaps
-2. query_2: Explores new concepts mentioned by the user
-3. query_3: Clarifies the updated scope
+### Input
+- original_query: "{query}"
+- user_clarification: "{user_response}"
+- identified_gaps: {gaps}
+- language: {language}
 
-Output as JSON:
+### Rules
+1. query_1: address the identified knowledge gaps.
+2. query_2: explore new concepts mentioned by the user.
+3. query_3: reflect the updated scope after clarification.
+4. Write all JSON values in {language}. Preserve exact and precise terminology.
+5. Return ONLY valid JSON, no extra text.
+
+### Output format
+```json
 {{"query_1": "...", "query_2": "...", "query_3": "..."}}
-
-JSON:"""
+```"""
 
 # =============================================================================
 # Research Prompts - ToDo Generation
 # =============================================================================
 
-TODO_GENERATION_PROMPT = """Generate a research task list for this query analysis.
+TODO_GENERATION_PROMPT = """### Task
+Generate a list of {num_items} specific research tasks for the given query analysis.
 
-Original Query: "{original_query}"
-Key Concepts: {key_concepts}
-Entities: {entities}
-Scope: {scope}
-Context: {assumed_context}
+### Input
+- original_query: "{original_query}"
+- key_concepts: {key_concepts}
+- entities: {entities}
+- scope: {scope}
+- context: {assumed_context}
+- language: {language}
 
-Generate {num_items} specific, actionable research tasks.
-Each task should be:
-- Specific and measurable
-- Focused on finding concrete information
-- Related to the query concepts
+### Rules
+1. Each task must be specific, measurable, and focused on finding concrete information. Preserve exact and precise terminology.
+2. Each task must relate to the query concepts and entities.
+3. Assign sequential integer IDs starting from 1.
+4. Write all JSON values (task descriptions, context) in {language}.
+5. Return ONLY valid JSON, no extra text.
 
-Return JSON with "items" array, each item having:
-- id: integer starting from 1
-- task: string describing the task
-- context: string explaining why this task is needed
-
-Example:
-{{"items": [{{"id": 1, "task": "Find dose limit regulations", "context": "Core query requirement"}}]}}"""
+### Output format
+```json
+{{"items": [
+    {{"id": 1, "task": "Find dose limit regulations", "context": "Core query requirement"}},
+    {{"id": 2, "task": "...", "context": "..."}}
+  ]}}
+```"""
 
 # =============================================================================
 # Research Prompts - Information Extraction
 # =============================================================================
 
-INFO_EXTRACTION_PROMPT = """Given this search query: "{query}"
+INFO_EXTRACTION_PROMPT = """### Task
+Extract only the passages relevant to the search query from the text chunk.
 
-Extract only the relevant passages from this text chunk. Be concise and focus on information that directly answers or relates to the query.
+### Input
+- search_query: "{query}"
+- text_chunk: {chunk_text}
 
-Text chunk:
-{chunk_text}
+### Rules
+1. Include only information that directly answers or relates to the search query.
+2. Be concise; omit filler and unrelated sentences.
+3. Write the extracted information in {language}. Preserve exact and precise terminology.
+4. Output the extracted text directly, no JSON wrapping.
 
-Extracted relevant information (in the same language as the chunk):"""
+### Output format
+<extracted relevant passages in {language}>"""
 
-INFO_EXTRACTION_WITH_QUOTES_PROMPT = """Given this search query: "{query}"
-Key entities to look for: {key_entities}
+INFO_EXTRACTION_WITH_QUOTES_PROMPT = """### Task
+Extract relevant information and preserve critical verbatim quotes from the text chunk.
 
-Extract relevant information from this text chunk.
+### Input
+- search_query: "{query}"
+- key_entities: {key_entities}
+- text_chunk: {chunk_text}
 
-Text chunk:
-{chunk_text}
+### Rules
+1. extracted_info: condensed relevant passages in {language}. Preserve exact and precise terminology.
+2. preserved_quotes: list of exact verbatim quotes that must not be paraphrased.
+3. Preserve quotes for: legal definitions with numbers/thresholds, technical specifications with units, named regulations with section numbers.
+4. For each quote include the exact text and a brief relevance reason.
+5. Return ONLY valid JSON, no extra text.
 
-Provide:
-1. extracted_info: Condensed relevant passages (same language as chunk)
-2. preserved_quotes: List of exact verbatim quotes that are critical for accuracy
-   - Legal definitions with exact numbers/thresholds
-   - Technical specifications with units
-   - Named regulations with section numbers
-   - Statements that should not be paraphrased
-
-For preserved_quotes, include:
-- quote: The exact text (copy verbatim, do not paraphrase)
-- relevance_reason: Why this must be preserved verbatim
-
-Return as JSON."""
+### Output format
+```json
+{{"extracted_info": "condensed relevant text in {language}",
+  "preserved_quotes": [
+    {{"quote": "exact verbatim text", "relevance_reason": "why this must be preserved"}}
+  ]}}
+```"""
 
 # =============================================================================
 # Research Prompts - Task Summary
 # =============================================================================
 
-TASK_SUMMARY_PROMPT = """Summarize the findings for this research task.
+TASK_SUMMARY_PROMPT = """### Task
+Summarise the findings for a completed research task and assess their relevance.
 
-Task: "{task}"
-Original Research Query: "{original_query}"
+### Input
+- task: "{task}"
+- original_query: "{original_query}"
+- findings: {findings}
+- preserved_quotes: {preserved_quotes}
 
-Findings:
-{findings}
+### Rules
+1. Write the summary in {language}.
+2. Before summarising, discard any finding that is only superficially related to the original query (shares keywords but addresses a different topic).
+3. Include key facts with source citations. Preserve exact and precise terminology.
+4. Preserve any critical verbatim quotes.
+5. Note gaps or limitations.
+6. Provide a one-sentence relevance assessment.
+7. List findings that seem related but do NOT actually answer the query.
+8. Return ONLY valid JSON, no extra text.
 
-Critical Quotes (preserve exactly):
-{preserved_quotes}
-
-Create a summary (in {language}) that:
-1. Directly addresses how this task contributes to answering the original query
-2. Includes key facts with source citations
-3. Preserves any critical verbatim quotes
-4. Notes any gaps or limitations
-
-Return JSON with:
-- summary: Concise task summary
-- key_findings: List of discrete findings
-- gaps: Any identified gaps"""
+### Output format
+```json
+{{"summary": "concise task summary in {language}",
+  "key_findings": ["finding 1", "finding 2"],
+  "gaps": ["gap 1"],
+  "relevance_assessment": "one-sentence verdict",
+  "irrelevant_findings": ["finding that looks related but is not"]}}
+```"""
 
 # =============================================================================
 # Research Prompts - Synthesis
 # =============================================================================
 
-SYNTHESIS_PROMPT = """Synthesize these research findings into a coherent answer.
+SYNTHESIS_PROMPT = """### Task
+Synthesise research findings into a coherent answer to the original query.
 
-Original Query: "{original_query}"
+### Input
+- original_query: "{original_query}"
+- research_findings: {findings}
 
-Research Findings:
-{findings}
+### Rules
+1. Write the summary in {language}. Do not mix languages.
+2. Include source citations in the format [Document_name.pdf, Page X].
+3. Focus on directly answering the query. Preserve exact and precise terminology.
+4. Return ONLY valid JSON, no extra text.
 
-Provide:
-1. summary: A comprehensive answer to the query (in {language})
-2. key_findings: List of the most important findings
+### Output format
+```json
+{{"summary": "comprehensive answer in {language}",
+  "key_findings": ["finding 1", "finding 2"]}}
+```"""
 
-Include source citations in the format [Document_name.pdf, Page X] where applicable."""
+SYNTHESIS_PROMPT_ENHANCED = """### Task
+Synthesise tiered research findings into a comprehensive, query-anchored answer.
 
-SYNTHESIS_PROMPT_ENHANCED = """Synthesize research findings into a comprehensive answer.
+### Input
+- original_query: "{original_query}"
+- hitl_context_summary: {hitl_context_summary}
+- primary_findings (highest confidence): {primary_findings}
+- secondary_findings (supporting): {secondary_findings}
+- tertiary_findings (background): {tertiary_findings}
+- preserved_quotes: {preserved_quotes}
+- task_summaries: {task_summaries}
 
-CRITICAL: Your answer MUST directly address the original query. Do not drift into tangential topics.
+### Rules
+1. Write ONLY in {language}. Do not mix languages.
+2. Before synthesising, discard any finding that shares keywords but addresses a different topic or intent than the original query.
+3. If no relevant findings remain after filtering, state clearly that the knowledge base does not contain information to answer this query.
+4. Begin with a direct answer to the original query.
+5. Prioritise primary findings; use secondary for depth; use tertiary only to fill gaps.
+6. Support claims with citations: [Document.pdf, Page X].
+7. Include preserved quotes for legal/technical precision.
+8. Acknowledge gaps identified during research.
+9. Structure: Overview then Details then Limitations.
+10. Return ONLY valid JSON, no extra text.
 
-## Original Query
-"{original_query}"
-
-## User Intent (from clarification conversation)
-{hitl_context_summary}
-
-## Primary Findings (highest confidence, use these first)
-{primary_findings}
-
-## Supporting Findings (use to add depth)
-{secondary_findings}
-
-## Background Context (use only if gaps remain)
-{tertiary_findings}
-
-## Critical Verbatim Quotes (include exactly as written when relevant)
-{preserved_quotes}
-
-## Task Summaries
-{task_summaries}
-
----
-
-INSTRUCTIONS:
-1. Answer ONLY in {language}. Do not mix languages.
-2. Begin with a direct answer to the original query.
-3. Support claims with citations: [Document.pdf, Page X]
-4. Include preserved quotes for legal/technical precision.
-5. Acknowledge gaps identified during research.
-6. Structure: Overview → Details → Limitations
-
-Provide:
-1. summary: Comprehensive answer (strictly in {language})
-2. key_findings: List of most important findings
-3. query_coverage: How completely the query was answered (0-100)
-4. remaining_gaps: Any unanswered aspects"""
-
-# =============================================================================
-# Research Prompts - Quality Check
-# =============================================================================
+### Output format
+```json
+{{"summary": "comprehensive answer strictly in {language}",
+  "key_findings": ["finding 1", "finding 2"],
+  "query_coverage": 75,
+  "remaining_gaps": ["unanswered aspect 1"]}}
+```"""
 
 # =============================================================================
 # Reference Extraction Prompt (for LLM-based reference detection)
 # =============================================================================
 
-REFERENCE_EXTRACTION_PROMPT = """Extract all references from the following text.
+REFERENCE_EXTRACTION_PROMPT = """### Task
+Extract all references from the given text and classify each by type.
 
-For each reference found, classify it as one of these types:
-- legal_section: Legal paragraph/section references (e.g., "§ 133 des Strahlenschutzgesetzes", "Section 5.2 of the Atomic Energy Act")
-- academic_numbered: Numbered citations (e.g., "[253]", "[12, 15]")
-- academic_shortform: Author-year citations (e.g., "[Townsend79]", "[Mueller2020]")
-- document_mention: Named document references (e.g., "Kreislaufwirtschaftsgesetz", "KTA 1401", "ICRP Publication 103")
+### Input
+- text: {text}
 
-For each reference, provide:
-- reference_mention: The exact text as it appears
-- reference_type: One of the four types above
-- target_document_hint: Best guess at the target document name (empty string if unknown)
-- confidence: 0.0 to 1.0
+### Rules
+1. Classify each reference as one of: legal_section, academic_numbered, academic_shortform, document_mention.
+2. legal_section: paragraph/section references (e.g. "§ 133 des Strahlenschutzgesetzes", "Section 5.2").
+3. academic_numbered: numbered citations (e.g. "[253]", "[12, 15]").
+4. academic_shortform: author-year citations (e.g. "[Townsend79]", "[Mueller2020]").
+5. document_mention: named document references (e.g. "Kreislaufwirtschaftsgesetz", "KTA 1401", "ICRP Publication 103").
+6. Copy the reference mention verbatim.
+7. Provide a best guess for the target document name (empty string if unknown).
+8. Set confidence between 0.0 and 1.0.
+9. Return ONLY valid JSON, no extra text.
 
-Examples:
-
-Text: "gemäß § 133 des Strahlenschutzgesetzes"
--> {{"reference_mention": "§ 133 des Strahlenschutzgesetzes", "reference_type": "legal_section", "target_document_hint": "Strahlenschutzgesetz", "confidence": 0.95}}
-
-Text: "see [253] for details"
--> {{"reference_mention": "[253]", "reference_type": "academic_numbered", "target_document_hint": "", "confidence": 0.9}}
-
-Text: "as shown by [Townsend79]"
--> {{"reference_mention": "[Townsend79]", "reference_type": "academic_shortform", "target_document_hint": "", "confidence": 0.85}}
-
-Text: "Die Anforderungen der KTA 1401 sind zu beachten"
--> {{"reference_mention": "KTA 1401", "reference_type": "document_mention", "target_document_hint": "KTA 1401", "confidence": 0.95}}
-
-Now extract references from this text:
-
-{text}"""
+### Output format
+```json
+{{"references": [
+    {{"reference_mention": "exact text", "reference_type": "legal_section", "target_document_hint": "Strahlenschutzgesetz", "confidence": 0.95}}
+  ]}}
+```"""
 
 # =============================================================================
 # HITL Context Summary Prompt (for synthesis)
 # =============================================================================
 
-HITL_CONTEXT_SUMMARY_PROMPT = """Summarize the research clarification conversation.
+HITL_CONTEXT_SUMMARY_PROMPT = """### Task
+Summarise the research clarification conversation for use in final synthesis.
 
-Original Query: "{query}"
+### Input
+- original_query: "{query}"
+- conversation: {conversation}
+- retrieved_context: {retrieval}
+- knowledge_gaps: {gaps}
 
-Conversation:
-{conversation}
+### Rules
+1. Write the summary in {language}. Preserve exact and precise terminology.
+2. Cover: user's refined intent, key clarifications, most relevant retrieval findings, remaining gaps.
+3. This summary will guide the final answer synthesis.
+4. Output the summary as plain text, no JSON.
 
-Retrieved Context (from knowledge base during clarification):
-{retrieval}
-
-Identified Knowledge Gaps:
-{gaps}
-
-Create a concise summary (in {language}) covering:
-1. User's refined intent and scope
-2. Key clarifications from the conversation
-3. Most relevant findings from retrieval
-4. Remaining gaps to address
-
-This summary will guide the final answer synthesis.
-
-Summary:"""
+### Output format
+<concise summary in {language}>"""
 
 # =============================================================================
 # Research Prompts - Relevance Scoring (Pre-Synthesis Validation)
 # =============================================================================
 
-RELEVANCE_SCORING_PROMPT = """Score how relevant this text is to answering the query.
+RELEVANCE_SCORING_PROMPT = """### Task
+Score how relevant the given text is to answering the query.
 
-Query: "{query}"
-Key entities: {entities}
+### Input
+- query: "{query}"
+- key_entities: {entities}
+- text: "{text}"
+- language: {language}
 
-Text: "{text}"
+### Rules
+1. Score from 0 to 100.
+2. 100 = directly answers the query, 75 = key supporting info, 50 = tangential, 25 = loosely connected, 0 = irrelevant.
+3. Write the reasoning in {language}. Preserve exact and precise terminology.
+4. Return ONLY valid JSON, no extra text.
 
-Score from 0-100:
-- 100: Directly answers the query
-- 75: Provides key supporting information
-- 50: Related but tangential
-- 25: Only loosely connected
-- 0: Irrelevant
+### Output format
+```json
+{{"relevance_score": 75, "reasoning": "brief explanation"}}
+```"""
 
-Return JSON: {{"relevance_score": N, "reasoning": "brief explanation"}}"""
+# =============================================================================
+# Research Prompts - Task Search Queries
+# =============================================================================
 
-QUALITY_CHECK_PROMPT = """Evaluate the quality of this research summary.
+TASK_SEARCH_QUERIES_PROMPT = """### Task
+Generate 2 targeted vector-DB search queries for a research task.
 
-Summary:
-{summary}
+### Input
+- research_task: "{task}"
+- original_query: "{original_query}"
+- hitl_context: {hitl_context}
+- key_entities: {key_entities}
+- language: {language}
 
-Score each dimension from 0-100:
-1. factual_accuracy: Are claims factually correct?
-2. semantic_validity: Does it make logical sense?
-3. structural_integrity: Is it well-organized?
-4. citation_correctness: Are sources properly cited?
+### Rules
+1. query_1: focused query combining the task's core aspects with key entities.
+2. query_2: complementary query exploring a related angle or alternative terminology.
+3. Both queries must stay anchored to the original user query.
+4. Use domain-specific terminology where possible.
+5. Write all JSON values in {language}. Preserve exact and precise terminology.
+6. Return ONLY valid JSON, no extra text.
 
-Also list any issues_found as a list of strings."""
+### Output format
+```json
+{{"query_1": "...", "query_2": "..."}}
+```"""
+
+# =============================================================================
+# Research Prompts - Quality Check
+# =============================================================================
+
+QUALITY_CHECK_PROMPT = """### Task
+Evaluate the quality of a research summary against the original query.
+
+### Input
+- original_query: "{original_query}"
+- summary: {summary}
+- language: {language}
+
+### Rules
+1. Score each dimension from 0 to 100.
+2. factual_accuracy: are claims factually correct?
+3. semantic_validity: does it make logical sense?
+4. structural_integrity: is it well-organised?
+5. citation_correctness: are sources properly cited?
+6. query_relevance: does the summary actually answer the original query? 0 if unrelated, 100 if fully answers it.
+7. List any issues found. Write issues in {language}. Preserve exact and precise terminology.
+8. Return ONLY valid JSON, no extra text.
+
+### Output format
+```json
+{{"factual_accuracy": 80,
+  "semantic_validity": 85,
+  "structural_integrity": 75,
+  "citation_correctness": 70,
+  "query_relevance": 90,
+  "issues_found": ["issue 1"]}}
+```"""

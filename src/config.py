@@ -57,7 +57,7 @@ class Settings(BaseSettings):
 
     # Phase 4: Quality Assurance
     enable_quality_checker: bool = True
-    quality_threshold: int = 300
+    quality_threshold: int = 375
     max_reflections: int = 1
 
     # Web Search (optional)

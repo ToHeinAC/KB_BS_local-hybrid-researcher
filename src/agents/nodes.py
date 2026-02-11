@@ -21,7 +21,7 @@ from src.agents.tools import (
 )
 from src.config import settings
 from src.models.hitl import HITLDecision
-from src.models.query import QueryAnalysis, ToDoItem, ToDoList
+from src.models.query import QueryAnalysis, TaskSearchQueries, ToDoItem, ToDoList
 from src.models.research import (
     ChunkWithInfo,
     ResearchContext,
@@ -44,6 +44,7 @@ from src.prompts import (
     RELEVANCE_SCORING_PROMPT,
     SYNTHESIS_PROMPT,
     SYNTHESIS_PROMPT_ENHANCED,
+    TASK_SEARCH_QUERIES_PROMPT,
     TASK_SUMMARY_PROMPT,
     TODO_GENERATION_PROMPT,
 )
@@ -115,6 +116,7 @@ def generate_todo(state: AgentState) -> dict:
         # Fallback to LLM generation
         client = get_ollama_client()
 
+        lang_label = "German" if analysis.detected_language == "de" else "English"
         prompt = TODO_GENERATION_PROMPT.format(
             original_query=analysis.original_query,
             key_concepts=analysis.key_concepts,
@@ -122,6 +124,7 @@ def generate_todo(state: AgentState) -> dict:
             scope=analysis.scope,
             assumed_context=analysis.assumed_context,
             num_items=settings.initial_todo_items,
+            language=lang_label,
         )
 
         try:
@@ -143,6 +146,14 @@ def generate_todo(state: AgentState) -> dict:
                     context="Fallback task from failed generation",
                 )
             ]
+
+    # Prepend original query as Task 0 for direct vector search
+    task_zero = ToDoItem(
+        id=0,
+        task=analysis.original_query,
+        context="Direct search for original user query",
+    )
+    items.insert(0, task_zero)
 
     todo_list = ToDoList(items=items, max_items=settings.todo_max_items)
 
@@ -193,7 +204,7 @@ def process_hitl_todo(state: AgentState) -> dict:
         todo_list = hitl_service.apply_todo_modifications(todo_list, decision)
         # Renumber tasks sequentially after removals/additions
         for idx, item in enumerate(todo_list.items):
-            item.id = idx + 1
+            item.id = idx
 
     return {
         "todo_list": [item.model_dump() for item in todo_list.items],
@@ -248,15 +259,54 @@ def execute_task(state: AgentState) -> dict:
         "key_entities": analysis.entities,
     })
 
-    # Perform vector search
-    query = f"{current_task.task} {' '.join(analysis.key_concepts)}"
+    # Determine language for extraction and search queries
+    language = query_anchor.get("detected_language", "de")
+    lang_label = "German" if language == "de" else "English"
+
+    # Generate 2 dedicated search queries for this task
+    hitl_context = state.get("hitl_context_summary", "")
+    key_entities = query_anchor.get("key_entities", [])
+    client = get_ollama_client()
+
+    prompt = TASK_SEARCH_QUERIES_PROMPT.format(
+        task=current_task.task,
+        original_query=analysis.original_query,
+        hitl_context=hitl_context or "None",
+        key_entities=", ".join(key_entities) if key_entities else "None",
+        language=lang_label,
+    )
+
+    try:
+        search_queries_out = client.generate_structured(
+            prompt, TaskSearchQueries
+        )
+        generated_queries = [
+            search_queries_out.query_1,
+            search_queries_out.query_2,
+        ]
+    except Exception as e:
+        logger.warning("Search query generation failed: %s, using fallback", e)
+        generated_queries = []
+
+    # Build query list: original concatenation + 2 LLM-generated
+    base_query = f"{current_task.task} {' '.join(analysis.key_concepts)}"
+    all_queries = [base_query] + generated_queries
+
+    # Execute all queries and deduplicate results by chunk identity
     top_k = state.get("k_results") or settings.m_chunks_per_query
     selected_database = state.get("selected_database")
-    results = vector_search(
-        query,
-        top_k=top_k,
-        selected_database=selected_database,
-    )
+    seen_chunks: set[str] = set()
+    results = []
+
+    for q in all_queries:
+        q_results = vector_search(
+            q, top_k=top_k, selected_database=selected_database
+        )
+        for r in q_results:
+            chunk_key = f"{r.doc_name}:{r.page_number}:{r.chunk_text[:100]}"
+            if chunk_key not in seen_chunks:
+                seen_chunks.add(chunk_key)
+                results.append(r)
 
     # Get existing tiered context and preserved quotes
     primary_context = list(state.get("primary_context", []))
@@ -276,6 +326,7 @@ def execute_task(state: AgentState) -> dict:
             analysis.original_query,
             query_anchor=query_anchor,
             preserve_quotes=True,
+            language=language,
         )
         preserved_quotes.extend(quotes)
 
@@ -372,19 +423,19 @@ def execute_task(state: AgentState) -> dict:
 
     # Filter by relevance
     pre_filter_count = len(chunks)
-    chunks = filter_by_relevance(chunks, analysis.original_query)
+    chunks = filter_by_relevance(chunks, analysis.original_query, min_results=top_k)
     logger.info(
-        "Task %s: %d results from search, %d chunks pre-filter, %d post-filter, %d with extracted_info",
+        "Task %s: %d queries (%d generated), %d unique results, %d post-filter",
         task_id,
+        len(all_queries),
+        len(generated_queries),
         len(results),
-        pre_filter_count,
         len(chunks),
-        sum(1 for c in chunks if c.extracted_info),
     )
 
     # Add to research context
     search_result = SearchQueryResult(
-        query=query,
+        query=" | ".join(all_queries),
         chunks=chunks,
     )
     context.search_queries.append(search_result)
@@ -626,9 +677,29 @@ def synthesize(state: AgentState) -> dict:
                 len(context.search_queries),
                 total_chunks,
             )
+            # Fall through with raw chunk text instead of returning empty
+            for search_result in context.search_queries:
+                for chunk in search_result.chunks:
+                    if chunk.chunk:
+                        all_info.append({
+                            "text": chunk.chunk[:500],
+                            "source": chunk.document,
+                            "page": chunk.page,
+                        })
+
+        if not all_info:
+            # Truly nothing available — produce minimal summary
+            result = SynthesisOutput(
+                summary="Insufficient data found in the knowledge base to answer this query.",
+                key_findings=[],
+            )
+            for i, sq in enumerate(context.search_queries):
+                if i == 0:
+                    sq.summary = result.summary
             return {
+                "research_context": context.model_dump(),
                 "phase": "quality_check",
-                "messages": ["No information to synthesize"],
+                "messages": ["No data available for synthesis"],
             }
 
         max_synthesis_docs = settings.max_docs * 4
@@ -753,6 +824,7 @@ class QualityCheckOutput(BaseModel):
     semantic_validity: int
     structural_integrity: int
     citation_correctness: int
+    query_relevance: int = 0
     issues_found: list[str]
 
 
@@ -781,7 +853,16 @@ def quality_check(state: AgentState) -> dict:
     if not summary:
         return {"phase": "attribute_sources"}
 
-    prompt = QUALITY_CHECK_PROMPT.format(summary=summary)
+    # Get original query for relevance scoring
+    analysis = QueryAnalysis.model_validate(state["query_analysis"])
+    query_anchor = state.get("query_anchor", {})
+    original_query = query_anchor.get("original_query", analysis.original_query)
+
+    language = query_anchor.get("detected_language", "de")
+    lang_label = "German" if language == "de" else "English"
+    prompt = QUALITY_CHECK_PROMPT.format(
+        summary=summary, original_query=original_query, language=lang_label
+    )
 
     try:
         result = client.generate_structured(prompt, QualityCheckOutput)
@@ -790,6 +871,7 @@ def quality_check(state: AgentState) -> dict:
             + result.semantic_validity
             + result.structural_integrity
             + result.citation_correctness
+            + result.query_relevance
         )
 
         assessment = QualityAssessment(
@@ -798,6 +880,7 @@ def quality_check(state: AgentState) -> dict:
             semantic_validity=result.semantic_validity,
             structural_integrity=result.structural_integrity,
             citation_correctness=result.citation_correctness,
+            query_relevance=result.query_relevance,
             passes_quality=overall_score >= settings.quality_threshold,
             issues_found=result.issues_found,
         )
@@ -818,7 +901,7 @@ def quality_check(state: AgentState) -> dict:
     return {
         "quality_assessment": assessment.model_dump(),
         "phase": "attribute_sources",
-        "messages": [f"Quality score: {assessment.overall_score}/400"],
+        "messages": [f"Quality score: {assessment.overall_score}/500"],
     }
 
 
@@ -897,6 +980,7 @@ def attribute_sources(state: AgentState) -> dict:
             "semantic_validity": qa.get("semantic_validity", 0),
             "structural_integrity": qa.get("structural_integrity", 0),
             "citation_correctness": qa.get("citation_correctness", 0),
+            "query_relevance": qa.get("query_relevance", 0),
         }
     else:
         # Default values if quality checker was disabled or not run
@@ -906,6 +990,7 @@ def attribute_sources(state: AgentState) -> dict:
             "semantic_validity": 0,
             "structural_integrity": 0,
             "citation_correctness": 0,
+            "query_relevance": 0,
         }
 
     report = FinalReport(
@@ -1467,10 +1552,13 @@ def hitl_generate_queries(state: AgentState) -> dict:
     query = state["query"]
     analysis = state.get("query_analysis", {})
     conversation = state.get("hitl_conversation_history", [])
+    language = state.get("detected_language", "de")
 
     if iteration == 0:
         # Initial: original + broader + alternative angle
-        queries = generate_alternative_queries_llm(query, {}, iteration)
+        queries = generate_alternative_queries_llm(
+            query, {}, iteration, language=language
+        )
     else:
         # Refined: based on user feedback + knowledge gaps
         gaps = state.get("knowledge_gaps", [])
@@ -1479,7 +1567,9 @@ def hitl_generate_queries(state: AgentState) -> dict:
             if msg.get("role") == "user":
                 last_response = msg.get("content", "")
                 break
-        queries = generate_refined_queries_llm(query, last_response, gaps)
+        queries = generate_refined_queries_llm(
+            query, last_response, gaps, language=language
+        )
 
     # Track all queries per iteration
     iteration_queries = list(state.get("iteration_queries", []))
@@ -1568,9 +1658,10 @@ def hitl_analyze_retrieval(state: AgentState) -> dict:
 
     query = state["query"]
     retrieval = state.get("query_retrieval", "")
+    language = state.get("detected_language", "de")
 
     # LLM analysis
-    analysis = analyze_retrieval_context_llm(query, retrieval)
+    analysis = analyze_retrieval_context_llm(query, retrieval, language=language)
 
     return {
         "query_analysis": analysis,

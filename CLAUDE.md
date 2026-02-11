@@ -23,7 +23,8 @@ Classical RAG lacks deep contextual understanding and cannot follow inter-docume
 ├────────────────────────────────────────────────────────────────────┤
 │  Phase 3: Deep Context Extraction (with Graded Classification)      │
 │  For each task:                                                      │
-│    Vector Search → Extract Info + Quotes → Classify Tier →          │
+│    LLM Multi-Query (3) → Vector Search → Extract Info + Quotes →    │
+│    Classify Tier →                                                   │
 │    Hybrid Ref Detection → Registry-Scoped Resolution →              │
 │    Token Budget → Convergence Check → Generate Task Summary →       │
 │    Accumulate by Tier (primary/secondary/tertiary) → Next Task      │
@@ -166,7 +167,7 @@ pytest tests/ -v
 Edit `.env` for your setup:
 - `OLLAMA_NUM_CTX=131072`: 128K context for dual 4090s (adjust if needed)
 - `OLLAMA_SAFE_LIMIT=0.9`: Stop at 90% to prevent OOM
-- `QUALITY_THRESHOLD=300`: Minimum quality score (0-400)
+- `QUALITY_THRESHOLD=375`: Minimum quality score (0-500, 5 dimensions)
 - `REFERENCE_EXTRACTION_METHOD=hybrid`: Reference detection method (`regex`, `llm`, `hybrid`)
 - `REFERENCE_TOKEN_BUDGET=50000`: Max tokens for reference following per task
 - `CONVERGENCE_SAME_DOC_THRESHOLD=3`: Stop following when same doc appears N times
@@ -216,6 +217,9 @@ KB_BS_local-hybrid-researcher/
 - Never inline prompt strings in node functions or services
 - Use template variables for dynamic content (e.g., `{query}`, `{context}`)
 - Group prompts by category (HITL, Research, Quality)
+- **Every content-bearing prompt MUST include `{language}`** to enforce output language
+  - Only exceptions: `LANGUAGE_DETECTION_PROMPT` (outputs code) and `REFERENCE_EXTRACTION_PROMPT` (copies verbatim)
+- All prompts follow a strict 4-section format: `### Task`, `### Input`, `### Rules`, `### Output format`
 
 ## Documentation
 
@@ -331,6 +335,27 @@ KB_BS_local-hybrid-researcher/
 - [x] **New Pydantic Models**: `SynthesisOutputEnhanced`, `TaskSummaryOutput`, `RelevanceScoreOutput`
 - [x] **Graph Update**: Added `validate_relevance` node between `execute_task` and `synthesize`
 - [x] **84+ Unit Tests**: All existing tests pass (22 model, 23 agent, 39 reference extraction)
+
+### Prompt Standardization & Multi-Query Task Execution (Week 4.5) - COMPLETE
+- [x] **Prompt 4-Section Format**: All 19 prompts reformatted to `### Task / ### Input / ### Rules / ### Output format`
+  - Merged `FOLLOW_UP_QUESTIONS_DE` + `FOLLOW_UP_QUESTIONS_EN` into single `FOLLOW_UP_QUESTIONS_PROMPT` with `{language}`
+- [x] **Universal `{language}` Enforcement**: All 17 content-bearing prompts include `{language}` template variable
+  - Callers in `hitl_service.py` (5 functions) and `nodes.py` (5 functions) compute `lang_label` and pass it
+  - Only exceptions: `LANGUAGE_DETECTION_PROMPT` (outputs code), `REFERENCE_EXTRACTION_PROMPT` (copies verbatim)
+- [x] **Multi-Query Task Execution**: `execute_task()` generates 3 queries per task
+  - New `TASK_SEARCH_QUERIES_PROMPT` generates 2 LLM-targeted queries + 1 base concatenation query
+  - New `TaskSearchQueries` Pydantic model in `src/models/query.py`
+  - Chunk deduplication by `doc_name:page:text[:100]` across all 3 query results
+- [x] **Task 0 Prepend**: `generate_todo()` prepends original query as Task 0 for direct vector search
+- [x] **5-Dimension Quality Scoring**: Added `query_relevance` (0-100) to `QualityAssessment`
+  - Total score now 0-500 (was 0-400), threshold raised to 375
+  - UI and CLI updated to display `/500`
+- [x] **Enhanced `TaskSummaryOutput`**: Added `relevance_assessment` and `irrelevant_findings` fields
+- [x] **Relevance Filter Backfill**: `filter_by_relevance()` accepts `min_results` param
+  - Guarantees minimum chunk count by backfilling from top-scoring rejected chunks
+- [x] **Language-Aware Extraction**: `extract_info()`, `extract_info_with_quotes()`, `create_chunk_with_info()` accept `language` parameter
+- [x] **Config Tuning**: `quality_threshold` 300→375, `k_results` 5→3
+- [x] **106 Unit Tests**: All pass (22 model, 23 agent, 39 reference, 22 task search + other)
 
 ### Deferred to Week 5+
 - [ ] Orchestrator-worker parallelization

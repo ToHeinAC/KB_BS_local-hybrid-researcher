@@ -63,7 +63,7 @@ DOC_WORD_LIMIT=5000              # Max words per document
 # PHASE 4: QUALITY ASSURANCE
 # =============================================================================
 ENABLE_QUALITY_CHECKER=true
-QUALITY_THRESHOLD=300            # Min score (0-400) to pass
+QUALITY_THRESHOLD=375            # Min score (0-500, 5 dimensions) to pass
 MAX_REFLECTIONS=1                # Max regeneration attempts
 
 # =============================================================================
@@ -199,7 +199,7 @@ class Settings(BaseSettings):
 
     # Phase 4
     enable_quality_checker: bool = True
-    quality_threshold: int = 300
+    quality_threshold: int = 375
     max_reflections: int = 1
 
     # Web search (optional)
