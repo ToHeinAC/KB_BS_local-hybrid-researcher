@@ -108,9 +108,9 @@ def _render_hitl_expander(session) -> None:
     if not conversation and not hitl_smry and not research_queries:
         return
 
-    with st.expander("HITL - Klaerungsgespraech", expanded=True):
+    with st.expander("HITL - Klärungsgespräch", expanded=True):
         if conversation:
-            st.markdown("#### Gespraechsverlauf")
+            st.markdown("#### Gesprächsverlauf")
             for msg in conversation:
                 with st.chat_message(msg.get("role", "assistant")):
                     st.markdown(msg.get("content", ""))
@@ -157,7 +157,7 @@ def _render_task_expanders(session) -> None:
 
                 gaps = ts.get("gaps", [])
                 if gaps:
-                    st.markdown("**Luecken:**")
+                    st.markdown("**Lücken:**")
                     for g in gaps:
                         st.markdown(f"- {g}")
 
@@ -165,7 +165,7 @@ def _render_task_expanders(session) -> None:
                 if relevance:
                     st.caption(f"Relevanz: {relevance}")
             else:
-                st.caption("Keine Zusammenfassung verfuegbar")
+                st.caption("Keine Zusammenfassung verfügbar")
 
             # Retrieved chunks from research_context
             if idx < len(search_queries):

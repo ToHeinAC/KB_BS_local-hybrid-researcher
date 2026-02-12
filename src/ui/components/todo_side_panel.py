@@ -10,15 +10,15 @@ from src.ui.state import get_current_phase, get_session_state, get_todo_list
 
 # Phase labels and descriptions for side panel
 PHASE_INFO = {
-    "hitl_init": ("HITL Initialisierung", "Starte interaktive Klaerung"),
+    "hitl_init": ("HITL Initialisierung", "Starte interaktive Klärung"),
     "hitl_generate_queries": ("Generiere Suchbegriffe", "Erstelle Suchbegriffe"),
     "hitl_generate_questions": ("Warte auf Antwort", "Benutzer-Feedback"),
     "generate_todo": ("Erstelle Aufgaben", "Plane Forschungsschritte"),
-    "hitl_approve_todo": ("Warte auf Genehmigung", "Pruefen Sie die Aufgaben"),
-    "execute_tasks": ("Fuehre Recherche durch", "Durchsuche Wissensdatenbank"),
+    "hitl_approve_todo": ("Warte auf Genehmigung", "Prüfen Sie die Aufgaben"),
+    "execute_tasks": ("Führe Recherche durch", "Durchsuche Wissensdatenbank"),
     "synthesize": ("Synthesisiere Ergebnisse", "Erstelle Zusammenfassung"),
-    "quality_check": ("Pruefe Qualitaet", "Validiere Ergebnisse"),
-    "attribute_sources": ("Fuege Quellen hinzu", "Generiere Zitationen"),
+    "quality_check": ("Prüfe Qualität", "Validiere Ergebnisse"),
+    "attribute_sources": ("Füge Quellen hinzu", "Generiere Zitationen"),
     "complete": ("Abgeschlossen", "Recherche beendet"),
 }
 
@@ -68,7 +68,7 @@ def render_todo_side_panel() -> None:
                 total = len(todo_list)
                 with st.spinner(f"Aufgabe {position}/{total}: {task_text}"):
                     st.markdown(
-                        f"*Durchsuche Wissensdatenbank fuer Aufgabe {position}...*"
+                        f"*Durchsuche Wissensdatenbank für Aufgabe {position}...*"
                     )
         else:
             st.caption(phase_desc)

@@ -92,7 +92,7 @@ def render_hitl_understanding() -> None:
         return
 
     with st.container(border=True):
-        st.markdown("**Aktuelles Verstaendnis:**")
+        st.markdown("**Aktuelles Verständnis:**")
         st.markdown(formatted)
 
 
@@ -269,7 +269,7 @@ def render_chat_hitl() -> dict | None:
                             # Use fallback result
                             result = {
                                 "research_queries": [session.hitl_state.get("user_query", "")],
-                                "summary": "Fallback: Verwende urspruengliche Anfrage",
+                                "summary": "Fallback: Verwende ursprüngliche Anfrage",
                             }
 
                     # Add final message
@@ -327,7 +327,7 @@ def render_chat_hitl() -> dict | None:
                             else:
                                 # Suggest ending after several exchanges
                                 if language == "de":
-                                    msg = "Wir haben genug Kontext gesammelt. Tippen Sie `/end` um die Recherche zu starten, oder fuegen Sie weitere Details hinzu."
+                                    msg = "Wir haben genug Kontext gesammelt. Tippen Sie `/end` um die Recherche zu starten, oder fügen Sie weitere Details hinzu."
                                 else:
                                     msg = "We have collected enough context. Type `/end` to start the research, or add more details."
                                 add_hitl_message("assistant", msg)
@@ -412,14 +412,14 @@ def render_hitl_summary() -> None:
             # Original query
             user_query = hitl_result.get("user_query", "")
             if user_query:
-                st.markdown("**Urspruengliche Anfrage:**")
+                st.markdown("**Ursprüngliche Anfrage:**")
                 st.write(user_query)
 
             # Analysis entities - display as inline code tags
             analysis = hitl_result.get("analysis", {})
             entities = analysis.get("entities", [])
             if entities:
-                st.markdown("**Erkannte Entitaeten:**")
+                st.markdown("**Erkannte Entitäten:**")
                 entity_tags = " ".join([f"`{e}`" for e in entities])
                 st.markdown(entity_tags)
 

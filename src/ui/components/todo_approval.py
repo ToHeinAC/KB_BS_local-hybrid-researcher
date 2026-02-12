@@ -24,7 +24,7 @@ def render_todo_approval() -> HITLDecision | None:
         return None
 
     st.subheader("Forschungsaufgaben")
-    st.info("Pruefen und genehmigen Sie die Forschungsaufgaben. Sie koennen Aufgaben bearbeiten, entfernen oder hinzufuegen.")
+    st.info("Prüfen und genehmigen Sie die Forschungsaufgaben. Sie können Aufgaben bearbeiten, entfernen oder hinzufügen.")
 
     content = checkpoint.get("content", {})
     items_data = content.get("items", [])
@@ -82,7 +82,7 @@ def render_todo_approval() -> HITLDecision | None:
                 removed_ids.append(task["id"])
 
     # Add new task
-    with st.expander("Neue Aufgabe hinzufuegen"):
+    with st.expander("Neue Aufgabe hinzufügen"):
         new_task_text = st.text_input(
             "Neue Aufgabenbeschreibung",
             key="new_task_text",
@@ -115,7 +115,7 @@ def render_todo_approval() -> HITLDecision | None:
             )
 
     with col2:
-        if st.button("Unveraendert uebernehmen", type="secondary"):
+        if st.button("Unverändert übernehmen", type="secondary"):
             clear_hitl_state()
             return HITLDecision(
                 approved=True,

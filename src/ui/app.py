@@ -52,10 +52,10 @@ VERSION = "V2.2"
 # Phase labels for live status updates during graph execution
 PHASE_LABELS = {
     "generate_todo": "Erstelle Aufgaben",
-    "execute_tasks": "Fuehre Recherche durch",
+    "execute_tasks": "Führe Recherche durch",
     "synthesize": "Synthesisiere Ergebnisse",
-    "quality_check": "Pruefe Qualitaet",
-    "attribute_sources": "Fuege Quellen hinzu",
+    "quality_check": "Prüfe Qualität",
+    "attribute_sources": "Füge Quellen hinzu",
     "complete": "Abgeschlossen",
 }
 
@@ -148,7 +148,8 @@ def _render_preliminary_results() -> None:
 
 
 def _render_task_result_expander(
-    container, index: int, task: dict, search_query: dict
+    container, index: int, task: dict, search_query: dict,
+    task_summary: dict | None = None,
 ) -> None:
     """Render a single completed task's results as a closed expander.
 
@@ -157,6 +158,7 @@ def _render_task_result_expander(
         index: Zero-based task index
         task: Task dict with 'task' text
         search_query: SearchQueryResult dict with 'chunks'
+        task_summary: Optional task summary dict from task_summaries
     """
     task_text = task.get("task", "")
     short = task_text[:60] + "..." if len(task_text) > 60 else task_text
@@ -166,6 +168,24 @@ def _render_task_result_expander(
         with st.expander(f"\u2705 Aufgabe {index + 1}: {short}", expanded=False):
             if len(task_text) > 60:
                 st.caption(task_text)
+            if task_summary:
+                summary_text = task_summary.get("summary", "")
+                if summary_text:
+                    st.markdown(summary_text)
+                findings = task_summary.get("key_findings", [])
+                if findings:
+                    st.markdown("**Ergebnisse:**")
+                    for f in findings:
+                        st.markdown(f"- {f}")
+                gaps = task_summary.get("gaps", [])
+                if gaps:
+                    st.markdown("**Lücken:**")
+                    for g in gaps:
+                        st.markdown(f"- {g}")
+                relevance = task_summary.get("relevance_to_query")
+                if relevance is not None:
+                    st.caption(f"Relevanz: {relevance:.0%}")
+                st.divider()
             if chunks:
                 st.markdown(f"**{len(chunks)} Chunks gefunden:**")
                 for j, chunk in enumerate(chunks):
@@ -247,15 +267,24 @@ def _run_graph_with_live_updates(
             search_queries = state.get("research_context", {}).get(
                 "search_queries", []
             )
+            task_summaries = state.get("task_summaries", [])
             if len(search_queries) > prev_query_count:
                 completed_tasks = [t for t in todo_list if t.get("completed")]
                 for i in range(prev_query_count, len(search_queries)):
                     if i < len(completed_tasks):
+                        # Match task summary by task_id
+                        task_id = completed_tasks[i].get("id")
+                        summary = next(
+                            (s for s in task_summaries
+                             if s.get("task_id") == task_id),
+                            None,
+                        )
                         _render_task_result_expander(
                             results_container,
                             i,
                             completed_tasks[i],
                             search_queries[i],
+                            task_summary=summary,
                         )
                 prev_query_count = len(search_queries)
     if last_state:
@@ -652,7 +681,7 @@ def _render_iterative_hitl_checkpoint() -> None:
 
     # Show current analysis if available
     if analysis:
-        with st.expander("Aktuelles Verstaendnis", expanded=False):
+        with st.expander("Aktuelles Verständnis", expanded=False):
             from src.services.hitl_service import format_analysis_dict
             formatted = format_analysis_dict(analysis)
             if formatted:

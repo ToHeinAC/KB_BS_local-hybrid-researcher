@@ -6,15 +6,15 @@ from src.ui.state import get_current_phase, get_session_state
 
 # Phase messages: (short_label, description)
 PHASE_MESSAGES = {
-    "hitl_init": ("HITL Initialisierung...", "Starte interaktive Klaerung"),
-    "hitl_generate_queries": ("Generiere Suchbegriffe...", "Erstelle Suchbegriffe fuer Retrieval"),
+    "hitl_init": ("HITL Initialisierung...", "Starte interaktive Klärung"),
+    "hitl_generate_queries": ("Generiere Suchbegriffe...", "Erstelle Suchbegriffe für Retrieval"),
     "hitl_generate_questions": ("Warte auf Antwort...", "Benutzer-Feedback erforderlich"),
     "generate_todo": ("Erstelle Aufgabenliste...", "Plane Forschungsschritte"),
-    "hitl_approve_todo": ("Warte auf Genehmigung...", "Aufgabenliste pruefen"),
-    "execute_tasks": ("Fuehre Recherche durch...", "Durchsuche Wissensdatenbank"),
+    "hitl_approve_todo": ("Warte auf Genehmigung...", "Aufgabenliste prüfen"),
+    "execute_tasks": ("Führe Recherche durch...", "Durchsuche Wissensdatenbank"),
     "synthesize": ("Synthesisiere Ergebnisse...", "Erstelle Zusammenfassung"),
-    "quality_check": ("Pruefe Qualitaet...", "Validiere Ergebnisse"),
-    "attribute_sources": ("Fuege Quellen hinzu...", "Generiere Zitationen"),
+    "quality_check": ("Prüfe Qualität...", "Validiere Ergebnisse"),
+    "attribute_sources": ("Füge Quellen hinzu...", "Generiere Zitationen"),
     "complete": ("Abgeschlossen", "Recherche erfolgreich beendet"),
 }
 
@@ -88,7 +88,7 @@ def render_research_status() -> None:
             st.write(f"Verarbeite {len(summaries)} Ergebnisse")
 
         elif phase == "quality_check":
-            st.write("Pruefe Vollstaendigkeit und Relevanz")
+            st.write("Prüfe Vollständigkeit und Relevanz")
 
         # Update status state based on phase
         if phase == "complete":

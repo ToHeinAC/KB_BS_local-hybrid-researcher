@@ -32,7 +32,7 @@ def render_preliminary_results() -> None:
     if not completed_tasks:
         return
 
-    with st.expander("Vorlaeufige Ergebnisse", expanded=True):
+    with st.expander("Vorläufige Ergebnisse", expanded=True):
         # Render by task
         for idx, task in enumerate(completed_tasks, 1):
             task_id = task.get("id")
@@ -85,7 +85,7 @@ def _render_task_results(task_id: int, search_queries: list) -> None:
                 st.caption("Keine Chunks gefunden")
 
     if not found_results:
-        st.caption("Keine Ergebnisse fuer diese Aufgabe")
+        st.caption("Keine Ergebnisse für diese Aufgabe")
 
 
 def _render_chunk(index: int, chunk: dict) -> None:

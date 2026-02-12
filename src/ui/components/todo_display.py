@@ -6,15 +6,15 @@ from src.ui.state import get_current_phase, get_session_state, get_todo_list
 
 # Phase labels and descriptions for info banner
 PHASE_INFO = {
-    "hitl_init": ("HITL Initialisierung", "Starte interaktive Klaerung"),
-    "hitl_generate_queries": ("Generiere Suchbegriffe", "Erstelle Suchbegriffe fuer Retrieval"),
-    "hitl_generate_questions": ("Warte auf Antwort", "Benutzer-Feedback wird benoetigt"),
+    "hitl_init": ("HITL Initialisierung", "Starte interaktive Klärung"),
+    "hitl_generate_queries": ("Generiere Suchbegriffe", "Erstelle Suchbegriffe für Retrieval"),
+    "hitl_generate_questions": ("Warte auf Antwort", "Benutzer-Feedback wird benötigt"),
     "generate_todo": ("Erstelle Aufgabenliste", "Plane die Forschungsschritte"),
-    "hitl_approve_todo": ("Warte auf Genehmigung", "Bitte pruefen und genehmigen Sie die Aufgabenliste"),
-    "execute_tasks": ("Fuehre Recherche durch", "Durchsuche die Wissensdatenbank"),
+    "hitl_approve_todo": ("Warte auf Genehmigung", "Bitte prüfen und genehmigen Sie die Aufgabenliste"),
+    "execute_tasks": ("Führe Recherche durch", "Durchsuche die Wissensdatenbank"),
     "synthesize": ("Synthesisiere Ergebnisse", "Erstelle eine Zusammenfassung der Erkenntnisse"),
-    "quality_check": ("Pruefe Qualitaet", "Validiere Vollstaendigkeit und Relevanz"),
-    "attribute_sources": ("Fuege Quellen hinzu", "Generiere Zitationen und Quellenangaben"),
+    "quality_check": ("Prüfe Qualität", "Validiere Vollständigkeit und Relevanz"),
+    "attribute_sources": ("Füge Quellen hinzu", "Generiere Zitationen und Quellenangaben"),
     "complete": ("Abgeschlossen", "Recherche erfolgreich beendet"),
 }
 
