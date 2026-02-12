@@ -455,7 +455,8 @@ class TestTaskSummaryHitlSmry:
 
         with patch("src.agents.nodes.get_ollama_client", return_value=mock_client):
             _generate_task_summary(
-                task=task, chunks=[], preserved_quotes=[],
+                task=task, task_primary=[], task_secondary=[],
+                task_tertiary=[], preserved_quotes=[],
                 query_anchor=anchor, hitl_smry="HITL established facts",
             )
 
@@ -480,7 +481,8 @@ class TestTaskSummaryHitlSmry:
 
         with patch("src.agents.nodes.get_ollama_client", return_value=mock_client):
             _generate_task_summary(
-                task=task, chunks=[], preserved_quotes=[],
+                task=task, task_primary=[], task_secondary=[],
+                task_tertiary=[], preserved_quotes=[],
                 query_anchor=anchor, hitl_smry="",
             )
 

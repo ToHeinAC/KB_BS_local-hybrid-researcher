@@ -30,7 +30,7 @@ streamlit run src/ui/app.py --server.port 8511
 - **Deep Reference Following**: Hybrid regex+LLM detection with document registry-based scoped resolution, token budget tracking, and convergence detection.
 - **Graded Context Management**: Tiered classification (primary/secondary/tertiary) prevents query drift and ensures synthesis quality.
 - **Verbatim Quote Preservation**: Critical legal/technical quotes extracted and preserved for precision.
-- **Query-Anchored Synthesis**: Final answers stay anchored to original intent with HITL context included.
+- **Query-Anchored Synthesis**: Final answers synthesized from pre-digested task summaries, anchored to original intent with HITL context included.
 - **Language Enforcement**: All 17 content-bearing prompts enforce `{language}`, with validation and retry on mismatch.
 - **Pre-Synthesis Drift Detection**: Filters irrelevant accumulated context before synthesis.
 - **Full Human-In-The-Loop**: Checkpoints for query refinement, task list approval, and final result verification.

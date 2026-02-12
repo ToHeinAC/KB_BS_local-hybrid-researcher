@@ -109,11 +109,13 @@ Prevents query drift and ensures synthesis quality through tiered context classi
   - Modified `create_chunk_with_info()` returns (chunk, quotes) tuple
 
 - [x] **Per-Task Structured Summary** (Phase D):
-  - `_generate_task_summary()`: Creates summary with key findings and relevance score
-  - Accepts `hitl_smry` parameter to avoid repeating HITL-established findings
+  - `_generate_task_summary()`: Receives per-task tiered findings (`task_primary`, `task_secondary`, `task_tertiary`) + `preserved_quotes`
+  - `execute_task()` tracks per-task tier boundaries (start indices) and slices per-task additions
+  - Uses `_format_tiered_findings()` to format each tier for the prompt
+  - `TASK_SUMMARY_PROMPT` receives `{primary_findings}`, `{secondary_findings}`, `{tertiary_findings}`, `{preserved_quotes}`, `{hitl_smry}`
+  - Tier priority rule: primary > secondary > tertiary (conflicts noted in gaps)
   - `_calculate_task_relevance()`: Word/entity overlap scoring
   - `task_summaries` state field accumulated during task execution
-  - `TASK_SUMMARY_PROMPT` in `src/prompts.py` (includes `{hitl_smry}` input)
 
 - [x] **Pre-Synthesis Relevance Validation** (Phase G):
   - `validate_relevance()` node: Filters drift before synthesis
@@ -123,10 +125,10 @@ Prevents query drift and ensures synthesis quality through tiered context classi
   - `RELEVANCE_SCORING_PROMPT` in `src/prompts.py`
 
 - [x] **Query-Anchored Synthesis** (Phase E):
-  - `SYNTHESIS_PROMPT_ENHANCED`: Tiered context structure with explicit instructions
-  - Modified `synthesize()` uses graded context + language enforcement
-  - Includes `hitl_smry`, `preserved_quotes`, `task_summaries`
-  - Falls back to legacy synthesis if no graded context available
+  - `SYNTHESIS_PROMPT_ENHANCED`: Works from pre-digested task summaries only (tiered evidence resolved at task level)
+  - Receives only `{original_query}`, `{hitl_smry}`, `{task_summaries}`, `{language}`
+  - `_format_task_summaries()` enriches summaries with key_findings, gaps, and preserved quotes
+  - Falls back to legacy `SYNTHESIS_PROMPT` if no graded context available
 
 - [x] **New Pydantic Models** in `src/models/results.py`:
   - `SynthesisOutputEnhanced`: With query_coverage (0-100) and remaining_gaps
@@ -189,7 +191,7 @@ Universal language enforcement and improved search quality:
 
 ### Phase 4: Synthesis + Quality (Research Phase 4)
 - [x] `synthesize` node (LLM synthesis from extracted findings)
-- [x] Enhanced `synthesize` with tiered context, preserved quotes, language enforcement
+- [x] Enhanced `synthesize` with pre-digested task summaries, HITL summary, language enforcement
 - [x] `quality_check` node (optional, 0-500 scoring, 5 dimensions)
 - [x] Tests for synthesis + QA
 
@@ -431,7 +433,7 @@ def test_graph_execution():
 | **Reference resolution ambiguity** | Multiple matches | Document registry with 3-stage matching, scoped search within collection |
 | **Hallucinated references** | LLM invents citations | Hybrid: regex provides baseline, LLM adds coverage, dedup filters noise |
 | **Over-following tangential refs** | Poor relevance filter | Set threshold=0.6+, token budget (50K), convergence (same doc >= 3) |
-| **Query drift during synthesis** | Accumulating irrelevant context | Graded context tiers, pre-synthesis relevance validation, query_anchor |
+| **Query drift during synthesis** | Accumulating irrelevant context | Tiered evidence resolved at task summary level, pre-synthesis relevance validation, query_anchor |
 | **Lost HITL context** | HITL findings not used in synthesis | `hitl_smry` fed into todo generation, task summaries, and synthesis + `tertiary_context` from HITL retrieval |
 | **Mixed language output** | LLM ignores language instruction | `generate_structured_with_language()` with validation and retry |
 | **Lost legal/technical precision** | Summarization paraphrases quotes | `preserved_quotes` extracted verbatim during info extraction |

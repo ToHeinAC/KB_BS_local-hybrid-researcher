@@ -327,6 +327,12 @@ def execute_task(state: AgentState) -> dict:
     tertiary_context = list(state.get("tertiary_context", []))
     preserved_quotes = list(state.get("preserved_quotes", []))
 
+    # Track per-task tier boundaries for task summary
+    primary_start = len(primary_context)
+    secondary_start = len(secondary_context)
+    tertiary_start = len(tertiary_context)
+    quotes_start = len(preserved_quotes)
+
     # Process results into chunks with info and classify into tiers
     chunks: list[ChunkWithInfo] = []
     doc_history: list[str] = []
@@ -454,12 +460,14 @@ def execute_task(state: AgentState) -> dict:
     context.search_queries.append(search_result)
     context.metadata.total_iterations += 1
 
-    # Generate task summary (Phase D)
+    # Generate task summary (Phase D) — pass per-task tiered findings
     task_summaries = list(state.get("task_summaries", []))
     task_summary = _generate_task_summary(
         task=current_task,
-        chunks=chunks,
-        preserved_quotes=preserved_quotes,
+        task_primary=primary_context[primary_start:],
+        task_secondary=secondary_context[secondary_start:],
+        task_tertiary=tertiary_context[tertiary_start:],
+        preserved_quotes=preserved_quotes[quotes_start:],
         query_anchor=query_anchor,
         hitl_smry=hitl_context,
     )
@@ -652,26 +660,13 @@ def synthesize(state: AgentState) -> dict:
     })
     language = query_anchor.get("detected_language", analysis.detected_language)
 
-    # Get graded context (Phase B/G)
+    # Get graded context presence for legacy fallback check
     primary_context = state.get("primary_context", [])
     secondary_context = state.get("secondary_context", [])
-    tertiary_context = state.get("tertiary_context", [])
 
-    # Format tiered findings
-    primary_findings = _format_tiered_findings(primary_context[:15])
-    secondary_findings = _format_tiered_findings(secondary_context[:10])
-    tertiary_findings = _format_tiered_findings(tertiary_context[:5])
-
-    # Get preserved quotes (Phase C)
-    preserved_quotes = state.get("preserved_quotes", [])
-    quotes_text = json.dumps(preserved_quotes[:10], ensure_ascii=False) if preserved_quotes else "[]"
-
-    # Get task summaries (Phase D)
+    # Get task summaries (Phase D) — sole evidence source for enhanced synthesis
     task_summaries = state.get("task_summaries", [])
-    summaries_text = "\n".join([
-        f"Task {ts.get('task_id', '?')}: {ts.get('summary', 'No summary')}"
-        for ts in task_summaries
-    ]) if task_summaries else "No task summaries available"
+    summaries_text = _format_task_summaries(task_summaries) if task_summaries else "No task summaries available"
 
     # Get HITL context summary (Phase A)
     hitl_smry = state.get("hitl_smry", "")
@@ -748,14 +743,10 @@ def synthesize(state: AgentState) -> dict:
             "messages": [f"Synthesized {len(all_info)} findings (legacy mode)"],
         }
 
-    # Use enhanced synthesis with graded context (Phase E)
+    # Use enhanced synthesis with pre-digested task summaries (Phase E)
     prompt = SYNTHESIS_PROMPT_ENHANCED.format(
         original_query=query_anchor.get("original_query", analysis.original_query),
         hitl_smry=hitl_smry or "No clarification conversation recorded",
-        primary_findings=primary_findings or "No primary findings",
-        secondary_findings=secondary_findings or "No secondary findings",
-        tertiary_findings=tertiary_findings or "No tertiary findings",
-        preserved_quotes=quotes_text,
         task_summaries=summaries_text,
         language=language,
     )
@@ -791,7 +782,7 @@ def synthesize(state: AgentState) -> dict:
         "research_context": context.model_dump(),
         "phase": "quality_check",
         "messages": [
-            f"Synthesized {len(primary_context)} primary, {len(secondary_context)} secondary findings",
+            f"Synthesized from {len(task_summaries)} task summaries",
             f"Query coverage: {result.query_coverage}%",
         ],
     }
@@ -831,6 +822,49 @@ def _format_tiered_findings(context_items: list[dict], max_chars: int = 8000) ->
         total_chars += len(finding)
 
     return "\n\n".join(findings)
+
+
+def _format_task_summaries(task_summaries: list[dict]) -> str:
+    """Format task summaries with key findings and gaps for synthesis.
+
+    Args:
+        task_summaries: List of task summary dicts from Phase D
+
+    Returns:
+        Formatted string with summaries, findings, gaps, and quotes
+    """
+    parts = []
+    for ts in task_summaries:
+        tid = ts.get("task_id", "?")
+        task_text = ts.get("task_text", "")
+        summary = ts.get("summary", "No summary")
+        key_findings = ts.get("key_findings", [])
+        gaps = ts.get("gaps", [])
+        quotes = ts.get("preserved_quotes", [])
+
+        lines = [f"--- Task {tid}: {task_text} ---", f"Summary: {summary}"]
+
+        if key_findings:
+            lines.append("Key findings:")
+            for f in key_findings:
+                lines.append(f"  - {f}")
+
+        if gaps:
+            lines.append("Gaps:")
+            for g in gaps:
+                lines.append(f"  - {g}")
+
+        if quotes:
+            lines.append("Preserved quotes:")
+            for q in quotes[:3]:
+                text = q.get("quote_text", "") if isinstance(q, dict) else str(q)
+                source = q.get("source_document", "") if isinstance(q, dict) else ""
+                if text:
+                    lines.append(f'  - "{text[:200]}" [{source}]')
+
+        parts.append("\n".join(lines))
+
+    return "\n\n".join(parts)
 
 
 # --- Phase 4b: Quality Check ---
@@ -1360,16 +1394,20 @@ def hitl_finalize(state: AgentState) -> dict:
 
 def _generate_task_summary(
     task: ToDoItem,
-    chunks: list[ChunkWithInfo],
+    task_primary: list[dict],
+    task_secondary: list[dict],
+    task_tertiary: list[dict],
     preserved_quotes: list[dict],
     query_anchor: dict,
     hitl_smry: str = "",
 ) -> dict:
-    """Generate structured summary for completed task.
+    """Generate structured summary for completed task using tiered findings.
 
     Args:
         task: The completed task
-        chunks: Chunks found for this task
+        task_primary: Tier 1 context entries for this task
+        task_secondary: Tier 2 context entries for this task
+        task_tertiary: Tier 3 context entries for this task
         preserved_quotes: Quotes extracted from this task's chunks
         query_anchor: Immutable query reference
         hitl_smry: HITL findings summary for dedup context
@@ -1381,13 +1419,17 @@ def _generate_task_summary(
     language = query_anchor.get("detected_language", "de")
     original_query = query_anchor.get("original_query", "")
 
-    # Collect findings text
-    findings_text = []
+    # Format tiered findings using existing helper
+    primary_text = _format_tiered_findings(task_primary[:15])
+    secondary_text = _format_tiered_findings(task_secondary[:10])
+    tertiary_text = _format_tiered_findings(task_tertiary[:5])
+
+    # Collect sources from all tiers
     sources = []
-    for chunk in chunks[:5]:  # Limit to top 5 chunks
-        if chunk.extracted_info:
-            findings_text.append(chunk.extracted_info)
-            sources.append(chunk.document)
+    for item in task_primary + task_secondary + task_tertiary:
+        doc = item.get("document")
+        if doc:
+            sources.append(doc)
 
     # Format quotes
     quotes_text = json.dumps(preserved_quotes[:5], ensure_ascii=False) if preserved_quotes else "[]"
@@ -1402,7 +1444,9 @@ def _generate_task_summary(
     prompt = TASK_SUMMARY_PROMPT.format(
         task=task.task,
         original_query=original_query,
-        findings="\n".join(findings_text[:3]) if findings_text else "No findings extracted",
+        primary_findings=primary_text or "No primary findings",
+        secondary_findings=secondary_text or "No secondary findings",
+        tertiary_findings=tertiary_text or "No tertiary findings",
         preserved_quotes=quotes_text,
         hitl_smry=hitl_smry or "No prior findings",
         language=language,

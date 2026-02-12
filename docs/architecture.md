@@ -38,7 +38,7 @@
 │  └─ validate_relevance: filter drift against query_anchor                │
 │                                                                          │
 │  Phase 4: Query-Anchored Synthesis & Quality Assurance                   │
-│  ├─ synthesize: tiered context + HITL summary + preserved quotes         │
+│  ├─ synthesize: pre-digested task summaries + HITL summary               │
 │  ├─ Language enforcement (generate_structured_with_language)             │
 │  └─ quality_check: optional QA scoring (0-500, 5 dimensions)             │
 │                                                                          │
@@ -340,7 +340,7 @@ For each ToDoList item (starting from Task 0 = original query):
 6. **Task Summary**: Generate structured summary with key findings and relevance score
 7. **ToDoList Update**: Mark task complete and continue to next task
 
-Output: Fully populated ResearchContext + tiered context (primary/secondary/tertiary) + task_summaries + preserved_quotes
+Output: Fully populated ResearchContext + tiered context (primary/secondary/tertiary) + task_summaries (with per-task tiered evidence) + preserved_quotes
 
 ### Phase 3.5: Pre-Synthesis Relevance Validation (NEW)
 
@@ -352,13 +352,10 @@ Output: Filtered tiered context ready for synthesis
 
 ### Phase 4: Query-Anchored Synthesis + Quality Assurance
 
-1. **Enhanced Synthesis**: Uses `SYNTHESIS_PROMPT_ENHANCED` with tiered structure:
-   - Primary findings (highest confidence)
-   - Secondary findings (supporting)
-   - Tertiary findings (background)
+1. **Enhanced Synthesis**: Uses `SYNTHESIS_PROMPT_ENHANCED` with pre-digested task summaries:
+   - Task summaries (sole evidence source, formatted with key_findings, gaps, preserved quotes via `_format_task_summaries()`)
    - HITL context summary
-   - Preserved quotes
-   - Task summaries
+   - Tiered evidence is resolved at the task summary level, not at synthesis level
 2. **Language Enforcement**: `generate_structured_with_language()` validates output language
 3. **Quality Check** (optional): Score 0-500 across 5 dimensions (factual accuracy, semantic validity, structural integrity, citation correctness, query relevance)
 

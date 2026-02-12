@@ -33,7 +33,7 @@ Classical RAG lacks deep contextual understanding and cannot follow inter-docume
 │  validate_relevance: Filter drift against query_anchor              │
 ├────────────────────────────────────────────────────────────────────┤
 │  Phase 4: Query-Anchored Synthesis + Quality Assurance              │
-│  Tiered Context + HITL Summary + Preserved Quotes → Synthesis       │
+│  Pre-Digested Task Summaries + HITL Summary → Synthesis             │
 │  Language Enforcement → Quality Check → Gap Analysis → Report       │
 ├────────────────────────────────────────────────────────────────────┤
 │  Phase 5: Source Attribution                                        │
@@ -321,17 +321,19 @@ KB_BS_local-hybrid-researcher/
   - `extract_info_with_quotes()`: Returns condensed info + critical verbatim quotes
   - `INFO_EXTRACTION_WITH_QUOTES_PROMPT` for legal/technical precision
 - [x] **Per-Task Structured Summary** (Phase D)
-  - `_generate_task_summary()`: Creates summary with key findings and relevance score
+  - `_generate_task_summary()`: Receives per-task tiered findings (primary/secondary/tertiary) + preserved quotes
+  - `TASK_SUMMARY_PROMPT` receives `{primary_findings}`, `{secondary_findings}`, `{tertiary_findings}`, `{preserved_quotes}`
+  - Tier priority rule: primary > secondary > tertiary (conflicts noted in gaps)
   - `task_summaries` state field accumulated during task execution
-  - `TASK_SUMMARY_PROMPT` in `src/prompts.py`
 - [x] **Pre-Synthesis Relevance Validation** (Phase G)
   - `validate_relevance()` node: Filters drift before synthesis
   - `_score_and_filter_context()`: Scores against query_anchor entities
   - Logs warning when >30% of accumulated context is filtered
 - [x] **Query-Anchored Synthesis** (Phase E)
-  - `SYNTHESIS_PROMPT_ENHANCED`: Tiered context structure with explicit instructions
-  - Modified `synthesize()` uses graded context + language enforcement
-  - Includes `hitl_smry`, `preserved_quotes`, `task_summaries`
+  - `SYNTHESIS_PROMPT_ENHANCED`: Works from pre-digested task summaries only (tiered evidence resolved at task level)
+  - Receives only `{original_query}`, `{hitl_smry}`, `{task_summaries}`, `{language}`
+  - `_format_task_summaries()` enriches summaries with key_findings, gaps, and preserved quotes
+  - Falls back to legacy `SYNTHESIS_PROMPT` if no graded context available
 - [x] **New Pydantic Models**: `SynthesisOutputEnhanced`, `TaskSummaryOutput`, `RelevanceScoreOutput`
 - [x] **Graph Update**: Added `validate_relevance` node between `execute_task` and `synthesize`
 - [x] **84+ Unit Tests**: All existing tests pass (22 model, 23 agent, 39 reference extraction)

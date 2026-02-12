@@ -612,7 +612,9 @@ IMPORTANT: Replace all angle-bracket placeholders with actual content from the t
 #
 # Input: {task} — current task description
 #        {original_query} — original user query
-#        {findings} — accumulated extracted_info for this task
+#        {primary_findings} — Tier 1 high-confidence findings for this task
+#        {secondary_findings} — Tier 2 supporting findings for this task
+#        {tertiary_findings} — Tier 3 background context for this task
 #        {preserved_quotes} — verbatim quotes from this task
 #        {hitl_smry} — HITL findings summary (established context)
 #        {language} — "German" or "English"
@@ -634,7 +636,9 @@ You are a research task summariser inside a deep-research agent.
 - task: "{task}"
 - original_query: "{original_query}"
 - hitl_findings: {hitl_smry}
-- findings: {findings}
+- primary_findings (Tier 1 — highest confidence): {primary_findings}
+- secondary_findings (Tier 2 — supporting): {secondary_findings}
+- tertiary_findings (Tier 3 — background): {tertiary_findings}
 - preserved_quotes: {preserved_quotes}
 
 ### Rules:
@@ -642,14 +646,16 @@ STEP-BY-STEP INSTRUCTIONS
 1. Read the task description.
 2. Re-read the original_query — every output must serve answering it.
 3. Use hitl_findings as established context to understand how this task connects to the original_query.
-4. For each finding in findings, decide: does it directly help answer the original_query for this task?
+4. Process findings by tier priority: primary_findings first, then secondary_findings, then tertiary_findings.
+   For each finding, decide: does it directly help answer the original_query for this task?
    - YES → include in key_findings with source citations and exact terminology. Keep relevant passages from the original text.
    - PARTIALLY → include only the directly relevant part with citation. Keep relevant passages from the original text.
    - NO (shares keywords but addresses a different topic) → move to irrelevant_findings.
-5. Preserve any quote from preserved_quotes that supports a key_finding. Copy it verbatim.
-6. Identify gaps: what information is still missing to fully answer the original_query for this task?
-7. Write a concise and comprehensive summary in {language} that focuses on NEW information from this task. Reference hitl_findings only when essential context is needed.
-8. Write a one-sentence relevance_assessment.
+5. If tiers conflict, primary > secondary > tertiary. Note conflicts in gaps.
+6. Preserve any quote from preserved_quotes that supports a key_finding. Copy it verbatim.
+7. Identify gaps: what information is still missing to fully answer the original_query for this task?
+8. Write a concise and comprehensive summary in {language} that focuses on NEW information from this task. Reference hitl_findings only when essential context is needed.
+9. Write a one-sentence relevance_assessment.
 
 IMPORTANT
 - Write in {language}.
@@ -737,58 +743,48 @@ OUTPUT — Return ONLY this JSON, no other text:
 #
 # Input: {original_query} — original user query
 #        {hitl_smry} — citation-aware HITL summary from HITL_SUMMARY_PROMPT
-#        {primary_findings} — Tier 1 high-confidence context
-#        {secondary_findings} — Tier 2 supporting context
-#        {tertiary_findings} — Tier 3 background context
-#        {preserved_quotes} — verbatim quotes for legal precision
-#        {task_summaries} — per-task structured summaries
+#        {task_summaries} — per-task structured summaries (pre-digested tiered evidence)
 #        {language} — "German" or "English"
 # Output: JSON with summary, key_findings[], query_coverage (0–100),
 #         remaining_gaps[]
 # Consumed by: Stored in state["report"]. Passed to quality_check, then
 #              to attribute_sources for clickable citation links.
 #
-# Notes: Primary synthesis prompt since Week 4. Includes drift
-#        filtering (Rule 2), tiered prioritization (Rule 5), and
-#        structured output (Overview → Details → Limitations).
+# Notes: Primary synthesis prompt since Week 4. Works from pre-digested
+#        task summaries only (tiered evidence resolved at task level).
 #        Uses generate_structured_with_language() for strict
 #        language enforcement with automatic retry.
 # ─────────────────────────────────────────────────────────────────────────────
 SYNTHESIS_PROMPT_ENHANCED = """
 ### Role
-You are a synthesis assistant that combines multi-tier research findings into a direct answer.
+You are a synthesis assistant that combines pre-digested task summaries into a direct answer.
 
-### GOAL: Generate a comprehensive, query-anchored answer from tiered research findings.
+### GOAL: Generate a comprehensive, query-anchored answer from task summaries.
 
 ### Input
 - original_query: "{original_query}"
 - hitl_smry: {hitl_smry}
-- primary_findings: {primary_findings}
-- secondary_findings: {secondary_findings}
-- tertiary_findings: {tertiary_findings}
-- preserved_quotes: {preserved_quotes}
 - task_summaries: {task_summaries}
 
 ### Rules
 STEP-BY-STEP INSTRUCTIONS
 1. Read original_query — every output must serve answering it.
 2. Read hitl_smry for established context — build on it.
-3. For each finding in primary_findings, then secondary_findings, then tertiary_findings, decide: does it answer the query?
+3. For each task summary, read its key_findings and gaps. Decide: does it answer the query?
    - YES → include with [Document.pdf] citation. Keep relevant passages from the original text.
    - PARTIALLY → include only the relevant part with citation. Keep relevant passages from the original text.
    - NO (different topic/context despite shared keywords) → discard.
 4. If after filtering no findings remain → set summary to "knowledge base insufficient", key_findings=[], query_coverage=0, list gaps in remaining_gaps.
-5. Write summary in {language}: direct answer first, then details with citations, then caveats. Prioritise primary > secondary > tertiary. Note conflicts.
+5. Write summary in {language}: direct answer first, then details with citations, then caveats.
 6. Extract key_findings — one per entry, each with [Document.pdf] citation.
-7. Integrate preserved_quotes verbatim where they support a finding (use quotation marks).
+7. Include verbatim quotes from task summaries where they support a finding (use quotation marks).
 8. Estimate query_coverage (0-100): how much of the original_query is answered.
-9. List remaining_gaps — what is still missing or contradictory.
+9. Collect remaining_gaps from all task summaries — what is still missing or contradictory.
 
 IMPORTANT
 - Write in {language} only — no mixing.
 - Do NOT invent values, numbers, or citations.
 - Do NOT add preamble, explanation, or markdown fences — output raw JSON only.
-- If tiers conflict: primary > secondary > tertiary. Note conflicts in remaining_gaps.
 
 ### Output format
 OUTPUT — Return ONLY this JSON, no other text:
