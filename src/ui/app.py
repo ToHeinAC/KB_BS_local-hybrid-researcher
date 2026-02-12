@@ -215,7 +215,7 @@ def _run_graph_with_live_updates(
         task_id = state.get("current_task_id")
         # Find current task text
         task_text = ""
-        if task_id and todo_list:
+        if task_id is not None and todo_list:
             for t in todo_list:
                 if t.get("id") == task_id:
                     task_text = t.get("task", "")[:60]
@@ -518,6 +518,8 @@ def _start_research_from_hitl(hitl_result: dict) -> None:
 
         # Get user query and research queries from HITL
         user_query = hitl_result.get("user_query", "")
+        if not user_query:
+            user_query = session.hitl_state.get("user_query", "") if session.hitl_state else ""
         research_queries = hitl_result.get("research_queries", [user_query])
 
         # Extract analysis fields (support both nested and flat structure)

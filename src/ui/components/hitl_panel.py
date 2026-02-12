@@ -279,6 +279,8 @@ def render_chat_hitl() -> dict | None:
 
                     add_hitl_message("assistant", summary)
 
+                    result["user_query"] = session.hitl_state.get("user_query", "")
+                    result["language"] = session.hitl_state.get("language", "de")
                     return result
 
             else:

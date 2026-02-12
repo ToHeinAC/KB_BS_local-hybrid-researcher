@@ -533,7 +533,10 @@ Extract only the passages relevant to the search query from the text chunk.
 4. Output the extracted text directly, no JSON wrapping.
 
 ### Output format
-<text of extracted relevant passages in {language}>"""
+Write the extracted relevant passages directly in {language}. Example:
+"Die Grenzwerte fuer die effektive Dosis betragen 20 mSv pro Kalenderjahr..."
+
+Do NOT output any template or placeholder text. Output only the actual extracted passages."""
 
 # ─────────────────────────────────────────────────────────────────────────────
 # INFO_EXTRACTION_WITH_QUOTES_PROMPT
@@ -581,12 +584,14 @@ Extract relevant information and preserve critical verbatim quotes from the text
 5. Return ONLY valid JSON, no extra text.
 
 ### Output format
+Return ONLY a JSON object with this structure:
 ```json
-{{"extracted_info": "condensed relevant text in {language}",
+{{"extracted_info": "<your condensed extraction here>",
   "preserved_quotes": [
-    {{"quote": "exact verbatim text", "relevance_reason": "why this must be preserved"}}
+    {{"quote": "<exact verbatim quote from the chunk>", "relevance_reason": "<brief reason>"}}
   ]}}
-```"""
+```
+IMPORTANT: Replace all angle-bracket placeholders with actual content from the text chunk. Never output template text literally."""
 
 # =============================================================================
 # Research Prompts - Task Summary

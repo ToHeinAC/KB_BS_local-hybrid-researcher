@@ -53,7 +53,7 @@ def render_todo_side_panel() -> None:
             else None
         )
 
-        if phase == "execute_tasks" and current_task_id and todo_list:
+        if phase == "execute_tasks" and current_task_id is not None and todo_list:
             # Find current task and its 1-based position
             current_task = None
             position = 0
