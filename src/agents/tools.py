@@ -475,6 +475,7 @@ def create_tiered_context_entry(
     weight: float,
     depth: int = 0,
     source_type: str = "vector_search",
+    task_id: int | None = None,
 ) -> dict:
     """Create a context entry dict with tier metadata.
 
@@ -484,11 +485,12 @@ def create_tiered_context_entry(
         weight: Context weight (0.0-1.0)
         depth: Recursion depth when found
         source_type: How this chunk was obtained
+        task_id: Optional task ID for per-task filtering in UI
 
     Returns:
         Dict representation for tiered context storage
     """
-    return {
+    entry = {
         "chunk": chunk.chunk[:2000],  # Limit chunk size
         "document": chunk.document,
         "page": chunk.page,
@@ -499,6 +501,9 @@ def create_tiered_context_entry(
         "depth": depth,
         "source_type": source_type,
     }
+    if task_id is not None:
+        entry["task_id"] = task_id
+    return entry
 
 
 # =============================================================================

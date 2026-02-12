@@ -362,6 +362,7 @@ def execute_task(state: AgentState) -> dict:
             weight=weight,
             depth=0,
             source_type="vector_search",
+            task_id=task_id,
         )
 
         # Add to appropriate tier
@@ -421,6 +422,7 @@ def execute_task(state: AgentState) -> dict:
                             weight=nc_weight,
                             depth=current_depth + 1,
                             source_type="reference",
+                            task_id=task_id,
                         )
 
                         # Nested chunks go to tier 2 or 3

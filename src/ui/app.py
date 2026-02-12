@@ -22,7 +22,13 @@ from src.ui.components import (
     render_todo_side_panel,
 )
 
-from src.ui.components.task_rendering import render_chunk_expander, render_task_summary_markdown
+from src.ui.components.task_rendering import (
+    filter_tiered_context_by_task,
+    has_task_id_entries,
+    render_chunk_expander,
+    render_task_summary_markdown,
+    render_tiered_chunks,
+)
 from src.ui.components.todo_display import render_messages
 from src.ui.state import (
     add_message,
@@ -151,6 +157,7 @@ def _render_preliminary_results() -> None:
 def _render_task_result_expander(
     container, index: int, task: dict, search_query: dict,
     task_summary: dict | None = None,
+    tiered_context: tuple[list[dict], list[dict], list[dict]] | None = None,
 ) -> None:
     """Render a single completed task's results as a closed expander.
 
@@ -160,6 +167,7 @@ def _render_task_result_expander(
         task: Task dict with 'task' text
         search_query: SearchQueryResult dict with 'chunks'
         task_summary: Optional task summary dict from task_summaries
+        tiered_context: Optional (primary, secondary, tertiary) chunk lists for this task
     """
     task_text = task.get("task", "")
     short = task_text[:60] + "..." if len(task_text) > 60 else task_text
@@ -172,7 +180,9 @@ def _render_task_result_expander(
             if task_summary:
                 render_task_summary_markdown(task_summary)
                 st.divider()
-            if chunks:
+            if tiered_context:
+                render_tiered_chunks(*tiered_context)
+            elif chunks:
                 st.markdown(f"**{len(chunks)} Chunks gefunden:**")
                 for j, chunk in enumerate(chunks):
                     if not isinstance(chunk, dict):
@@ -243,23 +253,37 @@ def _run_graph_with_live_updates(
                 "search_queries", []
             )
             task_summaries = state.get("task_summaries", [])
+            # Check for tiered context with task_id entries
+            primary_ctx = state.get("primary_context", [])
+            secondary_ctx = state.get("secondary_context", [])
+            tertiary_ctx = state.get("tertiary_context", [])
+            use_tiered = has_task_id_entries(
+                [primary_ctx, secondary_ctx, tertiary_ctx]
+            )
             if len(search_queries) > prev_query_count:
                 completed_tasks = [t for t in todo_list if t.get("completed")]
                 for i in range(prev_query_count, len(search_queries)):
                     if i < len(completed_tasks):
                         # Match task summary by task_id
-                        task_id = completed_tasks[i].get("id")
+                        c_task_id = completed_tasks[i].get("id")
                         summary = next(
                             (s for s in task_summaries
-                             if s.get("task_id") == task_id),
+                             if s.get("task_id") == c_task_id),
                             None,
                         )
+                        tiered = None
+                        if use_tiered:
+                            tiered = filter_tiered_context_by_task(
+                                primary_ctx, secondary_ctx, tertiary_ctx,
+                                c_task_id,
+                            )
                         _render_task_result_expander(
                             results_container,
                             i,
                             completed_tasks[i],
                             search_queries[i],
                             task_summary=summary,
+                            tiered_context=tiered,
                         )
                 prev_query_count = len(search_queries)
     if last_state:

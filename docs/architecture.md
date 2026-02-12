@@ -154,8 +154,11 @@ Each entry in `primary_context`, `secondary_context`, `tertiary_context`:
     "context_weight": float,      # 0.0-1.0 weight for synthesis
     "depth": int,                 # Recursion depth when found
     "source_type": str,           # "vector_search", "reference", "hitl"
+    "task_id": int | None,        # Task ID for per-task UI filtering (optional)
 }
 ```
+
+**Note:** `task_id` is included when entries are created during `execute_task()`, enabling per-task grouping in the UI. Entries without `task_id` (backward compat) trigger flat chunk rendering instead of tiered display.
 
 ### Preserved Quote Structure (NEW)
 
@@ -457,9 +460,9 @@ This enables:
 When `workflow_phase == "completed"`, `render_results_view()` shows the final report **plus** persisted HITL and task data via two private helpers in `results_view.py`:
 
 - **`_render_hitl_expander(session)`**: Expanded expander with conversation history (`st.chat_message`), `hitl_smry`, and numbered research queries
-- **`_render_task_expanders(session)`**: One expanded expander per task with summary (via `render_task_summary_markdown()`), and per-chunk expanders showing full LLM extraction + original vector DB text (via `render_chunk_expander()` from `task_rendering.py`)
+- **`_render_task_expanders(session)`**: One expanded expander per task with summary (via `render_task_summary_markdown()`), and chunks grouped by tier via `render_tiered_chunks()` (Tier 1 expanded, Tier 2/3 collapsed, empty tiers hidden). Falls back to flat chunk rendering for old states without `task_id` entries.
 
 Data sources:
 - `session.hitl_conversation_history` — persists across phase transitions, cleared only on "Neue Recherche starten"
-- `session.agent_state["hitl_smry"]`, `["task_summaries"]`, `["todo_list"]`, `["research_context"]` — set via `update_agent_state()`, never cleared until reset
+- `session.agent_state["hitl_smry"]`, `["task_summaries"]`, `["todo_list"]`, `["research_context"]`, `["primary_context"]`, `["secondary_context"]`, `["tertiary_context"]` — set via `update_agent_state()`, never cleared until reset
 - `session.hitl_result["research_queries"]` — set at end of HITL phase

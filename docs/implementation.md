@@ -96,7 +96,7 @@ Prevents query drift and ensures synthesis quality through tiered context classi
 
 - [x] **Graded Context Classification** (Phase B):
   - `classify_context_tier()`: Assigns Tier 1/2/3 based on source, depth, relevance
-  - `create_tiered_context_entry()`: Creates weighted context dicts
+  - `create_tiered_context_entry()`: Creates weighted context dicts with optional `task_id` for per-task UI filtering
   - Chunks accumulated into `primary_context`, `secondary_context`, `tertiary_context`
   - Tier 1: Direct search, relevance ≥0.85 or entity match (weight 1.0)
   - Tier 2: Depth-1 refs or medium relevance 0.6-0.85 (weight 0.7)
@@ -257,16 +257,35 @@ Universal language enforcement and improved search quality:
   - Guard: skips when conversation, hitl_smry, and research_queries are all empty
 - [x] **Per-Task Expanders** (`results_view.py: _render_task_expanders()`):
   - One `st.expander` per task with formatted summary via shared `render_task_summary_markdown()`
-  - Per-chunk expanders via shared `render_chunk_expander()` with full extraction + original vector DB text
-  - `task_summaries` matched by `task_id` dict lookup; chunks by index into `search_queries`
+  - Tiered chunk rendering via `render_tiered_chunks()` when `task_id` entries exist, flat fallback for old states
+  - `task_summaries` matched by `task_id` dict lookup
   - Guard: skips when `todo_list` is empty
 - [x] **Shared Task Rendering** (`src/ui/components/task_rendering.py`):
   - `render_task_summary_markdown()`: Summary, key findings, gaps, relevance (% + text)
   - `render_chunk_expander()`: Per-chunk expander with header (doc, page, score), full extraction, divider, full original text
+  - `render_tiered_chunks()`: Renders chunks grouped by tier as nested expanders (Tier 1 expanded, others collapsed, empty tiers hidden)
+  - `filter_tiered_context_by_task()`: Filters tiered context lists to entries matching a specific `task_id`
+  - `has_task_id_entries()`: Backward compat check — returns True if any entry has `task_id` key
   - Handles both dict and object access patterns
   - Used by live view (`app.py: _render_task_result_expander`) and results view (`results_view.py: _render_task_expanders`)
 - [x] **Insertion point**: After metrics row + first divider, before `### Answer`
 - [x] **Data sources**: All data from `session.agent_state` and `session.hitl_conversation_history` (persisted across phase transitions, only cleared on reset)
+
+### Phase 6.9: Tiered Chunk Rendering in Task Expanders
+- [x] **`task_id` in Tiered Context Entries** (`tools.py`, `nodes.py`):
+  - `create_tiered_context_entry()` accepts optional `task_id: int | None = None`
+  - `execute_task()` passes `task_id` for both direct vector search chunks and nested reference chunks
+  - Backward compatible: old callers without `task_id` unaffected
+- [x] **Tiered Rendering Helpers** (`task_rendering.py`):
+  - `render_tiered_chunks(primary, secondary, tertiary)`: 3 nested tier expanders with German labels
+  - `filter_tiered_context_by_task()`: Filters each context list to entries matching a specific `task_id`
+  - `has_task_id_entries()`: Detects old states without `task_id` for backward compat fallback
+- [x] **Results View Update** (`results_view.py`):
+  - `_render_task_expanders()` reads `primary_context`, `secondary_context`, `tertiary_context` from state
+  - Uses tiered rendering when `task_id` entries detected, falls back to flat chunk rendering otherwise
+- [x] **Live View Update** (`app.py`):
+  - `_render_task_result_expander()` accepts optional `tiered_context` tuple
+  - `_run_graph_with_live_updates()` extracts tiered context per task during streaming
 
 ### Phase 7: Polish
 - [x] Multi-collection search

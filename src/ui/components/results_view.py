@@ -5,7 +5,13 @@ import json
 import streamlit as st
 
 from src.models.results import FinalReport
-from src.ui.components.task_rendering import render_chunk_expander, render_task_summary_markdown
+from src.ui.components.task_rendering import (
+    filter_tiered_context_by_task,
+    has_task_id_entries,
+    render_chunk_expander,
+    render_task_summary_markdown,
+    render_tiered_chunks,
+)
 from src.ui.state import get_session_state
 
 
@@ -135,6 +141,12 @@ def _render_task_expanders(session) -> None:
     task_summaries = session.agent_state.get("task_summaries", [])
     summary_by_id = {ts.get("task_id"): ts for ts in task_summaries}
 
+    # Tiered context lists for per-task grouping
+    primary_ctx = session.agent_state.get("primary_context", [])
+    secondary_ctx = session.agent_state.get("secondary_context", [])
+    tertiary_ctx = session.agent_state.get("tertiary_context", [])
+    use_tiered = has_task_id_entries([primary_ctx, secondary_ctx, tertiary_ctx])
+
     research_context = session.agent_state.get("research_context", {})
     search_queries = []
     if isinstance(research_context, dict):
@@ -152,8 +164,13 @@ def _render_task_expanders(session) -> None:
             else:
                 st.caption("Keine Zusammenfassung verfügbar")
 
-            # Retrieved chunks from research_context
-            if idx < len(search_queries):
+            # Tiered chunk rendering (new) or flat fallback
+            if use_tiered:
+                t_primary, t_secondary, t_tertiary = filter_tiered_context_by_task(
+                    primary_ctx, secondary_ctx, tertiary_ctx, task_id,
+                )
+                render_tiered_chunks(t_primary, t_secondary, t_tertiary)
+            elif idx < len(search_queries):
                 sq = search_queries[idx]
                 chunks = []
                 if isinstance(sq, dict):

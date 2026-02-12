@@ -314,7 +314,7 @@ KB_BS_local-hybrid-researcher/
   - Automatic retry with stronger language instruction on mismatch
 - [x] **Graded Context Classification** (Phase B)
   - `classify_context_tier()`: Assigns Tier 1/2/3 based on source, depth, relevance
-  - `create_tiered_context_entry()`: Creates weighted context dicts
+  - `create_tiered_context_entry()`: Creates weighted context dicts with optional `task_id` for per-task UI filtering
   - Chunks accumulated into `primary_context`, `secondary_context`, `tertiary_context`
 - [x] **Verbatim Quote Preservation** (Phase C)
   - `PreservedQuote`, `InfoExtractionWithQuotes` models in `src/models/research.py`
@@ -390,10 +390,25 @@ KB_BS_local-hybrid-researcher/
 - [x] **Shared Task Rendering Helpers**: `src/ui/components/task_rendering.py`
   - `render_task_summary_markdown()`: Formatted summary with findings, gaps, relevance
   - `render_chunk_expander()`: Per-chunk expander with full extraction + original text
+  - `render_tiered_chunks()`: Renders chunks grouped by tier as nested expanders (Tier 1 expanded, others collapsed)
+  - `filter_tiered_context_by_task()`: Filters tiered context lists by `task_id`
+  - `has_task_id_entries()`: Backward compat check for old states without `task_id`
   - Used by both live view (`app.py`) and persistent results view (`results_view.py`)
 - [x] **Debug State Dump Enhancement**: `dump_state_markdown()` outputs full values (removed 500-char truncation)
   - Added Phase 1→2 boundary dump in `generate_todo()`
 - [x] **124 Unit Tests**: All pass
+
+### Tiered Chunk Rendering in Task Expanders (Week 4.9) - COMPLETE
+- [x] **`task_id` in Tiered Context Entries**: `create_tiered_context_entry()` accepts optional `task_id` param
+  - `execute_task()` passes `task_id` for both direct chunks and nested reference chunks
+  - Backward compatible: `task_id=None` default, old callers unaffected
+- [x] **Tiered Rendering Helpers** in `src/ui/components/task_rendering.py`:
+  - `render_tiered_chunks(primary, secondary, tertiary)`: Nested tier expanders (German labels), Tier 1 expanded by default, empty tiers hidden
+  - `filter_tiered_context_by_task(primary_ctx, secondary_ctx, tertiary_ctx, task_id)`: Per-task filtering
+  - `has_task_id_entries(context_lists)`: Backward compat detection for old states without `task_id`
+- [x] **Persistent Results View**: `_render_task_expanders()` uses tiered rendering when `task_id` entries exist, falls back to flat chunk rendering for old states
+- [x] **Live View**: `_render_task_result_expander()` accepts `tiered_context` param; `_run_graph_with_live_updates()` extracts and passes per-task tiered context during streaming
+- [x] **124 Unit Tests**: All pass (no new tests needed — rendering helpers are UI-only)
 
 ### Deferred to Week 5+
 - [ ] Orchestrator-worker parallelization

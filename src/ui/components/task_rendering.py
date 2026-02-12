@@ -73,3 +73,66 @@ def render_chunk_expander(chunk, index: int) -> None:
             st.markdown(f"**Originaltext:**\n\n{original}")
         if not extracted and not original:
             st.caption("Keine Daten verfügbar")
+
+
+def filter_tiered_context_by_task(
+    primary_ctx: list[dict],
+    secondary_ctx: list[dict],
+    tertiary_ctx: list[dict],
+    task_id: int,
+) -> tuple[list[dict], list[dict], list[dict]]:
+    """Filter tiered context lists to entries matching a specific task_id.
+
+    Returns:
+        Tuple of (primary, secondary, tertiary) filtered lists.
+    """
+    return (
+        [e for e in primary_ctx if e.get("task_id") == task_id],
+        [e for e in secondary_ctx if e.get("task_id") == task_id],
+        [e for e in tertiary_ctx if e.get("task_id") == task_id],
+    )
+
+
+def has_task_id_entries(context_lists: list[list[dict]]) -> bool:
+    """Check if any entry in any of the context lists has a task_id key.
+
+    Used for backward compatibility: old states without task_id fall back
+    to flat chunk rendering.
+    """
+    return any(
+        "task_id" in entry
+        for ctx in context_lists
+        for entry in ctx
+    )
+
+
+_TIER_LABELS = {
+    1: "Primäre Ergebnisse (Tier 1)",
+    2: "Sekundäre Ergebnisse (Tier 2)",
+    3: "Tertiäre Ergebnisse (Tier 3)",
+}
+
+
+def render_tiered_chunks(
+    primary: list[dict],
+    secondary: list[dict],
+    tertiary: list[dict],
+) -> None:
+    """Render chunks grouped by tier as nested expanders.
+
+    Tier 1 is expanded by default, others collapsed. Empty tiers are skipped.
+    """
+    total = len(primary) + len(secondary) + len(tertiary)
+    if total == 0:
+        st.caption("Keine relevanten Chunks gefunden")
+        return
+
+    st.markdown(f"**{total} Chunks gefunden:**")
+
+    for tier_num, chunks in [(1, primary), (2, secondary), (3, tertiary)]:
+        if not chunks:
+            continue
+        label = f"{_TIER_LABELS[tier_num]} ({len(chunks)} Chunks)"
+        with st.expander(label, expanded=(tier_num == 1)):
+            for i, chunk in enumerate(chunks):
+                render_chunk_expander(chunk, i)
