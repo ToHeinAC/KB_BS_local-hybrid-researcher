@@ -643,8 +643,8 @@ STEP-BY-STEP INSTRUCTIONS
 2. Re-read the original_query — every output must serve answering it.
 3. Use hitl_findings as established context to understand how this task connects to the original_query.
 4. For each finding in findings, decide: does it directly help answer the original_query for this task?
-   - YES → include in key_findings with source citations and exact terminology.
-   - PARTIALLY → include only the directly relevant part.
+   - YES → include in key_findings with source citations and exact terminology. Keep relevant passages from the original text.
+   - PARTIALLY → include only the directly relevant part with citation. Keep relevant passages from the original text.
    - NO (shares keywords but addresses a different topic) → move to irrelevant_findings.
 5. Preserve any quote from preserved_quotes that supports a key_finding. Copy it verbatim.
 6. Identify gaps: what information is still missing to fully answer the original_query for this task?
@@ -706,8 +706,8 @@ You are a synthesis assistant that combines research findings into a direct answ
 STEP-BY-STEP INSTRUCTIONS
 1. Read original_query carefully — every output must serve answering it.
 2. For each finding in research_findings, decide: does it help answer the query?
-   - YES → include with [Document.pdf] citation.
-   - PARTIALLY → include only the relevant part with citation.
+   - YES → include with [Document.pdf] citation. Keep relevant passages from the original text.
+   - PARTIALLY → include only the relevant part with citation. Keep relevant passages from the original text.
    - NO (different topic/context despite shared keywords) → discard.
 3. If no findings remain after filtering → set summary to "knowledge base insufficient", key_findings=[].
 4. Write a comprehensive summary in {language} that directly answers the query. Cite sources as [Document.pdf].
@@ -772,10 +772,10 @@ You are a synthesis assistant that combines multi-tier research findings into a 
 ### Rules
 STEP-BY-STEP INSTRUCTIONS
 1. Read original_query — every output must serve answering it.
-2. Read hitl_smry for established context — do not repeat it, build on it.
+2. Read hitl_smry for established context — build on it.
 3. For each finding in primary_findings, then secondary_findings, then tertiary_findings, decide: does it answer the query?
-   - YES → include with [Document.pdf] citation.
-   - PARTIALLY → include only the relevant part with citation.
+   - YES → include with [Document.pdf] citation. Keep relevant passages from the original text.
+   - PARTIALLY → include only the relevant part with citation. Keep relevant passages from the original text.
    - NO (different topic/context despite shared keywords) → discard.
 4. If after filtering no findings remain → set summary to "knowledge base insufficient", key_findings=[], query_coverage=0, list gaps in remaining_gaps.
 5. Write summary in {language}: direct answer first, then details with citations, then caveats. Prioritise primary > secondary > tertiary. Note conflicts.
