@@ -454,3 +454,15 @@ This enables:
 - **New HITL**: Default behavior when starting fresh
 
 **Key invariant**: `_start_research_from_hitl()` sets `hitl_active=False` before entering the graph, so post-approval resume never misroutes to `hitl_process_response`.
+
+### Completed Results View
+
+When `workflow_phase == "completed"`, `render_results_view()` shows the final report **plus** persisted HITL and task data via two private helpers in `results_view.py`:
+
+- **`_render_hitl_expander(session)`**: Expanded expander with conversation history (`st.chat_message`), `hitl_smry`, and numbered research queries
+- **`_render_task_expanders(session)`**: One expanded expander per task with summary, key findings, gaps, relevance assessment, and a nested collapsed expander for retrieved chunks
+
+Data sources:
+- `session.hitl_conversation_history` — persists across phase transitions, cleared only on "Neue Recherche starten"
+- `session.agent_state["hitl_smry"]`, `["task_summaries"]`, `["todo_list"]`, `["research_context"]` — set via `update_agent_state()`, never cleared until reset
+- `session.hitl_result["research_queries"]` — set at end of HITL phase

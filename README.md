@@ -36,6 +36,7 @@ streamlit run src/ui/app.py --server.port 8511
 - **Full Human-In-The-Loop**: Checkpoints for query refinement, task list approval, and final result verification.
 - **Privacy-First & Local**: Powered by Ollama and local ChromaDB, ensuring all research data stays on your machine.
 - **Source Attribution**: Detailed citations with clickable PDF links and page numbers.
+- **Persistent Results View**: Completed report page shows HITL conversation, task summaries with findings/gaps, and retrieved chunks alongside the final answer.
 - **Retrieval History Panel**: Real-time display of vector search results during HITL with chunk details.
 - **Database Selection**: Choose specific knowledge base collections or search all.
 - **Cached Service Clients**: Fast UI reloads via `@st.cache_resource` for ChromaDB/Ollama clients.

@@ -39,10 +39,6 @@ _FIELD_GROUPS = {
     ],
 }
 
-# Fields where we show summary stats instead of full content
-_SUMMARY_FIELDS = {"research_context", "final_report", "messages"}
-
-
 def _format_value(key: str, value: object) -> str:
     """Format a state value for markdown display."""
     if value is None:
@@ -56,26 +52,13 @@ def _format_value(key: str, value: object) -> str:
     if isinstance(value, str):
         if not value:
             return '*empty string*'
-        if len(value) > 500:
-            return f"{value[:500]}... *({len(value)} chars total)*"
         return value
     if isinstance(value, (list, dict)):
-        # Summary-only fields
-        if key == "research_context" and isinstance(value, dict):
-            queries = value.get("search_queries", [])
-            chunk_count = sum(len(q.get("chunks", [])) for q in queries)
-            docs = value.get("metadata", {}).get("documents_referenced", [])
-            return f"queries: {len(queries)}, chunks: {chunk_count}, docs: {len(docs)}"
-        if key == "final_report" and isinstance(value, dict):
-            return f"answer length: {len(value.get('answer', ''))}, findings: {len(value.get('findings', []))}"
         if key == "messages" and isinstance(value, list):
             tail = value[-10:] if len(value) > 10 else value
             return json.dumps(tail, ensure_ascii=False, indent=2)
-        text = json.dumps(value, ensure_ascii=False, indent=2, default=str)
-        if len(text) > 500:
-            return f"{text[:500]}... *({len(text)} chars total)*"
-        return text
-    return str(value)[:500]
+        return json.dumps(value, ensure_ascii=False, indent=2, default=str)
+    return str(value)
 
 
 def dump_state_markdown(

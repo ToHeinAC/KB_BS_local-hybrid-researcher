@@ -96,6 +96,9 @@ def generate_todo(state: AgentState) -> dict:
     Returns:
         State update with todo_list
     """
+    # Dump state at Phase 1→2 boundary (fires whether HITL ran or was skipped)
+    dump_state_markdown(state, {}, "tests/debugging/state_1hitl.md", "Phase 1: Pre-Todo")
+
     analysis = QueryAnalysis.model_validate(state["query_analysis"])
 
     # Check for research_queries from HITL first

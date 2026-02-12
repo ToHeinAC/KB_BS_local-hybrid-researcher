@@ -247,6 +247,20 @@ Universal language enforcement and improved search quality:
 - [x] **Sequential task ID renumbering** (`nodes.py`):
   - `process_hitl_todo` renumbers task IDs sequentially after user removals/additions
 
+### Phase 6.8: Persistent Results View
+- [x] **HITL Expander** (`results_view.py: _render_hitl_expander()`):
+  - Renders conversation history as `st.chat_message` bubbles
+  - Shows `hitl_smry` (LLM summary with `[Source]` annotations)
+  - Lists numbered research queries from `hitl_result`
+  - Guard: skips when conversation, hitl_smry, and research_queries are all empty
+- [x] **Per-Task Expanders** (`results_view.py: _render_task_expanders()`):
+  - One `st.expander` per task with summary, key findings, gaps, relevance assessment
+  - Nested collapsed expander with retrieved chunks (doc, page, score, extracted info)
+  - `task_summaries` matched by `task_id` dict lookup; chunks by index into `search_queries`
+  - Guard: skips when `todo_list` is empty
+- [x] **Insertion point**: After metrics row + first divider, before `### Answer`
+- [x] **Data sources**: All data from `session.agent_state` and `session.hitl_conversation_history` (persisted across phase transitions, only cleared on reset)
+
 ### Phase 7: Polish
 - [x] Multi-collection search
 - [ ] Query history and caching

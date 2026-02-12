@@ -374,6 +374,21 @@ KB_BS_local-hybrid-researcher/
 - [x] **Config Tuning**: `quality_threshold` 300→375, `k_results` 5→3
 - [x] **106 Unit Tests**: All pass (22 model, 23 agent, 39 reference, 22 task search + other)
 
+### Persistent Results View (Week 4.8) - COMPLETE
+- [x] **HITL Expander in Results**: `_render_hitl_expander()` in `results_view.py`
+  - Conversation history rendered as `st.chat_message` bubbles
+  - `hitl_smry` (LLM-synthesized HITL summary with `[Source]` annotations)
+  - Numbered research queries from `hitl_result`
+  - Guarded: skips when all three data sources are empty
+- [x] **Per-Task Expanders in Results**: `_render_task_expanders()` in `results_view.py`
+  - Task summary, key findings (bullets), gaps (bullets), relevance assessment
+  - Nested collapsed expander with retrieved chunks (doc, page, relevance score, extracted info)
+  - Matches `task_summaries` by `task_id` lookup, chunks by index into `search_queries`
+  - Guarded: skips when `todo_list` is empty
+- [x] **Debug State Dump Enhancement**: `dump_state_markdown()` outputs full values (removed 500-char truncation)
+  - Added Phase 1→2 boundary dump in `generate_todo()`
+- [x] **124 Unit Tests**: All pass
+
 ### Deferred to Week 5+
 - [ ] Orchestrator-worker parallelization
 - [ ] RAG Triad automated validation
