@@ -254,10 +254,15 @@ Universal language enforcement and improved search quality:
   - Lists numbered research queries from `hitl_result`
   - Guard: skips when conversation, hitl_smry, and research_queries are all empty
 - [x] **Per-Task Expanders** (`results_view.py: _render_task_expanders()`):
-  - One `st.expander` per task with summary, key findings, gaps, relevance assessment
-  - Nested collapsed expander with retrieved chunks (doc, page, score, extracted info)
+  - One `st.expander` per task with formatted summary via shared `render_task_summary_markdown()`
+  - Per-chunk expanders via shared `render_chunk_expander()` with full extraction + original vector DB text
   - `task_summaries` matched by `task_id` dict lookup; chunks by index into `search_queries`
   - Guard: skips when `todo_list` is empty
+- [x] **Shared Task Rendering** (`src/ui/components/task_rendering.py`):
+  - `render_task_summary_markdown()`: Summary, key findings, gaps, relevance (% + text)
+  - `render_chunk_expander()`: Per-chunk expander with header (doc, page, score), full extraction, divider, full original text
+  - Handles both dict and object access patterns
+  - Used by live view (`app.py: _render_task_result_expander`) and results view (`results_view.py: _render_task_expanders`)
 - [x] **Insertion point**: After metrics row + first divider, before `### Answer`
 - [x] **Data sources**: All data from `session.agent_state` and `session.hitl_conversation_history` (persisted across phase transitions, only cleared on reset)
 
@@ -474,5 +479,6 @@ src/
         ├── hitl_panel.py
         ├── todo_list.py
         ├── results_view.py
+        ├── task_rendering.py
         └── safe_exit.py
 ```

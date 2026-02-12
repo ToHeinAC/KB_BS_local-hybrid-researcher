@@ -22,6 +22,7 @@ from src.ui.components import (
     render_todo_side_panel,
 )
 
+from src.ui.components.task_rendering import render_chunk_expander, render_task_summary_markdown
 from src.ui.components.todo_display import render_messages
 from src.ui.state import (
     add_message,
@@ -169,40 +170,14 @@ def _render_task_result_expander(
             if len(task_text) > 60:
                 st.caption(task_text)
             if task_summary:
-                summary_text = task_summary.get("summary", "")
-                if summary_text:
-                    st.markdown(summary_text)
-                findings = task_summary.get("key_findings", [])
-                if findings:
-                    st.markdown("**Ergebnisse:**")
-                    for f in findings:
-                        st.markdown(f"- {f}")
-                gaps = task_summary.get("gaps", [])
-                if gaps:
-                    st.markdown("**Lücken:**")
-                    for g in gaps:
-                        st.markdown(f"- {g}")
-                relevance = task_summary.get("relevance_to_query")
-                if relevance is not None:
-                    st.caption(f"Relevanz: {relevance:.0%}")
+                render_task_summary_markdown(task_summary)
                 st.divider()
             if chunks:
                 st.markdown(f"**{len(chunks)} Chunks gefunden:**")
                 for j, chunk in enumerate(chunks):
                     if not isinstance(chunk, dict):
                         continue
-                    doc = chunk.get("document", "Unbekannt")
-                    page = chunk.get("page")
-                    extracted = chunk.get("extracted_info")
-                    relevance = chunk.get("relevance_score", 0)
-                    header = f"Chunk {j + 1}: {doc}"
-                    if page:
-                        header += f" (S. {page})"
-                    with st.expander(header, expanded=False):
-                        if extracted:
-                            st.write(extracted)
-                        if relevance:
-                            st.caption(f"Relevanz: {relevance:.2f}")
+                    render_chunk_expander(chunk, j)
             else:
                 st.caption("Keine relevanten Chunks gefunden")
 

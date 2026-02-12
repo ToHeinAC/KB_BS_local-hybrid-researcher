@@ -382,9 +382,13 @@ KB_BS_local-hybrid-researcher/
   - Guarded: skips when all three data sources are empty
 - [x] **Per-Task Expanders in Results**: `_render_task_expanders()` in `results_view.py`
   - Task summary, key findings (bullets), gaps (bullets), relevance assessment
-  - Nested collapsed expander with retrieved chunks (doc, page, relevance score, extracted info)
+  - Per-chunk expanders with full original vector DB text + LLM extraction (via shared `task_rendering.py`)
   - Matches `task_summaries` by `task_id` lookup, chunks by index into `search_queries`
   - Guarded: skips when `todo_list` is empty
+- [x] **Shared Task Rendering Helpers**: `src/ui/components/task_rendering.py`
+  - `render_task_summary_markdown()`: Formatted summary with findings, gaps, relevance
+  - `render_chunk_expander()`: Per-chunk expander with full extraction + original text
+  - Used by both live view (`app.py`) and persistent results view (`results_view.py`)
 - [x] **Debug State Dump Enhancement**: `dump_state_markdown()` outputs full values (removed 500-char truncation)
   - Added Phase 1→2 boundary dump in `generate_todo()`
 - [x] **124 Unit Tests**: All pass

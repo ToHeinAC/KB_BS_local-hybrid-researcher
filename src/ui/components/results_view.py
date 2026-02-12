@@ -5,6 +5,7 @@ import json
 import streamlit as st
 
 from src.models.results import FinalReport
+from src.ui.components.task_rendering import render_chunk_expander, render_task_summary_markdown
 from src.ui.state import get_session_state
 
 
@@ -147,23 +148,7 @@ def _render_task_expanders(session) -> None:
         with st.expander(f"Aufgabe {idx + 1}: {short_text}", expanded=True):
             ts = summary_by_id.get(task_id)
             if ts:
-                st.markdown(f"**Zusammenfassung:** {ts.get('summary', '')}")
-
-                findings = ts.get("key_findings", [])
-                if findings:
-                    st.markdown("**Ergebnisse:**")
-                    for f in findings:
-                        st.markdown(f"- {f}")
-
-                gaps = ts.get("gaps", [])
-                if gaps:
-                    st.markdown("**Lücken:**")
-                    for g in gaps:
-                        st.markdown(f"- {g}")
-
-                relevance = ts.get("relevance_assessment", "")
-                if relevance:
-                    st.caption(f"Relevanz: {relevance}")
+                render_task_summary_markdown(ts)
             else:
                 st.caption("Keine Zusammenfassung verfügbar")
 
@@ -177,27 +162,9 @@ def _render_task_expanders(session) -> None:
                     chunks = sq.chunks if isinstance(sq.chunks, list) else []
 
                 if chunks:
-                    with st.expander(
-                        f"Abgerufene Chunks ({len(chunks)})", expanded=False
-                    ):
-                        for ci, chunk in enumerate(chunks):
-                            if isinstance(chunk, dict):
-                                doc = chunk.get("document", "?")
-                                page = chunk.get("page", "?")
-                                info = chunk.get("extracted_info", "")
-                                score = chunk.get("relevance_score", 0)
-                            else:
-                                doc = getattr(chunk, "document", "?")
-                                page = getattr(chunk, "page", "?")
-                                info = getattr(chunk, "extracted_info", "")
-                                score = getattr(chunk, "relevance_score", 0)
-
-                            st.markdown(
-                                f"**{ci + 1}.** {doc} (S. {page}) "
-                                f"| Relevanz: {score:.2f}"
-                            )
-                            if info:
-                                st.caption(info[:300])
+                    st.markdown(f"**{len(chunks)} Chunks gefunden:**")
+                    for ci, chunk in enumerate(chunks):
+                        render_chunk_expander(chunk, ci)
 
 
 def _render_sources(report: FinalReport) -> None:
