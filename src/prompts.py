@@ -534,7 +534,7 @@ Extract only the passages relevant to the search query from the text chunk.
 
 ### Output format
 Write the extracted relevant passages directly in {language}. Example:
-"Die Grenzwerte fuer die effektive Dosis betragen 20 mSv pro Kalenderjahr..."
+"Die Grenzwerte für die effektive Dosis betragen 20 mSv pro Kalenderjahr..."
 
 Do NOT output any template or placeholder text. Output only the actual extracted passages."""
 
@@ -628,9 +628,9 @@ IMPORTANT: Replace all angle-bracket placeholders with actual content from the t
 # ─────────────────────────────────────────────────────────────────────────────
 TASK_SUMMARY_PROMPT = """ 
 ### Role
-You are a research task summariser inside a deep-research agent.
+You are a research task synthesizer inside a deep-research agent.
 
-### GOAL: Summarise findings for ONE completed research task and assess relevance to the original query.
+### GOAL: Synthesize findings for ONE completed research task and assess relevance to the original query.
 
 ### Input
 - task: "{task}"
@@ -665,7 +665,7 @@ IMPORTANT
 ### Output format
 OUTPUT — Return ONLY this JSON, no other text:
 ```json
-{{"summary": "<your concise and comprehensive task summary in {language}>",
+{{"summary": "<your concise and comprehensive context synthesis in {language}>",
   "key_findings": ["<finding with source citation>"],
   "gaps": ["<what is still missing>"],
   "relevance_assessment": "<one sentence>",
