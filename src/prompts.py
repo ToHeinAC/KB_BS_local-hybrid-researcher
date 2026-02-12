@@ -624,43 +624,48 @@ IMPORTANT: Replace all angle-bracket placeholders with actual content from the t
 # Notes: Added in Week 4 (Graded Context). Includes drift detection
 #        by asking LLM to identify irrelevant findings.
 # ─────────────────────────────────────────────────────────────────────────────
-TASK_SUMMARY_PROMPT = """
+TASK_SUMMARY_PROMPT = """ 
 ### Role
-Within the deep research agentic workflow, you are a master for task summary generation.
+You are a research task summariser inside a deep-research agent.
 
-### Task
-Summarise the findings for a completed research task and assess their relevance.
-The tasks is perfectly executed under the following key ideas:
-DO: Given the task and under the condition of the original query, generate a deep, comprehensive and verbatim summary of the findings
-while preserving preserved quotes.
-DON'T: You must not generate summaries that are not directly related to the task or the original query.
+### GOAL: Summarise findings for ONE completed research task and assess relevance to the original query.
 
 ### Input
 - task: "{task}"
 - original_query: "{original_query}"
+- hitl_findings: {hitl_smry}
 - findings: {findings}
 - preserved_quotes: {preserved_quotes}
-- hitl_findings: {hitl_smry}
 
-### Rules
-1. Write the summary in {language}.
-2. Before summarising, discard any finding that is only superficially related to the original query (shares keywords but addresses a different topic).
-3. Use hitl_findings as established context. Do not repeat findings already covered there; focus the summary on new information this task uncovered.
-4. Include key facts with source citations. Preserve exact and precise terminology.
-5. Preserve any critical verbatim quotes.
-6. Note gaps or limitations.
-7. Provide a one-sentence relevance assessment.
-8. List findings that seem related but do NOT actually answer the query.
-9. Return ONLY valid JSON, no extra text.
+### Rules:
+STEP-BY-STEP INSTRUCTIONS
+1. Read the task description.
+2. Re-read the original_query — every output must serve answering it.
+3. Use hitl_findings as established context to understand how this task connects to the original_query.
+4. For each finding in findings, decide: does it directly help answer the original_query for this task?
+   - YES → include in key_findings with source citations and exact terminology.
+   - PARTIALLY → include only the directly relevant part.
+   - NO (shares keywords but addresses a different topic) → move to irrelevant_findings.
+5. Preserve any quote from preserved_quotes that supports a key_finding. Copy it verbatim.
+6. Identify gaps: what information is still missing to fully answer the original_query for this task?
+7. Write a concise and comprehensive summary in {language} that focuses on NEW information from this task. Reference hitl_findings only when essential context is needed.
+8. Write a one-sentence relevance_assessment.
+
+IMPORTANT
+- Write in {language}.
+- Do NOT invent information. If data is missing, say so in gaps.
+- Do NOT add preamble, explanation, or markdown fences — output raw JSON only.
 
 ### Output format
+OUTPUT — Return ONLY this JSON, no other text:
 ```json
-{{"summary": "concise task summary in {language}",
-  "key_findings": ["finding 1", "finding 2"],
-  "gaps": ["gap 1"],
-  "relevance_assessment": "one-sentence verdict",
-  "irrelevant_findings": ["finding that looks related but is not"]}}
-```"""
+{{"summary": "<your concise and comprehensive task summary in {language}>",
+  "key_findings": ["<finding with source citation>"],
+  "gaps": ["<what is still missing>"],
+  "relevance_assessment": "<one sentence>",
+  "irrelevant_findings": ["<finding that looks related but does not answer the query>"]}}
+```
+"""
 
 # =============================================================================
 # Research Prompts - Synthesis
@@ -689,26 +694,35 @@ DON'T: You must not generate summaries that are not directly related to the task
 # ─────────────────────────────────────────────────────────────────────────────
 SYNTHESIS_PROMPT = """
 ### Role
-You are a synthesis assistant that combines research findings into a single, consistent answer to the original user query.
-You must stay strictly within the provided findings and quotes.
+You are a synthesis assistant that combines research findings into a direct answer.
 
-### Task
-Synthesise research findings into a coherent answer to the original query.
+### GOAL: Synthesise research findings into a comprehensive, query-anchored answer.
 
 ### Input
 - original_query: "{original_query}"
 - research_findings: {findings}
 
 ### Rules
-1. Write the summary in {language}. Do not mix languages.
-2. Include source citations in the format [Document_name.pdf].
-3. Focus on directly answering the query. Preserve exact and precise terminology.
-4. Return ONLY valid JSON, no extra text.
+STEP-BY-STEP INSTRUCTIONS
+1. Read original_query carefully — every output must serve answering it.
+2. For each finding in research_findings, decide: does it help answer the query?
+   - YES → include with [Document.pdf] citation.
+   - PARTIALLY → include only the relevant part with citation.
+   - NO (different topic/context despite shared keywords) → discard.
+3. If no findings remain after filtering → set summary to "knowledge base insufficient", key_findings=[].
+4. Write a comprehensive summary in {language} that directly answers the query. Cite sources as [Document.pdf].
+5. Extract key_findings — one per entry, each with citation.
+
+IMPORTANT
+- Write in {language} only — no mixing.
+- Do NOT invent values, numbers, or citations.
+- Do NOT add preamble, explanation, or markdown fences — output raw JSON only.
 
 ### Output format
+OUTPUT — Return ONLY this JSON, no other text:
 ```json
-{{"summary": "comprehensive answer in {language}",
-  "key_findings": ["finding 1", "finding 2"]}}
+{{"summary": "<comprehensive answer in {language}>",
+  "key_findings": ["<finding with [Document.pdf] citation>"]}}
 ```"""
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -742,89 +756,47 @@ Synthesise research findings into a coherent answer to the original query.
 # ─────────────────────────────────────────────────────────────────────────────
 SYNTHESIS_PROMPT_ENHANCED = """
 ### Role
-You are a **synthesis assistant** that combines multi-tier research findings into a single, consistent answer to the original user query. You must stay strictly within the provided findings and quotes.
+You are a synthesis assistant that combines multi-tier research findings into a direct answer.
 
-### Task
-Using the inputs below, generate a comprehensive, query-anchored answer and return it **only** as valid JSON in the specified schema.
+### GOAL: Generate a comprehensive, query-anchored answer from tiered research findings.
 
 ### Input
-- original_query (string): "{original_query}"
-- hitl_smry (string or null): {hitl_smry}
-- primary_findings (list of objects): {primary_findings}
-- secondary_findings (list of objects): {secondary_findings}
-- tertiary_findings (list of objects): {tertiary_findings}
-- preserved_quotes (list of strings): {preserved_quotes}
-- task_summaries (list of objects): {task_summaries}
+- original_query: "{original_query}"
+- hitl_smry: {hitl_smry}
+- primary_findings: {primary_findings}
+- secondary_findings: {secondary_findings}
+- tertiary_findings: {tertiary_findings}
+- preserved_quotes: {preserved_quotes}
+- task_summaries: {task_summaries}
 
-Each finding object typically contains:
-- content: main text
-- source: document name or URL
-- page or location: page number or section if available
-- relevance_score: numeric score (higher = more relevant)
+### Rules
+STEP-BY-STEP INSTRUCTIONS
+1. Read original_query — every output must serve answering it.
+2. Read hitl_smry for established context — do not repeat it, build on it.
+3. For each finding in primary_findings, then secondary_findings, then tertiary_findings, decide: does it answer the query?
+   - YES → include with [Document.pdf] citation.
+   - PARTIALLY → include only the relevant part with citation.
+   - NO (different topic/context despite shared keywords) → discard.
+4. If after filtering no findings remain → set summary to "knowledge base insufficient", key_findings=[], query_coverage=0, list gaps in remaining_gaps.
+5. Write summary in {language}: direct answer first, then details with citations, then caveats. Prioritise primary > secondary > tertiary. Note conflicts.
+6. Extract key_findings — one per entry, each with [Document.pdf] citation.
+7. Integrate preserved_quotes verbatim where they support a finding (use quotation marks).
+8. Estimate query_coverage (0-100): how much of the original_query is answered.
+9. List remaining_gaps — what is still missing or contradictory.
 
-### Hard Rules
-1. **Language**
-   - Write ONLY in {language}. Do not mix languages or translate quoted passages.
-2. **Grounding**
-   - Use ONLY information from primary/secondary/tertiary findings and preserved_quotes.
-   - If a required detail is not present in these inputs, mark it as unknown or a gap. Do NOT invent values, numbers, or legal citations.
-3. **Relevance Filtering (very important)**
-   - First, read `original_query` carefully.
-   - For each finding, discard it if:
-     - It addresses a different topic, domain, or legal regime than the query, or
-     - It only shares generic keywords (e.g. "limit", "threshold", "dose") but clearly refers to a different context.
-   - Work only with the remaining filtered findings.
-4. **Empty or Insufficient Evidence**
-   - If, after filtering, no findings are relevant, set:
-     - `summary` to a clear statement that the knowledge base does not contain enough information to answer the query.
-     - `key_findings` to an empty list.
-     - `query_coverage` to 0.
-     - `remaining_gaps` to a short list of aspects of the query that could not be answered.
-   - In this case, do NOT speculate or generalize from unrelated findings.
+IMPORTANT
+- Write in {language} only — no mixing.
+- Do NOT invent values, numbers, or citations.
+- Do NOT add preamble, explanation, or markdown fences — output raw JSON only.
+- If tiers conflict: primary > secondary > tertiary. Note conflicts in remaining_gaps.
 
-### Synthesis Rules
-5. **Answer Structure**
-   - Begin the `summary` with a direct answer to the original_query in {language}, as precise as the evidence allows.
-   - Then provide:
-     - A short overview of the main conclusions.
-     - Key technical or legal details, with citations.
-     - Any important caveats or assumptions.
-6. **Tier Usage**
-   - Prioritise `primary_findings` for the core reasoning and main claims.
-   - Use `secondary_findings` to:
-     - Add depth, context, methodology, or additional numeric/technical detail.
-   - Use `tertiary_findings` only:
-     - To fill clearly identified gaps, or
-     - To provide background that does not contradict higher-tier findings.
-   - If tiers conflict, prefer primary > secondary > tertiary. Explicitly note important conflicts in `remaining_gaps`.
-7. **Citations**
-   - Support important claims with citations using the pattern:
-     - "[Document.pdf]" or "[URL]".
-   - When the page or section is unknown, use just the document name or URL, e.g. "[Document.pdf]" or "[https://example.com](https://example.com)".
-   - Attach citations at the end of the relevant sentence inside the `summary` and `key_findings` texts.
-8. **Preserved Quotes**
-   - Use `preserved_quotes` when exact wording is important (especially for legal or technical norms).
-   - Integrate quotes verbatim, with citations, and clearly distinguish them from your own synthesis text (for example with quotation marks or explicit mention).
-9. **Limitations and Gaps**
-   - Clearly state important uncertainties, missing data, or unresolved conflicts between findings.
-   - Do not try to "smooth over" contradictions; instead, describe them briefly and conservatively.
-
-### JSON Output Requirements
-10. **Output Schema (strict)**
-   - You MUST return ONLY a single JSON object, with this exact structure and keys:
-   ```json
-   {
-     "summary": "string – comprehensive answer strictly in {language}, 3–15 sentences, including citations",
-     "key_findings": [
-       "string – one important finding per entry, each with citations",
-       "... additional findings ..."
-     ],
-     "query_coverage": 0,
-     "remaining_gaps": [
-       "string – one clearly described gap or uncertainty per entry",
-       "... additional gaps ..."
-     ]
-   }
+### Output format
+OUTPUT — Return ONLY this JSON, no other text:
+```json
+{{"summary": "<comprehensive answer in {language}, 3-15 sentences with citations>",
+  "key_findings": ["<one finding with [Document.pdf] citation>"],
+  "query_coverage": 0,
+  "remaining_gaps": ["<one gap or uncertainty>"]}}
 ```"""
 
 # =============================================================================
