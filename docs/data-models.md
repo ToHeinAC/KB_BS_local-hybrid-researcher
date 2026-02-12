@@ -466,7 +466,7 @@ detected_language: str        # "de" or "en"
 
 # Graded Context Management (NEW)
 query_anchor: dict            # Immutable reference to original intent
-hitl_context_summary: str     # Synthesized HITL findings for synthesis
+hitl_smry: str                # Citation-aware HITL summary with [Source_filename] annotations
 primary_context: list[dict]   # Tier 1: Direct, high-relevance findings
 secondary_context: list[dict] # Tier 2: Reference-followed, medium-relevance
 tertiary_context: list[dict]  # Tier 3: Deep references, HITL retrieval

@@ -16,7 +16,7 @@ Classical RAG lacks deep contextual understanding and cannot follow inter-docume
 │  │  hitl_init → hitl_generate_questions ↔ hitl_process_response │  │
 │  │  → hitl_finalize (on /end, max_iterations, or convergence)   │  │
 │  └──────────────────────────────────────────────────────────────┘  │
-│  Output: research_queries[], query_anchor, hitl_context_summary     │
+│  Output: research_queries[], query_anchor, hitl_smry     │
 ├────────────────────────────────────────────────────────────────────┤
 │  Phase 2: Research Planning                                         │
 │  QueryAnalysis → ToDoList (3-5 tasks, max 15)                       │
@@ -114,7 +114,7 @@ The enhanced iterative HITL system provides intelligent query refinement through
 
 **Graded Context State Fields** (NEW):
 - `query_anchor`: Immutable reference to original intent (created in hitl_finalize)
-- `hitl_context_summary`: Synthesized HITL findings for final synthesis
+- `hitl_smry`: Synthesized HITL findings for final synthesis
 - `primary_context`: Tier 1 high-confidence findings (list of dicts)
 - `secondary_context`: Tier 2 supporting findings (list of dicts)
 - `tertiary_context`: Tier 3 background context (list of dicts)
@@ -306,8 +306,8 @@ KB_BS_local-hybrid-researcher/
 ### Graded Context Management (Week 4) - COMPLETE
 - [x] **Query Anchor & HITL Context Preservation** (Phase A)
   - `query_anchor`: Immutable reference to original intent
-  - `hitl_context_summary`: LLM-synthesized HITL conversation for synthesis
-  - `HITL_CONTEXT_SUMMARY_PROMPT` in `src/prompts.py`
+  - `hitl_smry`: LLM-synthesized HITL conversation for synthesis
+  - `HITL_SUMMARY_PROMPT` in `src/prompts.py`
 - [x] **Strict Language Enforcement** (Phase F)
   - `generate_structured_with_language()` in OllamaClient
   - Language validation with German/English marker heuristics
@@ -331,10 +331,27 @@ KB_BS_local-hybrid-researcher/
 - [x] **Query-Anchored Synthesis** (Phase E)
   - `SYNTHESIS_PROMPT_ENHANCED`: Tiered context structure with explicit instructions
   - Modified `synthesize()` uses graded context + language enforcement
-  - Includes `hitl_context_summary`, `preserved_quotes`, `task_summaries`
+  - Includes `hitl_smry`, `preserved_quotes`, `task_summaries`
 - [x] **New Pydantic Models**: `SynthesisOutputEnhanced`, `TaskSummaryOutput`, `RelevanceScoreOutput`
 - [x] **Graph Update**: Added `validate_relevance` node between `execute_task` and `synthesize`
 - [x] **84+ Unit Tests**: All existing tests pass (22 model, 23 agent, 39 reference extraction)
+
+### HITL-Aware Summaries & Prompt Annotations (Week 4.7) - COMPLETE
+- [x] **Rename `hitl_context_summary` → `hitl_smry`**: Shorter name, consistent across state/prompts/nodes
+  - `HITL_CONTEXT_SUMMARY_PROMPT` → `HITL_SUMMARY_PROMPT` with citation-aware instructions
+  - `_summarize_hitl_context()` → `_generate_hitl_summary()` with `[Source_filename]` annotations
+  - Retrieval truncation raised from 4K to 8K chars to preserve `[doc, p.N]` prefixes
+- [x] **`hitl_smry` fed into `generate_todo()`**: Both research_queries path (as `item_context`) and LLM fallback path
+- [x] **`hitl_smry` fed into `_generate_task_summary()`**: New `{hitl_smry}` variable in `TASK_SUMMARY_PROMPT`
+  - Rule: "Do not repeat findings already covered in hitl_findings"
+  - Fallback: `"No prior findings"` when `hitl_smry` is empty
+- [x] **Comprehensive Prompt Annotations**: Every prompt in `src/prompts.py` now has a docstring header
+  - Phase, graph node, caller, workflow position, input/output, consumption
+  - Several prompts gained `### Role` section for small-model clarity
+- [x] **Debug State Dumps**: `enable_state_dump` config + `src/utils/debug_state.py`
+  - `dump_state_markdown()` writes phase snapshots to `tests/debugging/`
+  - Hooked into `hitl_finalize`, `process_hitl_todo`, `execute_task` (last task only)
+- [x] **116 Unit Tests**: All pass (22 model, 35 agent, 39 reference, 20 task search + other)
 
 ### Prompt Standardization & Multi-Query Task Execution (Week 4.5) - COMPLETE
 - [x] **Prompt 4-Section Format**: All 19 prompts reformatted to `### Task / ### Input / ### Rules / ### Output format`

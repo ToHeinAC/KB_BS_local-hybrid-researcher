@@ -1,22 +1,47 @@
-"""Centralized LLM prompts for the research agent.
+"""Annotated copy of src/prompts.py — comprehensive workflow documentation.
 
-All prompts MUST be defined in this file per project convention.
+Each prompt constant has a docstring explaining:
+1. Phase & graph node where it is used
+2. Called by: file + function
+3. Workflow position: Previous prompt → THIS → Next prompt
+4. Input/Output description & how the output is consumed
+
+All prompts MUST be defined in src/prompts.py per project convention.
 Never inline prompt strings in node functions or services.
 Use template variables for dynamic content.
 
 Every prompt follows a strict 4-section format optimised for small
 local LLMs (<=20B parameters):
 
-    ### Task   – one-sentence imperative
-    ### Input  – enumerated variables
-    ### Rules  – numbered constraints
-    ### Output format – exact JSON / text template
+### Task   – one-sentence imperative
+### Input  – enumerated variables
+### Rules  – numbered constraints
+### Output format – exact JSON / text template
 """
 
 # =============================================================================
 # HITL Prompts - Language Detection
 # =============================================================================
 
+# ─────────────────────────────────────────────────────────────────────────────
+# LANGUAGE_DETECTION_PROMPT
+# ─────────────────────────────────────────────────────────────────────────────
+# Phase: Phase 1 — Enhanced Query Analysis (Iterative HITL)
+# Graph node: hitl_init
+# Called by: src/services/hitl_service.py :: _detect_language_llm() (line ~355)
+# Workflow: [entry_router] → hitl_init (THIS) → hitl_generate_queries
+# Previous: — (first prompt in the workflow)
+# Next: ALTERNATIVE_QUERIES_INITIAL_PROMPT (in hitl_generate_queries)
+#
+# Input: {user_query} — the raw user query string
+# Output: Plain text, two-letter language code ("de" or "en")
+# Consumed by: Stored as state["detected_language"]; propagated to every
+# subsequent prompt via {language} template variable.
+#
+# Notes: This is one of two prompts WITHOUT {language} enforcement
+# (the other is REFERENCE_EXTRACTION_PROMPT), because its
+# output is a code, not natural language.
+# ─────────────────────────────────────────────────────────────────────────────
 LANGUAGE_DETECTION_PROMPT = """### Task
 Detect the language of the user text.
 
@@ -36,6 +61,28 @@ de"""
 # HITL Prompts - Follow-up Questions (merged DE + EN)
 # =============================================================================
 
+# ─────────────────────────────────────────────────────────────────────────────
+# FOLLOW_UP_QUESTIONS_PROMPT
+# ─────────────────────────────────────────────────────────────────────────────
+# Phase: Phase 1 — Enhanced Query Analysis (Iterative HITL)
+# Graph node: hitl_generate_questions
+# Called by: src/services/hitl_service.py :: _generate_follow_up_questions_llm() (line ~399)
+# Workflow: hitl_analyze_retrieval → hitl_generate_questions (THIS) → END (wait for user)
+# Previous: RETRIEVAL_ANALYSIS_PROMPT (in hitl_analyze_retrieval)
+# Next: — (graph pauses for user input; resumes at hitl_process_response)
+#
+# Input: {user_query} — original query
+#        {context} — hitl_conversation_history (accumulated Q&A)
+#        {retrieval} — query_retrieval text from vector DB
+#        {language} — "German" or "English"
+# Output: Plain text — 3 numbered follow-up questions
+# Consumed by: Displayed to user in Streamlit UI; user's answers drive the
+#              next HITL iteration via hitl_process_response.
+#
+# Notes: Merged from separate DE/EN prompts in Week 4.5.
+#        Uses {retrieval} from state to avoid asking about info
+#        already present in the knowledge base.
+# ─────────────────────────────────────────────────────────────────────────────
 FOLLOW_UP_QUESTIONS_PROMPT = """### Task
 Generate exactly 3 follow-up questions to clarify the user's research query.
 
@@ -61,8 +108,33 @@ Generate exactly 3 follow-up questions to clarify the user's research query.
 # HITL Prompts - User Feedback Analysis
 # =============================================================================
 
-USER_FEEDBACK_ANALYSIS_PROMPT = """### Task
-Analyse the conversation and extract key research parameters.
+# ─────────────────────────────────────────────────────────────────────────────
+# USER_FEEDBACK_ANALYSIS_PROMPT
+# ─────────────────────────────────────────────────────────────────────────────
+# Phase: Phase 1 — Enhanced Query Analysis (Iterative HITL)
+# Graph node: hitl_finalize
+# Called by: src/services/hitl_service.py :: _analyse_user_feedback_llm() (line ~432)
+# Workflow: hitl_process_response → hitl_finalize (THIS) → generate_todo
+# Previous: REFINED_QUERIES_PROMPT (in hitl_process_response, on loop iterations)
+#           or FOLLOW_UP_QUESTIONS_PROMPT (if user typed /end after first iteration)
+# Next: KNOWLEDGE_BASE_QUESTIONS_PROMPT (also in hitl_finalize)
+#
+# Input: {user_query} — original query
+#        {context} — full hitl_conversation_history
+#        {language} — "German" or "English"
+# Output: JSON with entities[], scope, context, refined_query
+# Consumed by: Fed into _generate_knowledge_base_questions_llm() as
+#              {analysis}; also stored in state["query_analysis"].
+#
+# Notes: Extracts structured parameters from the free-form HITL
+#        conversation to drive research planning.
+# ─────────────────────────────────────────────────────────────────────────────
+USER_FEEDBACK_ANALYSIS_PROMPT = """
+### Role
+Within the deep research agentic workflow, you are a master for human feedback analysis.
+
+### Task
+Analyse the conversation and extract key research directions, parameters and exact terminologiesclarifying the user's query.
 
 ### Input
 - original_query: "{user_query}"
@@ -89,8 +161,35 @@ Analyse the conversation and extract key research parameters.
 # HITL Prompts - Knowledge Base Questions Generation
 # =============================================================================
 
-KNOWLEDGE_BASE_QUESTIONS_PROMPT = """### Task
-Generate {max_queries} optimised search queries for a knowledge base.
+# ─────────────────────────────────────────────────────────────────────────────
+# KNOWLEDGE_BASE_QUESTIONS_PROMPT
+# ─────────────────────────────────────────────────────────────────────────────
+# Phase: Phase 1 → Phase 2 transition (HITL finalization)
+# Graph node: hitl_finalize
+# Called by: src/services/hitl_service.py :: _generate_knowledge_base_questions_llm() (line ~473)
+# Workflow: USER_FEEDBACK_ANALYSIS_PROMPT → THIS → generate_todo
+# Previous: USER_FEEDBACK_ANALYSIS_PROMPT (same node, sequential call)
+# Next: TODO_GENERATION_PROMPT (in generate_todo node)
+#
+# Input: {user_query} — original query
+#        {context} — hitl_conversation_history
+#        {analysis} — JSON output from USER_FEEDBACK_ANALYSIS_PROMPT
+#        {max_queries} — number of queries to generate
+#        {language} — "German" or "English"
+# Output: JSON with research_queries[] and summary
+# Consumed by: research_queries stored in state["research_queries"]; used by
+#              generate_todo to create the task list. Summary stored in
+#              state["additional_context"].
+#
+# Notes: This is the final HITL prompt. Its output bridges Phase 1
+#        (query refinement) to Phase 2 (research planning).
+# ─────────────────────────────────────────────────────────────────────────────
+KNOWLEDGE_BASE_QUESTIONS_PROMPT = """
+### Role
+Within the deep research agentic workflow, you are a master for knowledge base questions generation.
+
+### Task
+Generate {max_queries} optimised search queries for a knowledge base based on the input below.
 
 ### Input
 - original_query: "{user_query}"
@@ -115,7 +214,34 @@ Generate {max_queries} optimised search queries for a knowledge base.
 # HITL Prompts - Alternative Queries Generation
 # =============================================================================
 
-ALTERNATIVE_QUERIES_INITIAL_PROMPT = """### Task
+# ─────────────────────────────────────────────────────────────────────────────
+# ALTERNATIVE_QUERIES_INITIAL_PROMPT
+# ─────────────────────────────────────────────────────────────────────────────
+# Phase: Phase 1 — Enhanced Query Analysis (Iterative HITL)
+# Graph node: hitl_generate_queries
+# Called by: src/services/hitl_service.py :: generate_alternative_queries_llm() (line ~789)
+#            (iteration == 0 branch)
+# Workflow: hitl_init → hitl_generate_queries (THIS) → hitl_retrieve_chunks
+# Previous: LANGUAGE_DETECTION_PROMPT (in hitl_init, first iteration only)
+# Next: — (no LLM prompt in hitl_retrieve_chunks; next LLM prompt is
+#        RETRIEVAL_ANALYSIS_PROMPT in hitl_analyze_retrieval)
+#
+# Input: {query} — original user query
+#        {language} — "German" or "English"
+# Output: JSON with broader_scope and alternative_angle query strings
+# Consumed by: Combined with original query to form 3-query triple
+#              [original, broader_scope, alternative_angle] stored in
+#              state["iteration_queries"]. Used by hitl_retrieve_chunks
+#              for vector DB search.
+#
+# Notes: Only used on iteration 0. Subsequent iterations use
+#        ALTERNATIVE_QUERIES_REFINED_PROMPT instead.
+# ─────────────────────────────────────────────────────────────────────────────
+ALTERNATIVE_QUERIES_INITIAL_PROMPT = """
+### Role
+Within the deep research agentic workflow, you are a master for alternative queries generation.
+
+### Task
 Generate 2 alternative search queries for the given research question.
 
 ### Input
@@ -134,7 +260,34 @@ Generate 2 alternative search queries for the given research question.
 {{"broader_scope": "...", "alternative_angle": "..."}}
 ```"""
 
-ALTERNATIVE_QUERIES_REFINED_PROMPT = """### Task
+# ─────────────────────────────────────────────────────────────────────────────
+# ALTERNATIVE_QUERIES_REFINED_PROMPT
+# ─────────────────────────────────────────────────────────────────────────────
+# Phase: Phase 1 — Enhanced Query Analysis (Iterative HITL)
+# Graph node: hitl_generate_queries
+# Called by: src/services/hitl_service.py :: generate_alternative_queries_llm() (line ~795)
+#            (iteration > 0 branch)
+# Workflow: hitl_process_response → hitl_generate_queries (THIS) → hitl_retrieve_chunks
+# Previous: REFINED_QUERIES_PROMPT (in hitl_process_response)
+# Next: — (no LLM prompt in hitl_retrieve_chunks; next LLM prompt is
+#        RETRIEVAL_ANALYSIS_PROMPT in hitl_analyze_retrieval)
+#
+# Input: {query} — original user query
+#        {entities} — entities discovered so far
+#        {gaps} — knowledge_gaps from previous retrieval analysis
+#        {language} — "German" or "English"
+# Output: JSON with broader_scope and alternative_angle query strings
+# Consumed by: Same as ALTERNATIVE_QUERIES_INITIAL_PROMPT — forms a 3-query
+#              triple for vector search in hitl_retrieve_chunks.
+#
+# Notes: Uses knowledge gaps and discovered entities to generate more
+#        targeted queries in subsequent HITL iterations.
+# ─────────────────────────────────────────────────────────────────────────────
+ALTERNATIVE_QUERIES_REFINED_PROMPT = """
+### Role
+Within the deep research agentic workflow, you are a master for refined queries generation.
+
+### Task
 Generate 2 refined search queries based on research progress.
 
 ### Input
@@ -159,7 +312,34 @@ Generate 2 refined search queries based on research progress.
 # HITL Prompts - Retrieval Analysis
 # =============================================================================
 
-RETRIEVAL_ANALYSIS_PROMPT = """### Task
+# ─────────────────────────────────────────────────────────────────────────────
+# RETRIEVAL_ANALYSIS_PROMPT
+# ─────────────────────────────────────────────────────────────────────────────
+# Phase: Phase 1 — Enhanced Query Analysis (Iterative HITL)
+# Graph node: hitl_analyze_retrieval
+# Called by: src/services/hitl_service.py :: analyze_retrieval_context_llm() (line ~839)
+# Workflow: hitl_retrieve_chunks → hitl_analyze_retrieval (THIS) → hitl_generate_questions
+# Previous: ALTERNATIVE_QUERIES_INITIAL_PROMPT or ALTERNATIVE_QUERIES_REFINED_PROMPT
+#           (in hitl_generate_queries, same iteration)
+# Next: FOLLOW_UP_QUESTIONS_PROMPT (in hitl_generate_questions)
+#
+# Input: {query} — original user query
+#        {retrieval} — concatenated text from retrieved chunks
+#        {language} — "German" or "English"
+# Output: JSON with key_concepts[], entities[], scope, knowledge_gaps[],
+#         coverage_score (0.0–1.0)
+# Consumed by: coverage_score → state["coverage_score"] (convergence check)
+#              knowledge_gaps → state["knowledge_gaps"] (convergence + refined queries)
+#              Full result passed to FOLLOW_UP_QUESTIONS_PROMPT as context.
+#
+# Notes: Coverage score is key to convergence detection:
+#        coverage >= 0.80 AND dedup >= 0.70 AND gaps <= 2 → finalize.
+# ─────────────────────────────────────────────────────────────────────────────
+RETRIEVAL_ANALYSIS_PROMPT = """
+### Role
+Within the deep research agentic workflow, you are a master for retrieved context analysis.
+
+### Task
 Analyse the retrieved context against the user's research query.
 
 ### Input
@@ -189,8 +369,36 @@ Analyse the retrieved context against the user's research query.
 # HITL Prompts - Refined Queries
 # =============================================================================
 
-REFINED_QUERIES_PROMPT = """### Task
-Generate 3 refined search queries incorporating user feedback.
+# ─────────────────────────────────────────────────────────────────────────────
+# REFINED_QUERIES_PROMPT
+# ─────────────────────────────────────────────────────────────────────────────
+# Phase: Phase 1 — Enhanced Query Analysis (Iterative HITL)
+# Graph node: hitl_process_response
+# Called by: src/services/hitl_service.py :: generate_refined_queries_llm() (line ~890)
+# Workflow: END (user responds) → hitl_process_response (THIS) →
+#           hitl_generate_queries (loop) OR hitl_finalize
+# Previous: FOLLOW_UP_QUESTIONS_PROMPT (the questions the user just answered)
+# Next: ALTERNATIVE_QUERIES_REFINED_PROMPT (if looping via hitl_generate_queries)
+#        or USER_FEEDBACK_ANALYSIS_PROMPT (if finalizing via hitl_finalize)
+#
+# Input: {query} — original user query
+#        {user_response} — user's text answer to the follow-up questions
+#        {gaps} — current knowledge_gaps
+#        {language} — "German" or "English"
+# Output: JSON with query_1, query_2, query_3
+# Consumed by: Updated in state["iteration_queries"] for the next retrieval
+#              loop iteration. Used by hitl_generate_queries → hitl_retrieve_chunks.
+#
+# Notes: Generates refined queries based on user clarifications.
+#        If user typed "/end", this prompt is skipped and hitl_finalize
+#        is called directly.
+# ─────────────────────────────────────────────────────────────────────────────
+REFINED_QUERIES_PROMPT = """
+### Role
+Within the deep research agentic workflow, you are a master for refined queries generation.
+
+### Task
+Generate 3 refined search queries incorporating user feedback in order to clarify and narrow down the research direction.
 
 ### Input
 - original_query: "{query}"
@@ -214,8 +422,45 @@ Generate 3 refined search queries incorporating user feedback.
 # Research Prompts - ToDo Generation
 # =============================================================================
 
-TODO_GENERATION_PROMPT = """### Task
-Generate a list of {num_items} specific research tasks for the given query analysis.
+# ─────────────────────────────────────────────────────────────────────────────
+# TODO_GENERATION_PROMPT
+# ─────────────────────────────────────────────────────────────────────────────
+# Phase: Phase 2 — Research Planning
+# Graph node: generate_todo
+# Called by: src/agents/nodes.py :: generate_todo() (line ~120)
+# Workflow: hitl_finalize → generate_todo (THIS) → hitl_approve_todo
+# Previous: KNOWLEDGE_BASE_QUESTIONS_PROMPT (in hitl_finalize)
+# Next: — (no LLM prompt in hitl_approve_todo; next LLM prompt is
+#        TASK_SEARCH_QUERIES_PROMPT in execute_task)
+#
+# Input: {original_query} — original user query
+#        {key_concepts} — from query_analysis
+#        {entities} — from query_analysis
+#        {scope} — from query_analysis
+#        {assumed_context} — additional context from HITL
+#        {hitl_smry} — citation-aware HITL summary (from hitl_finalize)
+#        {num_items} — number of tasks (3–5, max 15)
+#        {language} — "German" or "English"
+# Output: JSON with items[] — list of {id, task, context} objects
+# Consumed by: Stored in state["todo_list"]. Task 0 (original query) is
+#              prepended automatically by the node. Displayed to user for
+#              HITL approval (add/remove/reorder). After approval,
+#              execute_task iterates through these tasks.
+#
+# Notes: generate_todo() also prepends the original query as Task 0
+#        for direct vector search, ensuring broad baseline coverage.
+# ─────────────────────────────────────────────────────────────────────────────
+TODO_GENERATION_PROMPT = """
+### Role
+Within the deep research agentic workflow, you are a master for to-do list generation.
+
+### Task
+Generate a list of {num_items} specific research tasks based on the input below.
+The tasks is perfectly executed under the following key ideas:
+DO: Given the original query, the key concepts and entities that are identified,
+following the scope and considering the already found context, generate a list of {num_items} specific research tasks.
+DON'T: You must not generate tasks or task keywords that are not directly related to the query concepts and entities
+or that have been excluded, e.g. if a term is excluded by the user, you must not generate tasks related to that term.
 
 ### Input
 - original_query: "{original_query}"
@@ -223,6 +468,7 @@ Generate a list of {num_items} specific research tasks for the given query analy
 - entities: {entities}
 - scope: {scope}
 - context: {assumed_context}
+- hitl_findings: {hitl_smry}
 - language: {language}
 
 ### Rules
@@ -230,7 +476,8 @@ Generate a list of {num_items} specific research tasks for the given query analy
 2. Each task must relate to the query concepts and entities.
 3. Assign sequential integer IDs starting from 1.
 4. Write all JSON values (task descriptions, context) in {language}.
-5. Return ONLY valid JSON, no extra text.
+5. Use hitl_findings to avoid duplicating already-covered information. Focus tasks on gaps and uncovered aspects.
+6. Return ONLY valid JSON, no extra text.
 
 ### Output format
 ```json
@@ -244,7 +491,35 @@ Generate a list of {num_items} specific research tasks for the given query analy
 # Research Prompts - Information Extraction
 # =============================================================================
 
-INFO_EXTRACTION_PROMPT = """### Task
+# ─────────────────────────────────────────────────────────────────────────────
+# INFO_EXTRACTION_PROMPT
+# ─────────────────────────────────────────────────────────────────────────────
+# Phase: Phase 3 — Deep Context Extraction
+# Graph node: execute_task
+# Called by: src/agents/tools.py :: extract_info() (line ~98)
+# Workflow: execute_task: TASK_SEARCH_QUERIES_PROMPT → vector search →
+#           THIS (per chunk) → classify tier → reference detection
+# Previous: TASK_SEARCH_QUERIES_PROMPT (in execute_task, same iteration)
+# Next: REFERENCE_EXTRACTION_PROMPT (if hybrid ref detection enabled,
+#        same task iteration) or TASK_SUMMARY_PROMPT (end of task)
+#
+# Input: {query} — current task's search query
+#        {chunk_text} — raw text chunk from vector DB
+#        {language} — "German" or "English"
+# Output: Plain text — extracted relevant passages (no JSON wrapping)
+# Consumed by: Stored in chunk dict as "extracted_info"; classified into
+#              primary/secondary/tertiary context tiers. Fed into
+#              TASK_SUMMARY_PROMPT at end of task.
+#
+# Notes: Simpler variant without quote preservation. Used as fallback
+#        when verbatim quote extraction is not needed.
+#        See INFO_EXTRACTION_WITH_QUOTES_PROMPT for enhanced version.
+# ─────────────────────────────────────────────────────────────────────────────
+INFO_EXTRACTION_PROMPT = """
+### Role
+Within the deep research agentic workflow, you are a master for information extraction.
+
+### Task
 Extract only the passages relevant to the search query from the text chunk.
 
 ### Input
@@ -252,15 +527,45 @@ Extract only the passages relevant to the search query from the text chunk.
 - text_chunk: {chunk_text}
 
 ### Rules
-1. Include only information that directly answers or relates to the search query.
+1. Include all information that answers or relates to the search query.
 2. Be concise; omit filler and unrelated sentences.
-3. Write the extracted information in {language}. Preserve exact and precise terminology.
+3. Preserve exact and precise terminology.
 4. Output the extracted text directly, no JSON wrapping.
 
 ### Output format
-<extracted relevant passages in {language}>"""
+<text of extracted relevant passages in {language}>"""
 
-INFO_EXTRACTION_WITH_QUOTES_PROMPT = """### Task
+# ─────────────────────────────────────────────────────────────────────────────
+# INFO_EXTRACTION_WITH_QUOTES_PROMPT
+# ─────────────────────────────────────────────────────────────────────────────
+# Phase: Phase 3 — Deep Context Extraction
+# Graph node: execute_task
+# Called by: src/agents/tools.py :: extract_info_with_quotes() (line ~133)
+# Workflow: execute_task: TASK_SEARCH_QUERIES_PROMPT → vector search →
+#           THIS (per chunk) → classify tier → reference detection
+# Previous: TASK_SEARCH_QUERIES_PROMPT (in execute_task, same iteration)
+# Next: REFERENCE_EXTRACTION_PROMPT (if hybrid ref detection enabled,
+#        same task iteration) or TASK_SUMMARY_PROMPT (end of task)
+#
+# Input: {query} — current task's search query
+#        {key_entities} — key entities from query_anchor
+#        {chunk_text} — raw text chunk from vector DB
+#        {language} — "German" or "English"
+# Output: JSON with extracted_info (condensed text) and
+#         preserved_quotes[] ({quote, relevance_reason})
+# Consumed by: extracted_info → classified into context tiers
+#              preserved_quotes → accumulated in state["preserved_quotes"]
+#              for verbatim inclusion in final synthesis.
+#
+# Notes: Enhanced version of INFO_EXTRACTION_PROMPT. Preserves exact
+#        legal definitions, technical specs, and regulation references.
+#        Added in Week 4 (Graded Context Management).
+# ─────────────────────────────────────────────────────────────────────────────
+INFO_EXTRACTION_WITH_QUOTES_PROMPT = """
+### Role
+Within the deep research agentic workflow, you are a master for information extraction.
+
+### Task
 Extract relevant information and preserve critical verbatim quotes from the text chunk.
 
 ### Input
@@ -287,24 +592,61 @@ Extract relevant information and preserve critical verbatim quotes from the text
 # Research Prompts - Task Summary
 # =============================================================================
 
-TASK_SUMMARY_PROMPT = """### Task
+# ─────────────────────────────────────────────────────────────────────────────
+# TASK_SUMMARY_PROMPT
+# ─────────────────────────────────────────────────────────────────────────────
+# Phase: Phase 3 — Deep Context Extraction (end of each task)
+# Graph node: execute_task (internal helper)
+# Called by: src/agents/nodes.py :: _generate_task_summary() (line ~1376)
+# Workflow: [all chunks processed for task] → THIS → next task or
+#           validate_relevance (if last task)
+# Previous: INFO_EXTRACTION_PROMPT or INFO_EXTRACTION_WITH_QUOTES_PROMPT
+#           (per-chunk, same task)
+# Next: TASK_SEARCH_QUERIES_PROMPT (if more tasks remain)
+#        or RELEVANCE_SCORING_PROMPT / validate_relevance (if last task)
+#
+# Input: {task} — current task description
+#        {original_query} — original user query
+#        {findings} — accumulated extracted_info for this task
+#        {preserved_quotes} — verbatim quotes from this task
+#        {hitl_smry} — HITL findings summary (established context)
+#        {language} — "German" or "English"
+# Output: JSON with summary, key_findings[], gaps[],
+#         relevance_assessment, irrelevant_findings[]
+# Consumed by: Appended to state["task_summaries"]. Included in
+#              SYNTHESIS_PROMPT_ENHANCED as {task_summaries}.
+#
+# Notes: Added in Week 4 (Graded Context). Includes drift detection
+#        by asking LLM to identify irrelevant findings.
+# ─────────────────────────────────────────────────────────────────────────────
+TASK_SUMMARY_PROMPT = """
+### Role
+Within the deep research agentic workflow, you are a master for task summary generation.
+
+### Task
 Summarise the findings for a completed research task and assess their relevance.
+The tasks is perfectly executed under the following key ideas:
+DO: Given the task and under the condition of the original query, generate a deep, comprehensive and verbatim summary of the findings
+while preserving preserved quotes.
+DON'T: You must not generate summaries that are not directly related to the task or the original query.
 
 ### Input
 - task: "{task}"
 - original_query: "{original_query}"
 - findings: {findings}
 - preserved_quotes: {preserved_quotes}
+- hitl_findings: {hitl_smry}
 
 ### Rules
 1. Write the summary in {language}.
 2. Before summarising, discard any finding that is only superficially related to the original query (shares keywords but addresses a different topic).
-3. Include key facts with source citations. Preserve exact and precise terminology.
-4. Preserve any critical verbatim quotes.
-5. Note gaps or limitations.
-6. Provide a one-sentence relevance assessment.
-7. List findings that seem related but do NOT actually answer the query.
-8. Return ONLY valid JSON, no extra text.
+3. Use hitl_findings as established context. Do not repeat findings already covered there; focus the summary on new information this task uncovered.
+4. Include key facts with source citations. Preserve exact and precise terminology.
+5. Preserve any critical verbatim quotes.
+6. Note gaps or limitations.
+7. Provide a one-sentence relevance assessment.
+8. List findings that seem related but do NOT actually answer the query.
+9. Return ONLY valid JSON, no extra text.
 
 ### Output format
 ```json
@@ -319,7 +661,33 @@ Summarise the findings for a completed research task and assess their relevance.
 # Research Prompts - Synthesis
 # =============================================================================
 
-SYNTHESIS_PROMPT = """### Task
+# ─────────────────────────────────────────────────────────────────────────────
+# SYNTHESIS_PROMPT
+# ─────────────────────────────────────────────────────────────────────────────
+# Phase: Phase 4 — Query-Anchored Synthesis (legacy/fallback mode)
+# Graph node: synthesize
+# Called by: src/agents/nodes.py :: synthesize() (line ~708, legacy branch)
+# Workflow: validate_relevance → synthesize (THIS) → quality_check
+# Previous: TASK_SUMMARY_PROMPT (last task) → validate_relevance (no LLM)
+# Next: QUALITY_CHECK_PROMPT (in quality_check)
+#
+# Input: {original_query} — original user query
+#        {findings} — flat concatenated research findings
+#        {language} — "German" or "English"
+# Output: JSON with summary and key_findings[]
+# Consumed by: Stored in state["report"]. Passed to quality_check for
+#              evaluation, then to attribute_sources for citation linking.
+#
+# Notes: Legacy prompt used when graded context fields are empty.
+#        Superseded by SYNTHESIS_PROMPT_ENHANCED in the graded context
+#        workflow (Week 4+). Kept for backward compatibility.
+# ─────────────────────────────────────────────────────────────────────────────
+SYNTHESIS_PROMPT = """
+### Role
+You are a synthesis assistant that combines research findings into a single, consistent answer to the original user query.
+You must stay strictly within the provided findings and quotes.
+
+### Task
 Synthesise research findings into a coherent answer to the original query.
 
 ### Input
@@ -328,7 +696,7 @@ Synthesise research findings into a coherent answer to the original query.
 
 ### Rules
 1. Write the summary in {language}. Do not mix languages.
-2. Include source citations in the format [Document_name.pdf, Page X].
+2. Include source citations in the format [Document_name.pdf].
 3. Focus on directly answering the query. Preserve exact and precise terminology.
 4. Return ONLY valid JSON, no extra text.
 
@@ -338,42 +706,153 @@ Synthesise research findings into a coherent answer to the original query.
   "key_findings": ["finding 1", "finding 2"]}}
 ```"""
 
-SYNTHESIS_PROMPT_ENHANCED = """### Task
-Synthesise tiered research findings into a comprehensive, query-anchored answer.
+# ─────────────────────────────────────────────────────────────────────────────
+# SYNTHESIS_PROMPT_ENHANCED
+# ─────────────────────────────────────────────────────────────────────────────
+# Phase: Phase 4 — Query-Anchored Synthesis (graded context mode)
+# Graph node: synthesize
+# Called by: src/agents/nodes.py :: synthesize() (line ~733, enhanced branch)
+# Workflow: validate_relevance → synthesize (THIS) → quality_check
+# Previous: TASK_SUMMARY_PROMPT (last task) → validate_relevance (no LLM)
+# Next: QUALITY_CHECK_PROMPT (in quality_check)
+#
+# Input: {original_query} — original user query
+#        {hitl_smry} — citation-aware HITL summary from HITL_SUMMARY_PROMPT
+#        {primary_findings} — Tier 1 high-confidence context
+#        {secondary_findings} — Tier 2 supporting context
+#        {tertiary_findings} — Tier 3 background context
+#        {preserved_quotes} — verbatim quotes for legal precision
+#        {task_summaries} — per-task structured summaries
+#        {language} — "German" or "English"
+# Output: JSON with summary, key_findings[], query_coverage (0–100),
+#         remaining_gaps[]
+# Consumed by: Stored in state["report"]. Passed to quality_check, then
+#              to attribute_sources for clickable citation links.
+#
+# Notes: Primary synthesis prompt since Week 4. Includes drift
+#        filtering (Rule 2), tiered prioritization (Rule 5), and
+#        structured output (Overview → Details → Limitations).
+#        Uses generate_structured_with_language() for strict
+#        language enforcement with automatic retry.
+# ─────────────────────────────────────────────────────────────────────────────
+SYNTHESIS_PROMPT_ENHANCED = """
+### Role
+You are a **synthesis assistant** that combines multi-tier research findings into a single, consistent answer to the original user query. You must stay strictly within the provided findings and quotes.
+
+### Task
+Using the inputs below, generate a comprehensive, query-anchored answer and return it **only** as valid JSON in the specified schema.
 
 ### Input
-- original_query: "{original_query}"
-- hitl_context_summary: {hitl_context_summary}
-- primary_findings (highest confidence): {primary_findings}
-- secondary_findings (supporting): {secondary_findings}
-- tertiary_findings (background): {tertiary_findings}
-- preserved_quotes: {preserved_quotes}
-- task_summaries: {task_summaries}
+- original_query (string): "{original_query}"
+- hitl_smry (string or null): {hitl_smry}
+- primary_findings (list of objects): {primary_findings}
+- secondary_findings (list of objects): {secondary_findings}
+- tertiary_findings (list of objects): {tertiary_findings}
+- preserved_quotes (list of strings): {preserved_quotes}
+- task_summaries (list of objects): {task_summaries}
 
-### Rules
-1. Write ONLY in {language}. Do not mix languages.
-2. Before synthesising, discard any finding that shares keywords but addresses a different topic or intent than the original query.
-3. If no relevant findings remain after filtering, state clearly that the knowledge base does not contain information to answer this query.
-4. Begin with a direct answer to the original query.
-5. Prioritise primary findings; use secondary for depth; use tertiary only to fill gaps.
-6. Support claims with citations: [Document.pdf, Page X].
-7. Include preserved quotes for legal/technical precision.
-8. Acknowledge gaps identified during research.
-9. Structure: Overview then Details then Limitations.
-10. Return ONLY valid JSON, no extra text.
+Each finding object typically contains:
+- content: main text
+- source: document name or URL
+- page or location: page number or section if available
+- relevance_score: numeric score (higher = more relevant)
 
-### Output format
-```json
-{{"summary": "comprehensive answer strictly in {language}",
-  "key_findings": ["finding 1", "finding 2"],
-  "query_coverage": 75,
-  "remaining_gaps": ["unanswered aspect 1"]}}
+### Hard Rules
+1. **Language**
+   - Write ONLY in {language}. Do not mix languages or translate quoted passages.
+2. **Grounding**
+   - Use ONLY information from primary/secondary/tertiary findings and preserved_quotes.
+   - If a required detail is not present in these inputs, mark it as unknown or a gap. Do NOT invent values, numbers, or legal citations.
+3. **Relevance Filtering (very important)**
+   - First, read `original_query` carefully.
+   - For each finding, discard it if:
+     - It addresses a different topic, domain, or legal regime than the query, or
+     - It only shares generic keywords (e.g. "limit", "threshold", "dose") but clearly refers to a different context.
+   - Work only with the remaining filtered findings.
+4. **Empty or Insufficient Evidence**
+   - If, after filtering, no findings are relevant, set:
+     - `summary` to a clear statement that the knowledge base does not contain enough information to answer the query.
+     - `key_findings` to an empty list.
+     - `query_coverage` to 0.
+     - `remaining_gaps` to a short list of aspects of the query that could not be answered.
+   - In this case, do NOT speculate or generalize from unrelated findings.
+
+### Synthesis Rules
+5. **Answer Structure**
+   - Begin the `summary` with a direct answer to the original_query in {language}, as precise as the evidence allows.
+   - Then provide:
+     - A short overview of the main conclusions.
+     - Key technical or legal details, with citations.
+     - Any important caveats or assumptions.
+6. **Tier Usage**
+   - Prioritise `primary_findings` for the core reasoning and main claims.
+   - Use `secondary_findings` to:
+     - Add depth, context, methodology, or additional numeric/technical detail.
+   - Use `tertiary_findings` only:
+     - To fill clearly identified gaps, or
+     - To provide background that does not contradict higher-tier findings.
+   - If tiers conflict, prefer primary > secondary > tertiary. Explicitly note important conflicts in `remaining_gaps`.
+7. **Citations**
+   - Support important claims with citations using the pattern:
+     - "[Document.pdf]" or "[URL]".
+   - When the page or section is unknown, use just the document name or URL, e.g. "[Document.pdf]" or "[https://example.com](https://example.com)".
+   - Attach citations at the end of the relevant sentence inside the `summary` and `key_findings` texts.
+8. **Preserved Quotes**
+   - Use `preserved_quotes` when exact wording is important (especially for legal or technical norms).
+   - Integrate quotes verbatim, with citations, and clearly distinguish them from your own synthesis text (for example with quotation marks or explicit mention).
+9. **Limitations and Gaps**
+   - Clearly state important uncertainties, missing data, or unresolved conflicts between findings.
+   - Do not try to "smooth over" contradictions; instead, describe them briefly and conservatively.
+
+### JSON Output Requirements
+10. **Output Schema (strict)**
+   - You MUST return ONLY a single JSON object, with this exact structure and keys:
+   ```json
+   {
+     "summary": "string – comprehensive answer strictly in {language}, 3–15 sentences, including citations",
+     "key_findings": [
+       "string – one important finding per entry, each with citations",
+       "... additional findings ..."
+     ],
+     "query_coverage": 0,
+     "remaining_gaps": [
+       "string – one clearly described gap or uncertainty per entry",
+       "... additional gaps ..."
+     ]
+   }
 ```"""
 
 # =============================================================================
 # Reference Extraction Prompt (for LLM-based reference detection)
 # =============================================================================
 
+# ─────────────────────────────────────────────────────────────────────────────
+# REFERENCE_EXTRACTION_PROMPT
+# ─────────────────────────────────────────────────────────────────────────────
+# Phase: Phase 3 — Deep Context Extraction (reference following)
+# Graph node: execute_task (reference detection sub-step)
+# Called by: src/agents/tools.py :: extract_references_llm() (line ~626)
+# Workflow: execute_task: info extraction → THIS (per chunk) →
+#           resolve_reference_enhanced → scoped passage retrieval →
+#           convergence check → next chunk or task summary
+# Previous: INFO_EXTRACTION_PROMPT or INFO_EXTRACTION_WITH_QUOTES_PROMPT
+#           (same chunk, same task)
+# Next: TASK_SUMMARY_PROMPT (after all references for this task resolved)
+#
+# Input: {text} — raw text chunk to scan for references
+# Output: JSON with references[] — list of {reference_mention,
+#         reference_type, target_document_hint, confidence}
+# Consumed by: Each reference is resolved via resolve_reference_enhanced()
+#              which uses document_registry.json for scoped vector search.
+#              Resolved passages are classified into context tiers.
+#
+# Notes: This is one of two prompts WITHOUT {language} enforcement
+#        (the other is LANGUAGE_DETECTION_PROMPT), because it copies
+#        reference mentions verbatim regardless of language.
+#        Used in "llm" and "hybrid" extraction modes (not "regex").
+#        In "hybrid" mode, results are deduplicated against regex
+#        results by type:target key + substring overlap.
+# ─────────────────────────────────────────────────────────────────────────────
 REFERENCE_EXTRACTION_PROMPT = """### Task
 Extract all references from the given text and classify each by type.
 
@@ -399,11 +878,40 @@ Extract all references from the given text and classify each by type.
 ```"""
 
 # =============================================================================
-# HITL Context Summary Prompt (for synthesis)
+# HITL Summary Prompt (citation-aware, for synthesis)
 # =============================================================================
 
-HITL_CONTEXT_SUMMARY_PROMPT = """### Task
+# ─────────────────────────────────────────────────────────────────────────────
+# HITL_SUMMARY_PROMPT
+# ─────────────────────────────────────────────────────────────────────────────
+# Phase: Phase 1 → Phase 4 bridge (created in hitl_finalize,
+#        consumed in synthesize)
+# Graph node: hitl_finalize (called internally by _generate_hitl_summary)
+# Called by: src/agents/nodes.py :: _generate_hitl_summary() (line ~1466)
+#            invoked from hitl_finalize() at line ~1300
+# Workflow: hitl_finalize: USER_FEEDBACK_ANALYSIS_PROMPT →
+#           KNOWLEDGE_BASE_QUESTIONS_PROMPT → THIS → generate_todo
+# Previous: KNOWLEDGE_BASE_QUESTIONS_PROMPT (same node, sequential)
+# Next: TODO_GENERATION_PROMPT (in generate_todo node)
+#
+# Input: {query} — original user query
+#        {conversation} — full hitl_conversation_history
+#        {retrieval} — accumulated query_retrieval text (with [doc, p.N] prefixes)
+#        {gaps} — remaining knowledge_gaps
+#        {language} — "German" or "English"
+# Output: Plain text — citation-aware summary with [Source_filename] annotations
+# Consumed by: Stored in state["hitl_smry"]. Included in
+#              SYNTHESIS_PROMPT_ENHANCED as {hitl_smry} during
+#              Phase 4 synthesis. Bridges Phase 1 insights to final answer.
+#
+# Notes: Added in Week 4, upgraded to citation-aware in Week 5.
+#        Preserves source attribution via [Source_filename] annotations
+#        so downstream synthesis can trace facts back to documents.
+# ─────────────────────────────────────────────────────────────────────────────
+HITL_SUMMARY_PROMPT = """
+### Task
 Summarise the research clarification conversation for use in final synthesis.
+Produce a citation-aware summary that preserves source attribution.
 
 ### Input
 - original_query: "{query}"
@@ -413,18 +921,60 @@ Summarise the research clarification conversation for use in final synthesis.
 
 ### Rules
 1. Write the summary in {language}. Preserve exact and precise terminology.
-2. Cover: user's refined intent, key clarifications, most relevant retrieval findings, remaining gaps.
-3. This summary will guide the final answer synthesis.
-4. Output the summary as plain text, no JSON.
+2. After each factual statement, add a `[Source_filename]` citation matching the document name from retrieved_context.
+3. Preserve exact numerical values, ranges, and percentages verbatim — never round or paraphrase numbers.
+4. Use direct quotes `"..."` for key definitions, legal formulations, and technical terms.
+5. Preserve section/paragraph references (e.g., §3 Abs. 2, Anlage 4 Teil B) exactly as they appear in the source.
+6. Structure the output into two sections:
+   - **PRIMARY**: Findings directly relevant to the original query.
+   - **SECONDARY**: Tangential or supporting findings that provide useful background.
+7. Cover: user's refined intent, key clarifications, most relevant retrieval findings, remaining gaps.
+8. No prefix, suffix, or meta-commentary. Output the summary directly as plain text, no JSON.
 
 ### Output format
-<concise summary in {language}>"""
+PRIMARY:
+Factual statement with exact values [source_document.pdf]. Key definition: "verbatim quote" [source_document.pdf]. Reference to §3 Abs. 2 specifies threshold of 6 mSv/a [another_doc.pdf].
+
+SECONDARY:
+Supporting context with citation [background_doc.pdf]. Additional background detail [other_doc.pdf].
+
+GAPS:
+- Remaining gap 1
+- Remaining gap 2"""
 
 # =============================================================================
 # Research Prompts - Relevance Scoring (Pre-Synthesis Validation)
 # =============================================================================
 
-RELEVANCE_SCORING_PROMPT = """### Task
+# ─────────────────────────────────────────────────────────────────────────────
+# RELEVANCE_SCORING_PROMPT
+# ─────────────────────────────────────────────────────────────────────────────
+# Phase: Phase 3.5 — Pre-Synthesis Relevance Validation
+# Graph node: validate_relevance (intended, not currently active)
+# Called by: — IMPORTED but NOT USED in src/agents/nodes.py (line 44)
+# Workflow: execute_task (last task) → validate_relevance → synthesize
+# Previous: TASK_SUMMARY_PROMPT (last task)
+# Next: SYNTHESIS_PROMPT or SYNTHESIS_PROMPT_ENHANCED (in synthesize)
+#
+# Input: {query} — original query (or query_anchor)
+#        {entities} — key entities from query_anchor
+#        {text} — context text to score
+#        {language} — "German" or "English"
+# Output: JSON with relevance_score (0–100) and reasoning
+# Consumed by: Would be used by validate_relevance to LLM-score context
+#              items before synthesis.
+#
+# Notes: Currently UNUSED. The validate_relevance node uses
+#        _score_and_filter_context() which does simple keyword/entity
+#        matching instead of LLM-based scoring, for efficiency.
+#        This prompt is reserved for future "high-stakes" filtering
+#        where LLM scoring may be worth the latency cost.
+# ─────────────────────────────────────────────────────────────────────────────
+RELEVANCE_SCORING_PROMPT = """
+### Role
+You are a relevance scoring assistant that rates the relevance of a given text to answering the query.
+
+### Task
 Score how relevant the given text is to answering the query.
 
 ### Input
@@ -448,8 +998,44 @@ Score how relevant the given text is to answering the query.
 # Research Prompts - Task Search Queries
 # =============================================================================
 
-TASK_SEARCH_QUERIES_PROMPT = """### Task
+# ─────────────────────────────────────────────────────────────────────────────
+# TASK_SEARCH_QUERIES_PROMPT
+# ─────────────────────────────────────────────────────────────────────────────
+# Phase: Phase 3 — Deep Context Extraction (start of each task)
+# Graph node: execute_task
+# Called by: src/agents/nodes.py :: execute_task() (line ~271)
+# Workflow: process_hitl_todo → execute_task (THIS) → vector search →
+#           info extraction → reference detection → task summary
+# Previous: TODO_GENERATION_PROMPT (in generate_todo, Phase 2)
+#           — or TASK_SUMMARY_PROMPT (if continuing from previous task)
+# Next: INFO_EXTRACTION_PROMPT or INFO_EXTRACTION_WITH_QUOTES_PROMPT
+#        (per retrieved chunk, same task)
+#
+# Input: {task} — current task description
+#        {original_query} — original user query
+#        {hitl_context} — HITL context summary
+#        {key_entities} — key entities from query_anchor
+#        {language} — "German" or "English"
+# Output: JSON with query_1 and query_2 (2 targeted search queries)
+# Consumed by: Combined with a 3rd base query (task + original_query
+#              concatenation) to form a 3-query set. Each query is sent
+#              to vector DB; results deduplicated by doc:page:text key.
+#
+# Notes: Added in Week 4.5 (Multi-Query Task Execution). The 3rd
+#        query is a simple concatenation, not LLM-generated.
+#        Uses TaskSearchQueries Pydantic model for structured output.
+# ─────────────────────────────────────────────────────────────────────────────
+TASK_SEARCH_QUERIES_PROMPT = """
+
+### Role
+You are a search query generation assistant that generates 2 targeted vector-DB search queries for a research task.
+
+### Task
 Generate 2 targeted vector-DB search queries for a research task.
+The tasks is perfectly executed under the following key ideas:
+DO: Given the task and under the condition of the original query, acknowledging the hitl context and key entities,
+generate 2 targeted vector-DB search queries for a research task.
+DON'T: You must not generate tasks that are not closely covered by the research task or the original query.
 
 ### Input
 - research_task: "{task}"
@@ -475,6 +1061,31 @@ Generate 2 targeted vector-DB search queries for a research task.
 # Research Prompts - Quality Check
 # =============================================================================
 
+# ─────────────────────────────────────────────────────────────────────────────
+# QUALITY_CHECK_PROMPT
+# ─────────────────────────────────────────────────────────────────────────────
+# Phase: Phase 4 — Quality Assurance
+# Graph node: quality_check
+# Called by: src/agents/nodes.py :: quality_check() (line ~863)
+# Workflow: synthesize → quality_check (THIS) → attribute_sources → END
+# Previous: SYNTHESIS_PROMPT or SYNTHESIS_PROMPT_ENHANCED (in synthesize)
+# Next: — (no LLM prompt in attribute_sources; last prompt in workflow)
+#
+# Input: {original_query} — original user query
+#        {summary} — the synthesized report from synthesize()
+#        {language} — "German" or "English"
+# Output: JSON with 5 dimension scores (0–100 each):
+#         factual_accuracy, semantic_validity, structural_integrity,
+#         citation_correctness, query_relevance, and issues_found[]
+# Consumed by: Total score (0–500) stored in state["quality_score"].
+#              Issues stored in state["quality_issues"]. Displayed in UI.
+#              If total < QUALITY_THRESHOLD (375), a warning is shown.
+#
+# Notes: query_relevance dimension added in Week 4.5, expanding
+#        scoring from 4 to 5 dimensions (max 400 → 500).
+#        This is the LAST LLM prompt in the workflow. attribute_sources
+#        performs rule-based citation linking without LLM calls.
+# ─────────────────────────────────────────────────────────────────────────────
 QUALITY_CHECK_PROMPT = """### Task
 Evaluate the quality of a research summary against the original query.
 

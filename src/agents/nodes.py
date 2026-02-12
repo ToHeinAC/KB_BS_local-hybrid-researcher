@@ -39,7 +39,7 @@ from src.models.results import (
     TaskSummaryOutput,
 )
 from src.prompts import (
-    HITL_CONTEXT_SUMMARY_PROMPT,
+    HITL_SUMMARY_PROMPT,
     QUALITY_CHECK_PROMPT,
     RELEVANCE_SCORING_PROMPT,
     SYNTHESIS_PROMPT,
@@ -50,6 +50,7 @@ from src.prompts import (
 )
 from src.services.hitl_service import HITLService
 from src.services.ollama_client import OllamaClient
+from src.utils.debug_state import dump_state_markdown
 
 logger = logging.getLogger(__name__)
 
@@ -100,14 +101,17 @@ def generate_todo(state: AgentState) -> dict:
     # Check for research_queries from HITL first
     research_queries = state.get("research_queries", [])
     additional_context = state.get("additional_context", "")
+    hitl_smry = state.get("hitl_smry", "")
 
     if research_queries:
         # Convert HITL research queries directly to ToDoItems
+        # Prefer citation-aware hitl_smry over plain additional_context
+        item_context = hitl_smry or additional_context or "From HITL conversation"
         items = [
             ToDoItem(
                 id=i + 1,
                 task=query,
-                context=additional_context if i == 0 else "From HITL conversation",
+                context=item_context if i == 0 else "From HITL conversation",
             )
             for i, query in enumerate(research_queries)
         ]
@@ -123,6 +127,7 @@ def generate_todo(state: AgentState) -> dict:
             entities=analysis.entities,
             scope=analysis.scope,
             assumed_context=analysis.assumed_context,
+            hitl_smry=hitl_smry or "No prior findings",
             num_items=settings.initial_todo_items,
             language=lang_label,
         )
@@ -206,7 +211,7 @@ def process_hitl_todo(state: AgentState) -> dict:
         for idx, item in enumerate(todo_list.items):
             item.id = idx
 
-    return {
+    return_dict = {
         "todo_list": [item.model_dump() for item in todo_list.items],
         "phase": "execute_tasks",
         "hitl_pending": False,
@@ -216,6 +221,11 @@ def process_hitl_todo(state: AgentState) -> dict:
         "hitl_history": state.get("hitl_history", [])
         + [{"type": "todo_approve", "decision": decision.model_dump()}],
     }
+
+    if settings.enable_state_dump:
+        dump_state_markdown(state, return_dict, "tests/debugging/state_2todo.md", "Phase 2: ToDo Approved")
+
+    return return_dict
 
 
 # --- Phase 3: Task Execution ---
@@ -264,7 +274,7 @@ def execute_task(state: AgentState) -> dict:
     lang_label = "German" if language == "de" else "English"
 
     # Generate 2 dedicated search queries for this task
-    hitl_context = state.get("hitl_context_summary", "")
+    hitl_context = state.get("hitl_smry", "")
     key_entities = query_anchor.get("key_entities", [])
     client = get_ollama_client()
 
@@ -448,6 +458,7 @@ def execute_task(state: AgentState) -> dict:
         chunks=chunks,
         preserved_quotes=preserved_quotes,
         query_anchor=query_anchor,
+        hitl_smry=hitl_context,
     )
     task_summaries.append(task_summary)
 
@@ -464,7 +475,7 @@ def execute_task(state: AgentState) -> dict:
             next_task_id = item.get("id")
             break
 
-    return {
+    return_dict = {
         "research_context": context.model_dump(),
         "todo_list": todo_list,
         "current_task_id": next_task_id,
@@ -480,6 +491,11 @@ def execute_task(state: AgentState) -> dict:
         "task_summaries": task_summaries,
         "messages": [f"Completed task {task_id}: found {len(chunks)} relevant chunks, {len(preserved_quotes)} quotes"],
     }
+
+    if settings.enable_state_dump and next_task_id is None:
+        dump_state_markdown(state, return_dict, "tests/debugging/state_3rabbithole.md", "Phase 3: Rabbithole Complete")
+
+    return return_dict
 
 
 # --- Phase 3.5: Pre-Synthesis Relevance Validation (Phase G) ---
@@ -655,7 +671,7 @@ def synthesize(state: AgentState) -> dict:
     ]) if task_summaries else "No task summaries available"
 
     # Get HITL context summary (Phase A)
-    hitl_context_summary = state.get("hitl_context_summary", "")
+    hitl_smry = state.get("hitl_smry", "")
 
     # Fallback to old synthesis if no graded context available
     if not primary_context and not secondary_context:
@@ -732,7 +748,7 @@ def synthesize(state: AgentState) -> dict:
     # Use enhanced synthesis with graded context (Phase E)
     prompt = SYNTHESIS_PROMPT_ENHANCED.format(
         original_query=query_anchor.get("original_query", analysis.original_query),
-        hitl_context_summary=hitl_context_summary or "No clarification conversation recorded",
+        hitl_smry=hitl_smry or "No clarification conversation recorded",
         primary_findings=primary_findings or "No primary findings",
         secondary_findings=secondary_findings or "No secondary findings",
         tertiary_findings=tertiary_findings or "No tertiary findings",
@@ -1296,8 +1312,8 @@ def hitl_finalize(state: AgentState) -> dict:
         "created_at": datetime.now().isoformat(),
     }
 
-    # Generate HITL context summary for synthesis (Phase A)
-    hitl_context_summary = _summarize_hitl_context(
+    # Generate citation-aware HITL summary for synthesis (Phase A)
+    hitl_smry = _generate_hitl_summary(
         query=state["query"],
         conversation=hitl_conversation_history,
         retrieval=state.get("query_retrieval", ""),
@@ -1311,7 +1327,7 @@ def hitl_finalize(state: AgentState) -> dict:
         state.get("retrieval_history", {}),
     )
 
-    return {
+    return_dict = {
         "research_queries": result.get("research_queries", []),
         "additional_context": result.get("summary", ""),
         "query_analysis": analysis_dict,
@@ -1322,13 +1338,18 @@ def hitl_finalize(state: AgentState) -> dict:
         "phase": "generate_todo",
         # Graded context management fields
         "query_anchor": query_anchor,
-        "hitl_context_summary": hitl_context_summary,
+        "hitl_smry": hitl_smry,
         "tertiary_context": tertiary_context,
         "messages": [
             f"HITL finalized: {len(result.get('research_queries', []))} research queries generated",
             f"Termination reason: {state.get('hitl_termination_reason', 'unknown')}",
         ],
     }
+
+    if settings.enable_state_dump:
+        dump_state_markdown(state, return_dict, "tests/debugging/state_1hitl.md", "Phase 1: HITL Finalize")
+
+    return return_dict
 
 
 # --- Phase D Helpers: Per-Task Structured Summary ---
@@ -1339,6 +1360,7 @@ def _generate_task_summary(
     chunks: list[ChunkWithInfo],
     preserved_quotes: list[dict],
     query_anchor: dict,
+    hitl_smry: str = "",
 ) -> dict:
     """Generate structured summary for completed task.
 
@@ -1347,6 +1369,7 @@ def _generate_task_summary(
         chunks: Chunks found for this task
         preserved_quotes: Quotes extracted from this task's chunks
         query_anchor: Immutable query reference
+        hitl_smry: HITL findings summary for dedup context
 
     Returns:
         Task summary dict
@@ -1378,6 +1401,7 @@ def _generate_task_summary(
         original_query=original_query,
         findings="\n".join(findings_text[:3]) if findings_text else "No findings extracted",
         preserved_quotes=quotes_text,
+        hitl_smry=hitl_smry or "No prior findings",
         language=language,
     )
 
@@ -1447,24 +1471,27 @@ def _calculate_task_relevance(
 # --- Phase A Helpers: HITL Context Preservation ---
 
 
-def _summarize_hitl_context(
+def _generate_hitl_summary(
     query: str,
     conversation: list[dict],
     retrieval: str,
     knowledge_gaps: list[str],
     language: str,
 ) -> str:
-    """Summarize HITL conversation and retrieval for synthesis.
+    """Generate citation-aware HITL summary for synthesis.
+
+    Produces a summary with [Source_filename] annotations so downstream
+    synthesis can trace facts back to source documents.
 
     Args:
         query: Original user query
         conversation: HITL conversation history
-        retrieval: Accumulated retrieval text from HITL
+        retrieval: Accumulated retrieval text from HITL (with [doc, p.N] prefixes)
         knowledge_gaps: Identified knowledge gaps
         language: Target language (de/en)
 
     Returns:
-        Summarized HITL context string
+        Citation-aware HITL summary string
     """
     if not conversation and not retrieval:
         return ""
@@ -1480,10 +1507,10 @@ def _summarize_hitl_context(
     # Format gaps
     gaps_text = "\n".join(f"- {gap}" for gap in knowledge_gaps) if knowledge_gaps else "None identified"
 
-    # Truncate retrieval if too long
-    retrieval_truncated = retrieval[:4000] if len(retrieval) > 4000 else retrieval
+    # Truncate retrieval if too long — keep 8000 chars to preserve [doc, p.N] prefixes
+    retrieval_truncated = retrieval[:8000] if len(retrieval) > 8000 else retrieval
 
-    prompt = HITL_CONTEXT_SUMMARY_PROMPT.format(
+    prompt = HITL_SUMMARY_PROMPT.format(
         query=query,
         conversation=conv_text or "No conversation recorded",
         retrieval=retrieval_truncated or "No retrieval performed",
@@ -1494,7 +1521,7 @@ def _summarize_hitl_context(
     try:
         return client.generate(prompt)
     except Exception as e:
-        logger.warning(f"Failed to summarize HITL context: {e}")
+        logger.warning(f"Failed to generate HITL summary: {e}")
         return f"HITL Summary: Query '{query}' with {len(conversation)} conversation turns."
 
 

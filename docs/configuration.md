@@ -175,6 +175,9 @@ class Settings(BaseSettings):
     # Logging
     log_level: str = "INFO"
 
+    # Debug state dumps (writes markdown snapshots to tests/debugging/)
+    enable_state_dump: bool = False
+
     # Phase 1
     max_clarification_questions: int = 3
 

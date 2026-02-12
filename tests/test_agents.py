@@ -231,3 +231,258 @@ class TestRouteEntryPoint:
         result = route_entry_point(state)
         # With hitl_active=False, decision triggers todo processing (post-approval)
         assert result == "process_hitl_todo"
+
+
+class TestGenerateHitlSummary:
+    """Tests for _generate_hitl_summary helper."""
+
+    def test_empty_conversation_and_retrieval_returns_empty(self):
+        """Return empty string when no conversation or retrieval."""
+        from src.agents.nodes import _generate_hitl_summary
+
+        result = _generate_hitl_summary(
+            query="test", conversation=[], retrieval="",
+            knowledge_gaps=[], language="de",
+        )
+        assert result == ""
+
+    def test_prompt_contains_citation_instructions(self):
+        """Prompt sent to LLM includes citation and structure rules."""
+        from unittest.mock import MagicMock, patch
+
+        from src.agents.nodes import _generate_hitl_summary
+
+        mock_client = MagicMock()
+        mock_client.generate.return_value = "PRIMARY:\nFact [doc.pdf]\nSECONDARY:\nNone"
+
+        with patch("src.agents.nodes.get_ollama_client", return_value=mock_client):
+            result = _generate_hitl_summary(
+                query="Grenzwerte",
+                conversation=[{"role": "user", "content": "Frage"}],
+                retrieval="[strlsch.pdf, p.5]: Grenzwert 6 mSv/a",
+                knowledge_gaps=["gap1"],
+                language="German",
+            )
+
+        # Verify LLM was called
+        mock_client.generate.assert_called_once()
+        prompt = mock_client.generate.call_args[0][0]
+
+        # Verify citation rules are in prompt
+        assert "[Source_filename]" in prompt
+        assert "PRIMARY" in prompt
+        assert "SECONDARY" in prompt
+        assert "German" in prompt
+        assert result == "PRIMARY:\nFact [doc.pdf]\nSECONDARY:\nNone"
+
+    def test_fallback_on_llm_error(self):
+        """Return fallback string when LLM raises."""
+        from unittest.mock import MagicMock, patch
+
+        from src.agents.nodes import _generate_hitl_summary
+
+        mock_client = MagicMock()
+        mock_client.generate.side_effect = RuntimeError("LLM down")
+
+        with patch("src.agents.nodes.get_ollama_client", return_value=mock_client):
+            result = _generate_hitl_summary(
+                query="test query",
+                conversation=[{"role": "user", "content": "hello"}],
+                retrieval="some text",
+                knowledge_gaps=[],
+                language="de",
+            )
+
+        assert "HITL Summary" in result
+        assert "test query" in result
+
+    def test_retrieval_truncation_at_8000(self):
+        """Retrieval text is truncated at 8000 chars, not 4000."""
+        from unittest.mock import MagicMock, patch
+
+        from src.agents.nodes import _generate_hitl_summary
+
+        mock_client = MagicMock()
+        mock_client.generate.return_value = "summary"
+
+        long_retrieval = "x" * 10000
+
+        with patch("src.agents.nodes.get_ollama_client", return_value=mock_client):
+            _generate_hitl_summary(
+                query="q", conversation=[{"role": "user", "content": "c"}],
+                retrieval=long_retrieval, knowledge_gaps=[], language="de",
+            )
+
+        prompt = mock_client.generate.call_args[0][0]
+        # 8000 x's should be in prompt, not 4000
+        assert "x" * 8000 in prompt
+        assert "x" * 8001 not in prompt
+
+
+class TestGenerateTodoHitlSmry:
+    """Tests for hitl_smry integration in generate_todo."""
+
+    def test_llm_fallback_passes_hitl_smry_to_prompt(self):
+        """LLM fallback path includes hitl_smry in the prompt."""
+        from unittest.mock import MagicMock, patch
+
+        from src.agents.nodes import generate_todo
+
+        mock_client = MagicMock()
+        mock_client.generate_structured.return_value = MagicMock(
+            items=[{"id": 1, "task": "Research task", "context": "ctx"}]
+        )
+
+        state = {
+            "query_analysis": {
+                "original_query": "Grenzwerte",
+                "key_concepts": ["Strahlung"],
+                "entities": ["StrlSchV"],
+                "scope": "radiation",
+                "assumed_context": [],
+                "clarification_needed": False,
+                "detected_language": "de",
+            },
+            "hitl_smry": "PRIMARY:\nGrenzwert 6 mSv/a [strlsch.pdf]",
+            "research_queries": [],  # Force LLM fallback
+        }
+
+        with patch("src.agents.nodes.get_ollama_client", return_value=mock_client):
+            result = generate_todo(state)
+
+        mock_client.generate_structured.assert_called_once()
+        prompt = mock_client.generate_structured.call_args[0][0]
+        assert "Grenzwert 6 mSv/a [strlsch.pdf]" in prompt
+        assert "hitl_findings" in prompt
+
+    def test_llm_fallback_uses_fallback_when_no_hitl_smry(self):
+        """LLM fallback path uses 'No prior findings' when hitl_smry empty."""
+        from unittest.mock import MagicMock, patch
+
+        from src.agents.nodes import generate_todo
+
+        mock_client = MagicMock()
+        mock_client.generate_structured.return_value = MagicMock(
+            items=[{"id": 1, "task": "Task", "context": "ctx"}]
+        )
+
+        state = {
+            "query_analysis": {
+                "original_query": "Test",
+                "key_concepts": [],
+                "entities": [],
+                "scope": "",
+                "assumed_context": [],
+                "clarification_needed": False,
+                "detected_language": "en",
+            },
+            "research_queries": [],
+        }
+
+        with patch("src.agents.nodes.get_ollama_client", return_value=mock_client):
+            generate_todo(state)
+
+        prompt = mock_client.generate_structured.call_args[0][0]
+        assert "No prior findings" in prompt
+
+    def test_research_queries_path_uses_hitl_smry_as_context(self):
+        """research_queries path prefers hitl_smry over additional_context."""
+        from src.agents.nodes import generate_todo
+
+        state = {
+            "query_analysis": {
+                "original_query": "Test",
+                "key_concepts": [],
+                "entities": [],
+                "scope": "",
+                "assumed_context": [],
+                "clarification_needed": False,
+                "detected_language": "de",
+            },
+            "research_queries": ["query1", "query2"],
+            "hitl_smry": "Citation-aware summary [doc.pdf]",
+            "additional_context": "Plain summary",
+        }
+
+        result = generate_todo(state)
+        items = result["todo_list"]
+        # Task 0 is prepended original query; task at index 1 is first research_query
+        first_rq_item = items[1]
+        assert first_rq_item["context"] == "Citation-aware summary [doc.pdf]"
+
+    def test_research_queries_path_falls_back_to_additional_context(self):
+        """research_queries path falls back to additional_context when no hitl_smry."""
+        from src.agents.nodes import generate_todo
+
+        state = {
+            "query_analysis": {
+                "original_query": "Test",
+                "key_concepts": [],
+                "entities": [],
+                "scope": "",
+                "assumed_context": [],
+                "clarification_needed": False,
+                "detected_language": "de",
+            },
+            "research_queries": ["query1"],
+            "additional_context": "Plain fallback",
+        }
+
+        result = generate_todo(state)
+        items = result["todo_list"]
+        first_rq_item = items[1]
+        assert first_rq_item["context"] == "Plain fallback"
+
+
+class TestTaskSummaryHitlSmry:
+    """Tests for hitl_smry integration in _generate_task_summary."""
+
+    def test_task_summary_passes_hitl_smry_to_prompt(self):
+        """hitl_smry value is forwarded into the TASK_SUMMARY_PROMPT."""
+        from unittest.mock import MagicMock, patch
+
+        from src.agents.nodes import _generate_task_summary
+        from src.models.query import ToDoItem
+
+        mock_client = MagicMock()
+        mock_client.generate_structured.return_value = MagicMock(
+            summary="s", key_findings=[], gaps=[],
+            relevance_assessment="ok", irrelevant_findings=[],
+        )
+
+        task = ToDoItem(id=1, task="Test task", context="ctx")
+        anchor = {"original_query": "Q", "key_entities": [], "detected_language": "en"}
+
+        with patch("src.agents.nodes.get_ollama_client", return_value=mock_client):
+            _generate_task_summary(
+                task=task, chunks=[], preserved_quotes=[],
+                query_anchor=anchor, hitl_smry="HITL established facts",
+            )
+
+        prompt = mock_client.generate_structured.call_args[0][0]
+        assert "HITL established facts" in prompt
+
+    def test_task_summary_uses_fallback_when_no_hitl_smry(self):
+        """Empty hitl_smry is replaced with 'No prior findings'."""
+        from unittest.mock import MagicMock, patch
+
+        from src.agents.nodes import _generate_task_summary
+        from src.models.query import ToDoItem
+
+        mock_client = MagicMock()
+        mock_client.generate_structured.return_value = MagicMock(
+            summary="s", key_findings=[], gaps=[],
+            relevance_assessment="ok", irrelevant_findings=[],
+        )
+
+        task = ToDoItem(id=1, task="Test task", context="ctx")
+        anchor = {"original_query": "Q", "key_entities": [], "detected_language": "en"}
+
+        with patch("src.agents.nodes.get_ollama_client", return_value=mock_client):
+            _generate_task_summary(
+                task=task, chunks=[], preserved_quotes=[],
+                query_anchor=anchor, hitl_smry="",
+            )
+
+        prompt = mock_client.generate_structured.call_args[0][0]
+        assert "No prior findings" in prompt

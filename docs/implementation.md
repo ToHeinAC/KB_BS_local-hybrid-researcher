@@ -85,9 +85,9 @@ Prevents query drift and ensures synthesis quality through tiered context classi
 
 - [x] **Query Anchor & HITL Context Preservation** (Phase A):
   - `query_anchor`: Immutable reference to original intent created in `hitl_finalize`
-  - `hitl_context_summary`: LLM-synthesized HITL conversation for synthesis
-  - `HITL_CONTEXT_SUMMARY_PROMPT` in `src/prompts.py`
-  - `_summarize_hitl_context()` helper in `nodes.py`
+  - `hitl_smry`: Citation-aware HITL summary with `[Source_filename]` annotations
+  - `HITL_SUMMARY_PROMPT` in `src/prompts.py`
+  - `_generate_hitl_summary()` helper in `nodes.py` (retrieval truncation: 8K chars)
 
 - [x] **Strict Language Enforcement** (Phase F):
   - `generate_structured_with_language()` in `OllamaClient`
@@ -110,9 +110,10 @@ Prevents query drift and ensures synthesis quality through tiered context classi
 
 - [x] **Per-Task Structured Summary** (Phase D):
   - `_generate_task_summary()`: Creates summary with key findings and relevance score
+  - Accepts `hitl_smry` parameter to avoid repeating HITL-established findings
   - `_calculate_task_relevance()`: Word/entity overlap scoring
   - `task_summaries` state field accumulated during task execution
-  - `TASK_SUMMARY_PROMPT` in `src/prompts.py`
+  - `TASK_SUMMARY_PROMPT` in `src/prompts.py` (includes `{hitl_smry}` input)
 
 - [x] **Pre-Synthesis Relevance Validation** (Phase G):
   - `validate_relevance()` node: Filters drift before synthesis
@@ -124,7 +125,7 @@ Prevents query drift and ensures synthesis quality through tiered context classi
 - [x] **Query-Anchored Synthesis** (Phase E):
   - `SYNTHESIS_PROMPT_ENHANCED`: Tiered context structure with explicit instructions
   - Modified `synthesize()` uses graded context + language enforcement
-  - Includes `hitl_context_summary`, `preserved_quotes`, `task_summaries`
+  - Includes `hitl_smry`, `preserved_quotes`, `task_summaries`
   - Falls back to legacy synthesis if no graded context available
 
 - [x] **New Pydantic Models** in `src/models/results.py`:
@@ -412,7 +413,7 @@ def test_graph_execution():
 | **Hallucinated references** | LLM invents citations | Hybrid: regex provides baseline, LLM adds coverage, dedup filters noise |
 | **Over-following tangential refs** | Poor relevance filter | Set threshold=0.6+, token budget (50K), convergence (same doc >= 3) |
 | **Query drift during synthesis** | Accumulating irrelevant context | Graded context tiers, pre-synthesis relevance validation, query_anchor |
-| **Lost HITL context** | HITL findings not used in synthesis | `hitl_context_summary` and `tertiary_context` from HITL retrieval |
+| **Lost HITL context** | HITL findings not used in synthesis | `hitl_smry` fed into todo generation, task summaries, and synthesis + `tertiary_context` from HITL retrieval |
 | **Mixed language output** | LLM ignores language instruction | `generate_structured_with_language()` with validation and retry |
 | **Lost legal/technical precision** | Summarization paraphrases quotes | `preserved_quotes` extracted verbatim during info extraction |
 | **Report bloat** | Including everything | Strict extractive summarization |

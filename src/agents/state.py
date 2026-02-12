@@ -86,7 +86,7 @@ class AgentState(TypedDict, total=False):
     # Structure: {"original_query": str, "detected_language": str,
     #             "key_entities": list[str], "scope": str,
     #             "hitl_refinements": list[str], "created_at": str}
-    hitl_context_summary: str  # Synthesized HITL findings for synthesis
+    hitl_smry: str  # Citation-aware HITL summary with [Source_filename] annotations
     primary_context: list[dict]  # Tier 1: Direct, high-relevance findings
     secondary_context: list[dict]  # Tier 2: Reference-followed, medium-relevance
     tertiary_context: list[dict]  # Tier 3: Deep references, HITL retrieval
@@ -163,7 +163,7 @@ def create_initial_state(query: str) -> AgentState:
         detected_language="de",
         # Graded Context Management
         query_anchor={},
-        hitl_context_summary="",
+        hitl_smry="",
         primary_context=[],
         secondary_context=[],
         tertiary_context=[],
