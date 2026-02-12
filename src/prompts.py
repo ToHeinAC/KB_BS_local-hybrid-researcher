@@ -648,7 +648,7 @@ STEP-BY-STEP INSTRUCTIONS
 3. Use hitl_findings as established context to understand how this task connects to the original_query.
 4. Process findings by tier priority: primary_findings first, then secondary_findings, then tertiary_findings.
    For each finding, decide: does it directly help answer the original_query for this task?
-   - YES → include in key_findings with source citations and exact terminology. Keep relevant passages from the original text.
+   - YES → include in summary with source citations and exact terminology. Keep relevant passages from the original text.
    - PARTIALLY → include only the directly relevant part with citation. Keep relevant passages from the original text.
    - NO (shares keywords but addresses a different topic) → move to irrelevant_findings.
 5. Format each citation as [Filename.pdf, Page N] using the source and page from the finding.
