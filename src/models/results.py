@@ -269,10 +269,10 @@ class SynthesisOutputEnhanced(BaseModel):
 class TaskSummaryOutput(BaseModel):
     """Output for per-task structured summary."""
 
-    summary: str = Field(description="Concise task summary")
+    summary: str = Field(description="Comprehensive task synthesis")
     key_findings: list[str] = Field(
         default_factory=list,
-        description="List of discrete findings"
+        description="Findings with [Document.pdf, Page N] citations and verbatim quotes"
     )
     gaps: list[str] = Field(
         default_factory=list,

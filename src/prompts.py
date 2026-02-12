@@ -651,11 +651,12 @@ STEP-BY-STEP INSTRUCTIONS
    - YES → include in key_findings with source citations and exact terminology. Keep relevant passages from the original text.
    - PARTIALLY → include only the directly relevant part with citation. Keep relevant passages from the original text.
    - NO (shares keywords but addresses a different topic) → move to irrelevant_findings.
-5. If tiers conflict, primary > secondary > tertiary. Note conflicts in gaps.
-6. Preserve any quote from preserved_quotes that supports a key_finding. Copy it verbatim.
-7. Identify gaps: what information is still missing to fully answer the original_query for this task?
-8. Write a concise and comprehensive summary in {language} that focuses on NEW information from this task. Reference hitl_findings only when essential context is needed.
-9. Write a one-sentence relevance_assessment.
+5. Format each citation as [Filename.pdf, Page N] using the source and page from the finding.
+6. If tiers conflict, primary > secondary > tertiary. Note conflicts in gaps.
+7. Embed verbatim quotes from preserved_quotes directly inside key_findings using "quote" [Source.pdf, Page N] format. Do not list them separately.
+8. Identify gaps: what information is still missing to fully answer the original_query for this task?
+9. Write a comprehensive synthesis in {language} that makes use of all information and especially on NEW information from this task. Include literal references to documents, article numbers, section references (e.g., §3 Abs. 2, Anlage 4) exactly as they appear in the source. Reference hitl_findings only when essential context is needed.
+10. Write a one-sentence relevance_assessment.
 
 IMPORTANT
 - Write in {language}.
@@ -665,8 +666,8 @@ IMPORTANT
 ### Output format
 OUTPUT — Return ONLY this JSON, no other text:
 ```json
-{{"summary": "<your concise and comprehensive context synthesis in {language}>",
-  "key_findings": ["<finding with source citation>"],
+{{"summary": "<your comprehensive context synthesis in {language}>",
+  "key_findings": ["<finding with exact terminology and \"verbatim quote\" [Document.pdf, Page N] citation>"],
   "gaps": ["<what is still missing>"],
   "relevance_assessment": "<one sentence>",
   "irrelevant_findings": ["<finding that looks related but does not answer the query>"]}}
@@ -712,11 +713,11 @@ You are a synthesis assistant that combines research findings into a direct answ
 STEP-BY-STEP INSTRUCTIONS
 1. Read original_query carefully — every output must serve answering it.
 2. For each finding in research_findings, decide: does it help answer the query?
-   - YES → include with [Document.pdf] citation. Keep relevant passages from the original text.
-   - PARTIALLY → include only the relevant part with citation. Keep relevant passages from the original text.
+   - YES → include with [Document.pdf] citation. Keep relevant passages, article numbers, paragraphs etc. from the original text.
+   - PARTIALLY → include only the relevant part with citation. Keep relevant passages, article numbers, paragraphs from the original text.
    - NO (different topic/context despite shared keywords) → discard.
 3. If no findings remain after filtering → set summary to "knowledge base insufficient", key_findings=[].
-4. Write a comprehensive summary in {language} that directly answers the query. Cite sources as [Document.pdf].
+4. Write a comprehensive summary in {language} that directly answers the query. Cite sources as [Document.pdf], i.e. as [filename.ending].
 5. Extract key_findings — one per entry, each with citation.
 
 IMPORTANT
@@ -771,12 +772,12 @@ STEP-BY-STEP INSTRUCTIONS
 1. Read original_query — every output must serve answering it.
 2. Read hitl_smry for established context — build on it.
 3. For each task summary, read its key_findings and gaps. Decide: does it answer the query?
-   - YES → include with [Document.pdf] citation. Keep relevant passages from the original text.
+   - YES → include with [Document.pdf, Page N] citation. Keep relevant passages from the original text.
    - PARTIALLY → include only the relevant part with citation. Keep relevant passages from the original text.
    - NO (different topic/context despite shared keywords) → discard.
 4. If after filtering no findings remain → set summary to "knowledge base insufficient", key_findings=[], query_coverage=0, list gaps in remaining_gaps.
 5. Write summary in {language}: direct answer first, then details with citations, then caveats.
-6. Extract key_findings — one per entry, each with [Document.pdf] citation.
+6. Extract key_findings — one per entry, each with [Document.pdf, Page N] citation.
 7. Include verbatim quotes from task summaries where they support a finding (use quotation marks).
 8. Estimate query_coverage (0-100): how much of the original_query is answered.
 9. Collect remaining_gaps from all task summaries — what is still missing or contradictory.
@@ -790,7 +791,7 @@ IMPORTANT
 OUTPUT — Return ONLY this JSON, no other text:
 ```json
 {{"summary": "<comprehensive answer in {language}, 3-15 sentences with citations>",
-  "key_findings": ["<one finding with [Document.pdf] citation>"],
+  "key_findings": ["<one finding with [Document.pdf, Page N] citation>"],
   "query_coverage": 0,
   "remaining_gaps": ["<one gap or uncertainty>"]}}
 ```"""

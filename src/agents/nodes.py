@@ -813,7 +813,7 @@ def _format_tiered_findings(context_items: list[dict], max_chars: int = 8000) ->
         page = item.get("page", "?")
         weight = item.get("context_weight", 0.5)
 
-        finding = f"[{source}, Page {page}] (weight: {weight:.2f}): {text[:500]}"
+        finding = f"[{source}, Page {page}] (weight: {weight:.2f}): {text[:1500]}"
 
         if total_chars + len(finding) > max_chars:
             break
@@ -860,7 +860,7 @@ def _format_task_summaries(task_summaries: list[dict]) -> str:
                 text = q.get("quote_text", "") if isinstance(q, dict) else str(q)
                 source = q.get("source_document", "") if isinstance(q, dict) else ""
                 if text:
-                    lines.append(f'  - "{text[:200]}" [{source}]')
+                    lines.append(f'  - "{text[:500]}" [{source}]')
 
         parts.append("\n".join(lines))
 
