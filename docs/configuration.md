@@ -9,7 +9,7 @@
 OLLAMA_BASE_URL=http://localhost:11434
 OLLAMA_MODEL=qwen3:14b
 OLLAMA_FALLBACK_MODEL=qwen3:8b
-OLLAMA_EMBEDDING_MODEL=qwen3-embedding:0.6b
+DEFAULT_EMBEDDING_MODEL=Qwen/Qwen3-Embedding-0.6B
 
 # =============================================================================
 # CHROMADB CONFIGURATION
@@ -162,7 +162,7 @@ class Settings(BaseSettings):
     ollama_base_url: str = "http://localhost:11434"
     ollama_model: str = "qwen3:14b"
     ollama_fallback_model: str = "qwen3:8b"
-    ollama_embedding_model: str = "qwen3-embedding:0.6b"
+    default_embedding_model: str = "Qwen/Qwen3-Embedding-0.6B"
     ollama_num_ctx: int = 131072
     ollama_safe_limit: float = 0.9
 

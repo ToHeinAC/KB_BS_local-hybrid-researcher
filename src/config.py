@@ -18,7 +18,7 @@ class Settings(BaseSettings):
     ollama_base_url: str = "http://localhost:11434"
     ollama_model: str = "qwen3:14b"
     ollama_fallback_model: str = "qwen3:8b"
-    ollama_embedding_model: str = "qwen3-embedding:0.6b"
+    default_embedding_model: str = "Qwen/Qwen3-Embedding-0.6B"
     # Critical: 128K context for dual 4090s
     ollama_num_ctx: int = 131072
     # Safety: stop at 90% of max context to prevent OOM

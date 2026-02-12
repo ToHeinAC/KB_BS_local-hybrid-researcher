@@ -49,16 +49,47 @@ class ChromaDBClient:
         self._clients: dict[str, chromadb.PersistentClient] = {}
         self._collections: dict[str, Collection] = {}
         self._langchain_stores: dict[str, Chroma] = {}
-
-        # Initialize HuggingFace embeddings (Qwen3-Embedding-0.6B)
-        # This matches the embeddings used to create the ChromaDB collections
-        self._embeddings = HuggingFaceEmbeddings(
-            model_name="Qwen/Qwen3-Embedding-0.6B",
-            model_kwargs={"device": "cuda"},  # Use GPU
-            encode_kwargs={"normalize_embeddings": True},
-        )
+        self._embedding_cache: dict[str, HuggingFaceEmbeddings] = {}
 
         logger.info(f"ChromaDB base path: {self.base_path}")
+
+    def _get_embeddings(self, model_name: str) -> HuggingFaceEmbeddings:
+        """Get or create cached HuggingFace embeddings for a model.
+
+        Args:
+            model_name: HuggingFace model name (e.g., 'Qwen/Qwen3-Embedding-0.6B')
+
+        Returns:
+            Cached HuggingFaceEmbeddings instance
+        """
+        if model_name not in self._embedding_cache:
+            logger.info(f"Loading embedding model: {model_name}")
+            self._embedding_cache[model_name] = HuggingFaceEmbeddings(
+                model_name=model_name,
+                model_kwargs={"device": "cuda"},
+                encode_kwargs={"normalize_embeddings": True},
+            )
+        return self._embedding_cache[model_name]
+
+    def _resolve_embedding_model(self, db_name: str) -> str:
+        """Resolve embedding model name from database directory name.
+
+        Falls back to settings.default_embedding_model if parsing fails.
+
+        Args:
+            db_name: Database directory name
+
+        Returns:
+            HuggingFace model name string
+        """
+        model = self.extract_embedding_model(db_name)
+        if model:
+            return model
+        logger.warning(
+            f"Could not extract embedding model from '{db_name}', "
+            f"using default: {settings.default_embedding_model}"
+        )
+        return settings.default_embedding_model
 
     def _get_client_for_collection(self, collection_key: str) -> chromadb.PersistentClient:
         """Get or create ChromaDB client for a specific collection.
@@ -150,13 +181,19 @@ class ChromaDBClient:
 
             collection_name = collections[0].name
 
+            embedding_model = self._resolve_embedding_model(db_name)
+            embeddings = self._get_embeddings(embedding_model)
+
             self._langchain_stores[collection_key] = Chroma(
                 persist_directory=str(db_path),
-                embedding_function=self._embeddings,
+                embedding_function=embeddings,
                 collection_name=collection_name,
             )
 
-            logger.info(f"Created LangChain Chroma store for {collection_key}")
+            logger.info(
+                f"Created LangChain Chroma store for {collection_key} "
+                f"with embedding model: {embedding_model}"
+            )
 
         return self._langchain_stores[collection_key]
 
@@ -374,12 +411,18 @@ class ChromaDBClient:
 
                 collection_name = collections[0].name
 
+                embedding_model = self._resolve_embedding_model(db_name)
+                embeddings = self._get_embeddings(embedding_model)
+
                 self._langchain_stores[cache_key] = Chroma(
                     persist_directory=str(actual_path),
-                    embedding_function=self._embeddings,
+                    embedding_function=embeddings,
                     collection_name=collection_name,
                 )
-                logger.info(f"Created LangChain Chroma store for database: {db_name}")
+                logger.info(
+                    f"Created LangChain Chroma store for database: {db_name} "
+                    f"with embedding model: {embedding_model}"
+                )
 
             except Exception as e:
                 logger.error(f"Failed to connect to database {db_name}: {e}")

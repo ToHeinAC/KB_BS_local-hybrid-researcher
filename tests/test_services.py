@@ -1,5 +1,7 @@
 """Tests for service layer."""
 
+from unittest.mock import MagicMock, patch
+
 import pytest
 
 from src.config import settings
@@ -91,6 +93,76 @@ class TestChromaDBClient:
         """Test getting PDF folder for invalid collection."""
         with pytest.raises(CollectionNotFoundError):
             client.get_pdf_folder("NonExistent")
+
+
+class TestEmbeddingDerivation:
+    """Test embedding model derivation from database names."""
+
+    def test_extract_embedding_model_standard(self):
+        """Test extracting model from standard DB name pattern."""
+        client = ChromaDBClient.__new__(ChromaDBClient)
+        assert (
+            client.extract_embedding_model("GLageKon__Qwen--Qwen3-Embedding-0.6B--10000--2000")
+            == "Qwen/Qwen3-Embedding-0.6B"
+        )
+
+    def test_extract_embedding_model_different_model(self):
+        """Test extracting a different model name."""
+        client = ChromaDBClient.__new__(ChromaDBClient)
+        assert (
+            client.extract_embedding_model("NORM__BAAI--bge-m3--3000--600")
+            == "BAAI/bge-m3"
+        )
+
+    def test_extract_embedding_model_no_double_underscore(self):
+        """Test returns None when DB name has no __ separator."""
+        client = ChromaDBClient.__new__(ChromaDBClient)
+        assert client.extract_embedding_model("plain_name") is None
+
+    def test_extract_embedding_model_single_model_part(self):
+        """Test returns single part when no -- separator in model."""
+        client = ChromaDBClient.__new__(ChromaDBClient)
+        assert client.extract_embedding_model("Coll__SomeModel") == "SomeModel"
+
+    def test_resolve_embedding_model_success(self):
+        """Test _resolve_embedding_model returns extracted model."""
+        client = ChromaDBClient.__new__(ChromaDBClient)
+        result = client._resolve_embedding_model(
+            "GLageKon__Qwen--Qwen3-Embedding-0.6B--10000--2000"
+        )
+        assert result == "Qwen/Qwen3-Embedding-0.6B"
+
+    def test_resolve_embedding_model_fallback(self):
+        """Test _resolve_embedding_model falls back to config default."""
+        client = ChromaDBClient.__new__(ChromaDBClient)
+        result = client._resolve_embedding_model("plain_name")
+        assert result == settings.default_embedding_model
+
+    @patch("src.services.chromadb_client.HuggingFaceEmbeddings")
+    def test_get_embeddings_caching(self, mock_hf):
+        """Test that same model name returns same cached instance."""
+        mock_hf.return_value = MagicMock()
+        client = ChromaDBClient.__new__(ChromaDBClient)
+        client._embedding_cache = {}
+
+        emb1 = client._get_embeddings("Qwen/Qwen3-Embedding-0.6B")
+        emb2 = client._get_embeddings("Qwen/Qwen3-Embedding-0.6B")
+
+        assert emb1 is emb2
+        assert mock_hf.call_count == 1
+
+    @patch("src.services.chromadb_client.HuggingFaceEmbeddings")
+    def test_different_models_get_different_embeddings(self, mock_hf):
+        """Test that different model names create separate instances."""
+        mock_hf.side_effect = [MagicMock(), MagicMock()]
+        client = ChromaDBClient.__new__(ChromaDBClient)
+        client._embedding_cache = {}
+
+        emb1 = client._get_embeddings("Qwen/Qwen3-Embedding-0.6B")
+        emb2 = client._get_embeddings("BAAI/bge-m3")
+
+        assert emb1 is not emb2
+        assert mock_hf.call_count == 2
 
 
 class TestOllamaClient:
