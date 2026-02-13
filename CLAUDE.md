@@ -32,9 +32,9 @@ Classical RAG lacks deep contextual understanding and cannot follow inter-docume
 │  Phase 3.5: Pre-Synthesis Relevance Validation (NEW)                │
 │  validate_relevance: Filter drift against query_anchor              │
 ├────────────────────────────────────────────────────────────────────┤
-│  Phase 4: Query-Anchored Synthesis + Quality Assurance              │
-│  Pre-Digested Task Summaries + HITL Summary → Synthesis             │
-│  Language Enforcement → Quality Check → Gap Analysis → Report       │
+│  Phase 4: Deep Report Synthesis + Quality Assurance                   │
+│  Pre-Digested Task Summaries + HITL Summary → Deep Report            │
+│  Language Enforcement → Quality Check → Gap Analysis → Report        │
 ├────────────────────────────────────────────────────────────────────┤
 │  Phase 5: Source Attribution                                        │
 │  Add citations → Resolve paths → Generate clickable links           │
@@ -329,11 +329,13 @@ KB_BS_local-hybrid-researcher/
   - `validate_relevance()` node: Filters drift before synthesis
   - `_score_and_filter_context()`: Scores against query_anchor entities
   - Logs warning when >30% of accumulated context is filtered
-- [x] **Query-Anchored Synthesis** (Phase E)
-  - `SYNTHESIS_PROMPT_ENHANCED`: Works from pre-digested task summaries only (tiered evidence resolved at task level)
+- [x] **Deep Report Synthesis** (Phase E)
+  - `SYNTHESIS_PROMPT_ENHANCED`: Expert report writer producing extensive markdown-formatted deep reports
+  - No sentence cap — structured sections, exact figures, verbatim quotes, section references
   - Receives only `{original_query}`, `{hitl_smry}`, `{task_summaries}`, `{language}`
   - `_format_task_summaries()` enriches summaries with key_findings, gaps, and preserved quotes
-  - Falls back to legacy `SYNTHESIS_PROMPT` if no graded context available
+  - Falls back to legacy `SYNTHESIS_PROMPT` (also deep-report style) if no graded context available
+  - UI heading: `:microscope: Detailbericht` (Key Findings section removed from results view)
 - [x] **New Pydantic Models**: `SynthesisOutputEnhanced`, `TaskSummaryOutput`, `RelevanceScoreOutput`
 - [x] **Graph Update**: Added `validate_relevance` node between `execute_task` and `synthesize`
 - [x] **84+ Unit Tests**: All existing tests pass (22 model, 23 agent, 39 reference extraction)

@@ -124,11 +124,13 @@ Prevents query drift and ensures synthesis quality through tiered context classi
   - Logs warning when >30% of accumulated context is filtered
   - `RELEVANCE_SCORING_PROMPT` in `src/prompts.py`
 
-- [x] **Query-Anchored Synthesis** (Phase E):
-  - `SYNTHESIS_PROMPT_ENHANCED`: Works from pre-digested task summaries only (tiered evidence resolved at task level)
+- [x] **Deep Report Synthesis** (Phase E):
+  - `SYNTHESIS_PROMPT_ENHANCED`: Expert report writer producing extensive markdown-formatted deep reports
+  - Instructs structured sections (####), exact figures, verbatim quotes, section references
+  - No sentence cap — produces comprehensive thematic reports instead of brief summaries
   - Receives only `{original_query}`, `{hitl_smry}`, `{task_summaries}`, `{language}`
   - `_format_task_summaries()` enriches summaries with key_findings, gaps, and preserved quotes
-  - Falls back to legacy `SYNTHESIS_PROMPT` if no graded context available
+  - Falls back to legacy `SYNTHESIS_PROMPT` (also deep-report style) if no graded context available
 
 - [x] **New Pydantic Models** in `src/models/results.py`:
   - `SynthesisOutputEnhanced`: With query_coverage (0-100) and remaining_gaps
@@ -268,7 +270,7 @@ Universal language enforcement and improved search quality:
   - `has_task_id_entries()`: Backward compat check — returns True if any entry has `task_id` key
   - Handles both dict and object access patterns
   - Used by live view (`app.py: _render_task_result_expander`) and results view (`results_view.py: _render_task_expanders`)
-- [x] **Insertion point**: After metrics row + first divider, before `### Answer`
+- [x] **Insertion point**: After metrics row + first divider, before `### :microscope: Detailbericht`
 - [x] **Data sources**: All data from `session.agent_state` and `session.hitl_conversation_history` (persisted across phase transitions, only cleared on reset)
 
 ### Phase 6.9: Tiered Chunk Rendering in Task Expanders

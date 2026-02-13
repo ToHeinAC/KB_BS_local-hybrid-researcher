@@ -41,25 +41,9 @@ def render_results_view() -> None:
     _render_task_expanders(session)
     st.divider()
 
-    # Main answer
-    st.markdown("### Answer")
+    # Main answer — deep report
+    st.markdown("### :microscope: Detailbericht")
     st.markdown(report.answer)
-
-    st.divider()
-
-    # Key findings
-    if report.findings:
-        st.markdown("### Key Findings")
-        for i, finding in enumerate(report.findings, 1):
-            with st.expander(f"Finding {i}: {finding.claim[:100]}..."):
-                st.markdown(f"**Claim:** {finding.claim}")
-                st.markdown(f"**Evidence:** {finding.evidence}")
-                st.markdown(f"**Confidence:** {finding.confidence}")
-
-                if finding.sources:
-                    st.markdown("**Sources:**")
-                    for source in finding.sources:
-                        st.markdown(f"- {source.doc_name} (p. {source.page_number or 'N/A'})")
 
     st.divider()
 
@@ -222,27 +206,11 @@ def _generate_markdown(report: FinalReport) -> str:
         f"**Tasks Completed:** {report.todo_items_completed}",
         f"**Research Iterations:** {report.research_iterations}",
         "",
-        "## Answer",
+        "## Detailbericht",
         "",
         report.answer,
         "",
-        "## Key Findings",
-        "",
     ]
-
-    for i, finding in enumerate(report.findings, 1):
-        lines.extend([
-            f"### Finding {i}",
-            "",
-            f"**Claim:** {finding.claim}",
-            "",
-            f"**Evidence:** {finding.evidence}",
-            "",
-            f"**Confidence:** {finding.confidence}",
-            "",
-            f"**Sources:** {', '.join(s.doc_name for s in finding.sources)}",
-            "",
-        ])
 
     lines.extend([
         "## Sources",

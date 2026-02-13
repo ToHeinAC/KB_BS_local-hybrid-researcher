@@ -48,22 +48,24 @@ def render_todo_approval() -> HITLDecision | None:
     removed_ids = []
 
     for i, task in enumerate(tasks):
-        short = task["task"][:60] + "..." if len(task["task"]) > 60 else task["task"]
-        with st.expander(f"Aufgabe {i + 1}: {short}", expanded=True):
+        with st.expander(f"Aufgabe {i + 1}", expanded=True):
             col1, col2 = st.columns([4, 1])
 
             with col1:
-                new_task = st.text_input(
-                    f"Aufgabe {i + 1}",
+                new_task = st.text_area(
+                    " ",
                     value=task["task"],
                     key=f"task_{task['id']}",
-                )
-                new_context = st.text_input(
-                    "Kontext",
-                    value=task["context"],
-                    key=f"context_{task['id']}",
                     label_visibility="collapsed",
+                    height=68,
                 )
+                with st.expander("Kontext", expanded=False):
+                    new_context = st.text_input(
+                        " ",
+                        value=task["context"],
+                        key=f"context_{task['id']}",
+                        label_visibility="collapsed",
+                    )
 
             with col2:
                 include = st.checkbox(

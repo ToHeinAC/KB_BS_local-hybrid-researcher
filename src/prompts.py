@@ -701,35 +701,38 @@ OUTPUT — Return ONLY this JSON, no other text:
 # ─────────────────────────────────────────────────────────────────────────────
 SYNTHESIS_PROMPT = """
 ### Role
-You are a synthesis assistant that combines research findings into a direct answer.
+You are an expert report writer producing extensive, detailed deep reports from research findings.
 
-### GOAL: Synthesise research findings into a comprehensive, query-anchored answer.
+### Task
+Generate a thorough, structured deep report that answers the original query using ONLY the provided research findings.
 
 ### Input
 - original_query: "{original_query}"
 - research_findings: {findings}
 
 ### Rules
-STEP-BY-STEP INSTRUCTIONS
-1. Read original_query carefully — every output must serve answering it.
-2. For each finding in research_findings, decide: does it help answer the query?
-   - YES → include with [Document.pdf] citation. Keep relevant passages, article numbers, paragraphs etc. from the original text.
-   - PARTIALLY → include only the relevant part with citation. Keep relevant passages, article numbers, paragraphs from the original text.
-   - NO (different topic/context despite shared keywords) → discard.
-3. If no findings remain after filtering → set summary to "knowledge base insufficient", key_findings=[].
-4. Write a comprehensive summary in {language} that directly answers the query. Cite sources as [Document.pdf], i.e. as [filename.ending].
-5. Extract key_findings — one per entry, each with citation.
+REPORT STRUCTURE — the summary field must be a markdown-formatted deep report:
+1. Begin with a direct answer to the query (1-2 sentences).
+2. Then provide detailed sections covering every relevant aspect found in the research findings.
+3. Use markdown headings (####), bullet points, and numbered lists for structure.
 
-IMPORTANT
+CONTENT RULES
+- Preserve original wording from source material when possible.
+- Include exact levels, figures, numbers, statistics, thresholds, and limits as they appear in the sources.
+- Reference specific sections, paragraphs, articles (e.g., "§ 80 StrlSchV", "Anlage 4 Teil B").
+- Use direct quotes (in quotation marks) for key definitions, legal text, or critical formulations.
+- Cite every claim as [Document.pdf] — never omit the source.
+- State explicitly when information is insufficient or contradictory.
+- Use ONLY information from the provided findings — no external knowledge.
 - Write in {language} only — no mixing.
 - Do NOT invent values, numbers, or citations.
 - Do NOT add preamble, explanation, or markdown fences — output raw JSON only.
 
 ### Output format
-OUTPUT — Return ONLY this JSON, no other text:
+Return ONLY this JSON, no other text:
 ```json
-{{"summary": "<comprehensive answer in {language}>",
-  "key_findings": ["<finding with [Document.pdf] citation>"]}}
+{{"summary": "<extensive structured deep report in {language} with markdown formatting and citations>",
+  "key_findings": ["<one key finding with [Document.pdf] citation>"]}}
 ```"""
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -758,9 +761,10 @@ OUTPUT — Return ONLY this JSON, no other text:
 # ─────────────────────────────────────────────────────────────────────────────
 SYNTHESIS_PROMPT_ENHANCED = """
 ### Role
-You are a synthesis assistant that combines pre-digested task summaries into a direct answer.
+You are an expert report writer producing extensive, detailed deep reports from pre-digested task summaries.
 
-### GOAL: Generate a comprehensive, query-anchored answer from task summaries.
+### Task
+Generate a thorough, structured deep report that answers the original query using ONLY the provided task summaries and HITL context.
 
 ### Input
 - original_query: "{original_query}"
@@ -768,30 +772,36 @@ You are a synthesis assistant that combines pre-digested task summaries into a d
 - task_summaries: {task_summaries}
 
 ### Rules
-STEP-BY-STEP INSTRUCTIONS
-1. Read original_query — every output must serve answering it.
-2. Read hitl_smry for established context — build on it.
-3. For each task summary, read its key_findings and gaps. Decide: does it answer the query?
-   - YES → include with [Document.pdf, Page N] citation. Keep relevant passages from the original text.
-   - PARTIALLY → include only the relevant part with citation. Keep relevant passages from the original text.
-   - NO (different topic/context despite shared keywords) → discard.
-4. If after filtering no findings remain → set summary to "knowledge base insufficient", key_findings=[], query_coverage=0, list gaps in remaining_gaps.
-5. Write summary in {language}: direct answer first, then details with citations, then caveats.
-6. Extract key_findings — one per entry, each with [Document.pdf, Page N] citation.
-7. Include verbatim quotes from task summaries where they support a finding (use quotation marks).
-8. Estimate query_coverage (0-100): how much of the original_query is answered.
-9. Collect remaining_gaps from all task summaries — what is still missing or contradictory.
+REPORT STRUCTURE — the summary field must be a markdown-formatted deep report:
+1. Begin with a direct answer to the query (1-2 sentences).
+2. Then provide detailed sections covering every relevant aspect found across all task summaries.
+3. Use markdown headings (####), bullet points, and numbered lists for structure.
+4. Group related findings thematically — do not just list task summaries sequentially.
+5. End with a brief assessment of completeness and any open questions.
 
-IMPORTANT
+CONTENT RULES
+- Read hitl_smry for established context and user clarifications — build on it.
+- Preserve original wording from source material when possible.
+- Include exact levels, figures, numbers, statistics, thresholds, and limits as they appear in the sources.
+- Reference specific sections, paragraphs, articles (e.g., "§ 80 StrlSchV", "Anlage 4 Teil B").
+- Use direct quotes (in quotation marks) for key definitions, legal text, or critical formulations.
+- Cite every claim as [Document.pdf, Page N] — never omit the source.
+- Include verbatim quotes from task summaries where they support a finding.
+- State explicitly when information is insufficient, contradictory, or missing.
+- Use ONLY information from the provided task summaries — no external knowledge.
 - Write in {language} only — no mixing.
 - Do NOT invent values, numbers, or citations.
 - Do NOT add preamble, explanation, or markdown fences — output raw JSON only.
 
+COVERAGE AND GAPS
+- Estimate query_coverage (0-100): how completely the original_query is answered.
+- Collect remaining_gaps from all task summaries — what is still missing or contradictory.
+
 ### Output format
-OUTPUT — Return ONLY this JSON, no other text:
+Return ONLY this JSON, no other text:
 ```json
-{{"summary": "<comprehensive answer in {language}, 3-15 sentences with citations>",
-  "key_findings": ["<one finding with [Document.pdf, Page N] citation>"],
+{{"summary": "<extensive structured deep report in {language} with markdown formatting and [Document.pdf, Page N] citations>",
+  "key_findings": ["<one key finding with [Document.pdf, Page N] citation>"],
   "query_coverage": 0,
   "remaining_gaps": ["<one gap or uncertainty>"]}}
 ```"""

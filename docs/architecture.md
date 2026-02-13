@@ -355,9 +355,11 @@ Output: Filtered tiered context ready for synthesis
 
 ### Phase 4: Query-Anchored Synthesis + Quality Assurance
 
-1. **Enhanced Synthesis**: Uses `SYNTHESIS_PROMPT_ENHANCED` with pre-digested task summaries:
+1. **Deep Report Synthesis**: Uses `SYNTHESIS_PROMPT_ENHANCED` to produce extensive, structured deep reports:
+   - LLM acts as "expert report writer" — no sentence cap, markdown-formatted output
    - Task summaries (sole evidence source, formatted with key_findings, gaps, preserved quotes via `_format_task_summaries()`)
    - HITL context summary
+   - Preserves exact figures, verbatim quotes, section/paragraph references from sources
    - Tiered evidence is resolved at the task summary level, not at synthesis level
 2. **Language Enforcement**: `generate_structured_with_language()` validates output language
 3. **Quality Check** (optional): Score 0-500 across 5 dimensions (factual accuracy, semantic validity, structural integrity, citation correctness, query relevance)
