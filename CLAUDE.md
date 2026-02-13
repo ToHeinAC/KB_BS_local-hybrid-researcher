@@ -78,6 +78,8 @@ Two LLM-driven decision points where the orchestrator is no longer deterministic
 1. **Reference Following Gate** (Phase 3, `execute_task`):
    - Before following each detected reference, LLM evaluates: "Is this reference worth following given the query?"
    - Uses `REFERENCE_DECISION_PROMPT` → `ReferenceDecision(follow: bool, reason: str)`
+   - Gate receives full context: `original_query`, `key_entities`, `scope`, `current_task`
+   - Bias toward following: "when uncertain, FOLLOW" (skipping relevant refs is costlier)
    - Prevents tangential references from wasting token budget and diluting context
    - Falls back to following on LLM error (safe default)
 
@@ -376,8 +378,8 @@ KB_BS_local-hybrid-researcher/
   - Phase, graph node, caller, workflow position, input/output, consumption
   - Several prompts gained `### Role` section for small-model clarity
 - [x] **Debug State Dumps**: `enable_state_dump` config + `src/utils/debug_state.py`
-  - `dump_state_markdown()` writes phase snapshots to `tests/debugging/`
-  - Hooked into `hitl_finalize`, `process_hitl_todo`, `execute_task` (last task only)
+  - `dump_state_markdown()` writes flat key→value phase snapshots to `tests/debugging/`
+  - Trigger points at correct phase boundaries: `generate_todo()` (state_1hitl), `execute_task()` task_id==0 (state_2todo), `validate_relevance()` (state_3rabbithole)
 - [x] **116 Unit Tests**: All pass (22 model, 35 agent, 39 reference, 20 task search + other)
 
 ### Prompt Standardization & Multi-Query Task Execution (Week 4.5) - COMPLETE
@@ -420,7 +422,7 @@ KB_BS_local-hybrid-researcher/
   - `has_task_id_entries()`: Backward compat check for old states without `task_id`
   - Used by both live view (`app.py`) and persistent results view (`results_view.py`)
 - [x] **Debug State Dump Enhancement**: `dump_state_markdown()` outputs full values (removed 500-char truncation)
-  - Added Phase 1→2 boundary dump in `generate_todo()`
+  - Phase 1→2 boundary dump in `generate_todo()`
 - [x] **124 Unit Tests**: All pass
 
 ### Tiered Chunk Rendering in Task Expanders (Week 4.9) - COMPLETE
@@ -459,6 +461,21 @@ KB_BS_local-hybrid-researcher/
   - `_generate_task_summary()` uses `result.relevance_score / 100.0` on success
   - `_calculate_task_relevance()` retained as fallback on LLM error only
 - [x] **144 Unit Tests**: All pass (22 model, 49 agent, 42 reference, 22 task search + other)
+
+### Debug & Reference Gate Improvements (Week 5.2) - COMPLETE
+- [x] **Simplified Debug State Dumps**: `src/utils/debug_state.py` rewritten
+  - Removed `_FIELD_GROUPS` dict and grouped formatting
+  - `_format_value()` simplified: no `key` param, no special `messages` truncation
+  - `dump_state_markdown()` emits flat alphabetical `## key` + code block per value
+- [x] **Fixed State Dump Trigger Points**: Each dump fires at the correct phase boundary
+  - `state_1hitl.md`: Start of `generate_todo()` (Phase 1 finalized)
+  - `state_2todo.md`: Start of `execute_task()` when `task_id == 0` (Phase 2 finalized)
+  - `state_3rabbithole.md`: Start of `validate_relevance()` (Phase 3 finalized)
+  - Removed incorrect dumps from `process_hitl_todo()`, `execute_task()` end, `hitl_finalize()`
+- [x] **Enhanced Reference Decision Gate**: `REFERENCE_DECISION_PROMPT` improvements
+  - `query_anchor` now includes `scope` and `current_task` for better context
+  - New rule: "When uncertain, FOLLOW" — skipping relevant refs is costlier than following tangential ones
+- [x] **144 Unit Tests**: All pass
 
 ### Deferred to Week 6+
 - [ ] Orchestrator-worker parallelization

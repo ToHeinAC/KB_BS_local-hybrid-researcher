@@ -55,8 +55,10 @@ Located in `src/agents/nodes.py` (lines 312-413):
 │  4. Agentic Reference Gate (NEW) ─────────────────────────────────│
 │     └─ For each detected reference:                             │
 │         └─ LLM evaluates via REFERENCE_DECISION_PROMPT          │
+│         └─ Context: original_query, key_entities, scope, task   │
 │         └─ ReferenceDecision: {follow: bool, reason: str}       │
-│         └─ Skip if not relevant to query (logged for debug)     │
+│         └─ Bias: "when uncertain, FOLLOW" (safe default)        │
+│         └─ Skip if clearly tangential (logged for debug)        │
 │         └─ Fallback: follow on LLM error                        │
 │                                                                  │
 │  5. Reference Resolution (Enhanced, RECURSIVE) ─────────────────│

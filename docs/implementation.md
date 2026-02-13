@@ -200,7 +200,8 @@ Two agentic decision points where the LLM autonomously decides control flow:
 - [x] **Agentic Reference Following Gate** (in `execute_task()`):
   - `REFERENCE_DECISION_PROMPT` in `src/prompts.py` (4-section format with `{language}`)
   - `ReferenceDecision` model in `src/models/research.py`: `{follow: bool, reason: str}`
-  - Before each `resolve_reference_enhanced()` call, LLM evaluates reference relevance
+  - Gate receives full context: `original_query`, `key_entities`, `scope`, `current_task`
+  - Biased toward following when uncertain (skipping relevant refs is costlier)
   - Skips tangential, repetitive, or vague references (logged for transparency)
   - Falls back to following on LLM error (safe default)
 

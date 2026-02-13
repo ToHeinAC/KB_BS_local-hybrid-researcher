@@ -884,7 +884,7 @@ Extract all references from the given text and classify each by type.
 # Input: {reference_type} — type of detected reference
 #        {reference_target} — target text of the reference
 #        {document_context} — document the reference was found in
-#        {query_anchor} — original query + key entities
+#        {query_anchor} — original query + key entities + scope + current task
 #        {language} — "German" or "English"
 # Output: JSON with follow (bool) and reason (str)
 # Consumed by: execute_task decides whether to call resolve_reference_enhanced
@@ -900,7 +900,7 @@ Decide whether following this reference is worthwhile for answering the research
 - reference_type: "{reference_type}"
 - reference_target: "{reference_target}"
 - source_document: "{document_context}"
-- query_anchor: {query_anchor}
+- query_anchor: {query_anchor}  (contains: original_query, key_entities, scope, current_task)
 
 ### Rules
 1. Follow if the reference likely contains information directly relevant to the query.
@@ -908,8 +908,9 @@ Decide whether following this reference is worthwhile for answering the research
 3. Skip if the reference is tangential (e.g. general administrative procedures when the query is about dose limits).
 4. Skip if the reference would likely repeat information already covered by the source document.
 5. Skip if the reference target is too vague to resolve (e.g. "see above").
-6. Write the reason in {language}.
-7. Return ONLY valid JSON, no extra text.
+6. When uncertain, FOLLOW — skipping a relevant reference is costlier than following a tangential one.
+7. Write the reason in {language}.
+8. Return ONLY valid JSON, no extra text.
 
 ### Output format
 ```json

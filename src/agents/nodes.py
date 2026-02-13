@@ -229,9 +229,6 @@ def process_hitl_todo(state: AgentState) -> dict:
         + [{"type": "todo_approve", "decision": decision.model_dump()}],
     }
 
-    if settings.enable_state_dump:
-        dump_state_markdown(state, return_dict, "tests/debugging/state_2todo.md", "Phase 2: ToDo Approved")
-
     return return_dict
 
 
@@ -250,6 +247,10 @@ def execute_task(state: AgentState) -> dict:
     task_id = state.get("current_task_id")
     if task_id is None:
         return {"phase": "validate_relevance"}
+
+    # Dump state at Phase 2→3 boundary (before first task executes)
+    if settings.enable_state_dump and task_id == 0:
+        dump_state_markdown(state, {}, "tests/debugging/state_2todo.md", "Phase 2: ToDo Approved")
 
     # Find current task
     todo_list = state.get("todo_list", [])
@@ -396,6 +397,8 @@ def execute_task(state: AgentState) -> dict:
                         anchor_text = json.dumps({
                             "original_query": query_anchor.get("original_query", ""),
                             "key_entities": query_anchor.get("key_entities", []),
+                            "scope": query_anchor.get("scope", ""),
+                            "current_task": current_task.task,
                         }, ensure_ascii=False)
                         decision = client.generate_structured(
                             REFERENCE_DECISION_PROMPT.format(
@@ -535,9 +538,6 @@ def execute_task(state: AgentState) -> dict:
         "messages": [f"Completed task {task_id}: found {len(chunks)} relevant chunks, {len(preserved_quotes)} quotes"],
     }
 
-    if settings.enable_state_dump and next_task_id is None:
-        dump_state_markdown(state, return_dict, "tests/debugging/state_3rabbithole.md", "Phase 3: Rabbithole Complete")
-
     return return_dict
 
 
@@ -556,6 +556,10 @@ def validate_relevance(state: AgentState) -> dict:
     Returns:
         State update with filtered tiered context
     """
+    # Dump state at Phase 3→3.5 boundary (all tasks complete, synthesis pipeline starts)
+    if settings.enable_state_dump:
+        dump_state_markdown(state, {}, "tests/debugging/state_3rabbithole.md", "Phase 3: Rabbithole Complete")
+
     query_anchor = state.get("query_anchor", {})
     original_query = query_anchor.get("original_query", state.get("query", ""))
     key_entities = query_anchor.get("key_entities", [])
@@ -1475,9 +1479,6 @@ def hitl_finalize(state: AgentState) -> dict:
             f"Termination reason: {state.get('hitl_termination_reason', 'unknown')}",
         ],
     }
-
-    if settings.enable_state_dump:
-        dump_state_markdown(state, return_dict, "tests/debugging/state_1hitl.md", "Phase 1: HITL Finalize")
 
     return return_dict
 

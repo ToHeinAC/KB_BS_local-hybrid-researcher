@@ -9,37 +9,8 @@ from src.config import settings
 
 logger = logging.getLogger(__name__)
 
-# Field grouping for markdown output
-_FIELD_GROUPS = {
-    "Core": [
-        "query", "query_analysis", "phase", "iteration",
-    ],
-    "HITL State": [
-        "hitl_active", "hitl_iteration", "hitl_termination_reason",
-        "hitl_conversation_history", "hitl_state", "detected_language",
-        "coverage_score", "knowledge_gaps", "iteration_queries",
-        "retrieval_dedup_ratios", "query_retrieval",
-    ],
-    "Graded Context": [
-        "query_anchor", "hitl_smry",
-        "primary_context", "secondary_context", "tertiary_context",
-        "preserved_quotes", "task_summaries",
-    ],
-    "Research Planning": [
-        "research_queries", "additional_context", "todo_list",
-    ],
-    "Task Execution": [
-        "current_task_id", "completed_task_ids", "research_context",
-    ],
-    "Quality & Report": [
-        "quality_assessment", "final_report",
-    ],
-    "Settings & Meta": [
-        "selected_database", "k_results", "messages",
-    ],
-}
 
-def _format_value(key: str, value: object) -> str:
+def _format_value(value: object) -> str:
     """Format a state value for markdown display."""
     if value is None:
         return "*None*"
@@ -51,12 +22,9 @@ def _format_value(key: str, value: object) -> str:
         return json.dumps(sorted(value), ensure_ascii=False, indent=2)
     if isinstance(value, str):
         if not value:
-            return '*empty string*'
+            return "*empty string*"
         return value
     if isinstance(value, (list, dict)):
-        if key == "messages" and isinstance(value, list):
-            tail = value[-10:] if len(value) > 10 else value
-            return json.dumps(tail, ensure_ascii=False, indent=2)
         return json.dumps(value, ensure_ascii=False, indent=2, default=str)
     return str(value)
 
@@ -67,10 +35,10 @@ def dump_state_markdown(
     filepath: str,
     phase_label: str,
 ) -> None:
-    """Write a formatted markdown snapshot of the merged agent state.
+    """Write a flat key→value markdown snapshot of the merged agent state.
 
     Merges incoming state with return_dict (partial update from the node),
-    groups fields by category, and writes to filepath. Never raises.
+    sorts keys alphabetically, and writes each as a ## heading with code block.
 
     Args:
         state: Full agent state before the node's return.
@@ -92,33 +60,12 @@ def dump_state_markdown(
             "",
         ]
 
-        seen_keys: set[str] = set()
-
-        for group_name, fields in _FIELD_GROUPS.items():
-            lines.append(f"## {group_name}")
-            lines.append("")
-            for key in fields:
-                seen_keys.add(key)
-                value = merged.get(key)
-                formatted = _format_value(key, value)
-                # Use code block for multi-line values
-                if "\n" in formatted and len(formatted) > 80:
-                    lines.append(f"### `{key}`")
-                    lines.append("```json")
-                    lines.append(formatted)
-                    lines.append("```")
-                else:
-                    lines.append(f"- **{key}**: {formatted}")
-            lines.append("")
-
-        # Catch any ungrouped keys
-        remaining = sorted(set(merged.keys()) - seen_keys)
-        if remaining:
-            lines.append("## Other Fields")
-            lines.append("")
-            for key in remaining:
-                formatted = _format_value(key, merged.get(key))
-                lines.append(f"- **{key}**: {formatted}")
+        for key in sorted(merged.keys()):
+            formatted = _format_value(merged[key])
+            lines.append(f"## {key}")
+            lines.append("```")
+            lines.append(formatted)
+            lines.append("```")
             lines.append("")
 
         path.write_text("\n".join(lines), encoding="utf-8")

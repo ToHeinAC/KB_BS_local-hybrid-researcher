@@ -358,18 +358,27 @@ Two LLM-driven decision points make the orchestrator truly agentic:
 
 #### Reference Following Gate (Phase 3)
 
-Before following each detected reference, the LLM evaluates relevance:
+Before following each detected reference, the LLM evaluates relevance.
+The gate receives full context (`original_query`, `key_entities`, `scope`, `current_task`)
+and is biased toward following when uncertain — skipping a relevant reference is costlier
+than following a tangential one.
 
 ```python
 from src.models.research import ReferenceDecision
 
 # For each detected reference in execute_task():
+anchor_text = json.dumps({
+    "original_query": query_anchor.get("original_query", ""),
+    "key_entities": query_anchor.get("key_entities", []),
+    "scope": query_anchor.get("scope", ""),
+    "current_task": current_task.task,
+}, ensure_ascii=False)
 decision = ollama.generate_structured(
     REFERENCE_DECISION_PROMPT.format(
         reference_type=ref.type,
         reference_target=ref.target,
-        document_context=ref.document_context or "",
-        query_anchor=json.dumps(query_anchor),
+        document_context=chunk.document,
+        query_anchor=anchor_text,
         language=lang_label,
     ),
     ReferenceDecision,
