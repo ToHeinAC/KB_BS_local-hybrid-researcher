@@ -81,6 +81,10 @@ class AgentState(TypedDict, total=False):
     additional_context: str  # From HITL analysis summary
     detected_language: str  # Language detected from user query
 
+    # Agentic decision fields
+    synthesis_retry_count: int  # Number of synthesis retries (max 1)
+    quality_remediation_focus: str  # Focus instructions for re-synthesis
+
     # Graded Context Management (Phase A-E improvements)
     query_anchor: dict  # Immutable reference to original intent
     # Structure: {"original_query": str, "detected_language": str,
@@ -161,6 +165,9 @@ def create_initial_state(query: str) -> AgentState:
         research_queries=[],
         additional_context="",
         detected_language="de",
+        # Agentic decision fields
+        synthesis_retry_count=0,
+        quality_remediation_focus="",
         # Graded Context Management
         query_anchor={},
         hitl_smry="",

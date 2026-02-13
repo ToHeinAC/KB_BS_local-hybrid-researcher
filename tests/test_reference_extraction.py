@@ -450,3 +450,46 @@ class TestExtractedReferenceModel:
         ref = DetectedReference(type="section", target="5")
         assert ref.extraction_method == "regex"
         assert ref.document_context is None
+
+
+# =============================================================================
+# Agentic Reference Decision Tests
+# =============================================================================
+
+
+class TestReferenceDecisionPrompt:
+    """Tests for agentic reference following gate."""
+
+    def test_reference_decision_prompt_has_required_vars(self):
+        """REFERENCE_DECISION_PROMPT contains all required template variables."""
+        from src.prompts import REFERENCE_DECISION_PROMPT
+
+        assert "{reference_type}" in REFERENCE_DECISION_PROMPT
+        assert "{reference_target}" in REFERENCE_DECISION_PROMPT
+        assert "{document_context}" in REFERENCE_DECISION_PROMPT
+        assert "{query_anchor}" in REFERENCE_DECISION_PROMPT
+        assert "{language}" in REFERENCE_DECISION_PROMPT
+
+    def test_reference_decision_prompt_format(self):
+        """REFERENCE_DECISION_PROMPT can be formatted without error."""
+        from src.prompts import REFERENCE_DECISION_PROMPT
+
+        formatted = REFERENCE_DECISION_PROMPT.format(
+            reference_type="legal_section",
+            reference_target="§ 5 StrlSchV",
+            document_context="StrlSchG.pdf",
+            query_anchor='{"original_query": "Grenzwerte", "key_entities": ["StrlSchV"]}',
+            language="German",
+        )
+        assert "legal_section" in formatted
+        assert "§ 5 StrlSchV" in formatted
+
+    def test_reference_decision_model_serialization(self):
+        """ReferenceDecision round-trips through dict."""
+        from src.models.research import ReferenceDecision
+
+        d = ReferenceDecision(follow=False, reason="Tangential to query")
+        data = d.model_dump()
+        restored = ReferenceDecision.model_validate(data)
+        assert restored.follow is False
+        assert restored.reason == "Tangential to query"

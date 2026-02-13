@@ -30,7 +30,7 @@
 │  Phase 3: Deep Context Extraction (with Graded Classification)           │
 │  ├─ execute_task: LLM multi-query (3) → vector search → extract info    │
 │  │   + quotes → classify tier                                            │
-│  ├─ Reference following → classify nested chunks → task summary          │
+│  ├─ Agentic ref gate → Reference following → classify nested chunks     │
 │  ├─ Accumulate by tier (primary/secondary/tertiary)                      │
 │  └─ Loop until all tasks completed                                       │
 │                                                                          │
@@ -40,7 +40,8 @@
 │  Phase 4: Query-Anchored Synthesis & Quality Assurance                   │
 │  ├─ synthesize: pre-digested task summaries + HITL summary               │
 │  ├─ Language enforcement (generate_structured_with_language)             │
-│  └─ quality_check: optional QA scoring (0-500, 5 dimensions)             │
+│  ├─ quality_check: optional QA scoring (0-500, 5 dimensions)             │
+│  └─ Agentic remediation: LLM decides accept/retry (max 1 retry)         │
 │                                                                          │
 │  Phase 5: Source Attribution                                             │
 │  └─ attribute_sources: build FinalReport with sources                    │
@@ -110,7 +111,11 @@ class AgentState(TypedDict):
     additional_context: str       # Summary from HITL analysis
     detected_language: str        # de or en
 
-    # Graded Context Management (NEW)
+    # Agentic decision fields (NEW)
+    synthesis_retry_count: int    # Number of synthesis retries (max 1)
+    quality_remediation_focus: str  # Focus instructions for re-synthesis
+
+    # Graded Context Management
     query_anchor: dict            # Immutable reference to original intent
     hitl_smry: str                # Citation-aware HITL summary with [Source_filename] annotations
     primary_context: list[dict]   # Tier 1: Direct, high-relevance findings
@@ -339,8 +344,9 @@ For each ToDoList item (starting from Task 0 = original query):
 3. **Information Extraction**: Condense relevant passages into `extracted_info` + preserve critical quotes (language-aware)
 4. **Context Classification**: Classify each chunk into Tier 1/2/3 based on relevance, depth, entity match
 4. **Reference Detection**: Identify section/document/external refs
-5. **Reference Following**: Resolve and retrieve nested chunks (classified into Tier 2/3)
-6. **Task Summary**: Generate structured summary with key findings and relevance score
+5. **Agentic Reference Gate**: LLM decides per-reference whether to follow (`ReferenceDecision` model). Skips tangential refs to preserve token budget.
+6. **Reference Following**: Resolve and retrieve nested chunks (classified into Tier 2/3)
+7. **Task Summary**: Generate structured summary with key findings and relevance score
 7. **ToDoList Update**: Mark task complete and continue to next task
 
 Output: Fully populated ResearchContext + tiered context (primary/secondary/tertiary) + task_summaries (with per-task tiered evidence) + preserved_quotes
@@ -363,6 +369,12 @@ Output: Filtered tiered context ready for synthesis
    - Tiered evidence is resolved at the task summary level, not at synthesis level
 2. **Language Enforcement**: `generate_structured_with_language()` validates output language
 3. **Quality Check** (optional): Score 0-500 across 5 dimensions (factual accuracy, semantic validity, structural integrity, citation correctness, query relevance)
+4. **Agentic Quality Remediation**: If score < `quality_threshold` (375) and `synthesis_retry_count < 1`:
+   - LLM evaluates quality scores via `QUALITY_REMEDIATION_PROMPT` → `QualityRemediationDecision`
+   - If `action == "retry"`: sets `phase="retry_synthesis"`, increments `synthesis_retry_count`, stores `quality_remediation_focus` (specific improvement instructions)
+   - Graph routes back to `synthesize` node, which appends focus instructions to prompt
+   - If `action == "accept"` or max retries reached: proceeds to source attribution
+   - Max 1 retry to prevent infinite loops
 
 ### Phase 5: Source Attribution
 

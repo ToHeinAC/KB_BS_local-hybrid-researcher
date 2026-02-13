@@ -176,8 +176,15 @@ def route_after_synthesize(state: AgentState) -> Literal["quality_check"]:
 
 def route_after_quality(
     state: AgentState,
-) -> Literal["attribute_sources"]:
-    """Route after quality check."""
+) -> Literal["synthesize", "attribute_sources"]:
+    """Route after quality check.
+
+    Routes to:
+    - synthesize: if LLM decided to retry synthesis (phase == "retry_synthesis")
+    - attribute_sources: normal flow (default)
+    """
+    if state.get("phase") == "retry_synthesis":
+        return "synthesize"
     return "attribute_sources"
 
 
@@ -354,6 +361,7 @@ def create_research_graph() -> StateGraph:
         "quality_check",
         route_after_quality,
         {
+            "synthesize": "synthesize",
             "attribute_sources": "attribute_sources",
         },
     )

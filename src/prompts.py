@@ -862,6 +862,100 @@ Extract all references from the given text and classify each by type.
 ```"""
 
 # =============================================================================
+# Agentic Decision Prompts
+# =============================================================================
+
+# ─────────────────────────────────────────────────────────────────────────────
+# REFERENCE_DECISION_PROMPT
+# ─────────────────────────────────────────────────────────────────────────────
+# Phase: Phase 3 — Deep Context Extraction (reference following gate)
+# Graph node: execute_task (agentic gate before resolve_reference_enhanced)
+# Called by: src/agents/nodes.py :: execute_task() (reference loop)
+# Workflow: detect references → THIS (per ref) → resolve_reference_enhanced
+# Previous: INFO_EXTRACTION_PROMPT / INFO_EXTRACTION_WITH_QUOTES_PROMPT
+# Next: resolve_reference_enhanced (if follow=true) or skip
+#
+# Input: {reference_type} — type of detected reference
+#        {reference_target} — target text of the reference
+#        {document_context} — document the reference was found in
+#        {query_anchor} — original query + key entities
+#        {language} — "German" or "English"
+# Output: JSON with follow (bool) and reason (str)
+# Consumed by: execute_task decides whether to call resolve_reference_enhanced
+#
+# Notes: First agentic decision point. LLM autonomously decides whether
+#        following a reference is worth the token budget. Prevents tangential
+#        references from diluting context.
+# ─────────────────────────────────────────────────────────────────────────────
+REFERENCE_DECISION_PROMPT = """### Task
+Decide whether following this reference is worthwhile for answering the research query.
+
+### Input
+- reference_type: "{reference_type}"
+- reference_target: "{reference_target}"
+- source_document: "{document_context}"
+- query_anchor: {query_anchor}
+
+### Rules
+1. Follow if the reference likely contains information directly relevant to the query.
+2. Follow if the reference defines a key term, threshold, or regulation mentioned in the query.
+3. Skip if the reference is tangential (e.g. general administrative procedures when the query is about dose limits).
+4. Skip if the reference would likely repeat information already covered by the source document.
+5. Skip if the reference target is too vague to resolve (e.g. "see above").
+6. Write the reason in {language}.
+7. Return ONLY valid JSON, no extra text.
+
+### Output format
+```json
+{{"follow": true, "reason": "brief explanation"}}
+```"""
+
+# ─────────────────────────────────────────────────────────────────────────────
+# QUALITY_REMEDIATION_PROMPT
+# ─────────────────────────────────────────────────────────────────────────────
+# Phase: Phase 4 — Quality Assurance (remediation gate)
+# Graph node: quality_check (agentic gate after scoring)
+# Called by: src/agents/nodes.py :: quality_check() (after scoring)
+# Workflow: quality_check scores → THIS → route_after_quality →
+#           synthesize (retry) or attribute_sources (accept)
+# Previous: QUALITY_CHECK_PROMPT (same node, sequential)
+# Next: SYNTHESIS_PROMPT_ENHANCED (if retry) or attribute_sources (if accept)
+#
+# Input: {quality_scores} — the 5 dimension scores
+#        {issues_found} — issues from quality check
+#        {original_query} — original user query
+#        {language} — "German" or "English"
+# Output: JSON with action ("accept" or "retry") and focus_instructions
+# Consumed by: quality_check sets phase to "retry_synthesis" if retry,
+#              synthesize() appends focus_instructions to prompt on retry.
+#
+# Notes: Second agentic decision point. LLM evaluates its own output
+#        quality and decides whether to re-synthesize with focused guidance.
+#        Max 1 retry to prevent infinite loops.
+# ─────────────────────────────────────────────────────────────────────────────
+QUALITY_REMEDIATION_PROMPT = """### Task
+Decide whether a low-quality research synthesis should be retried or accepted as-is.
+
+### Input
+- quality_scores: {quality_scores}
+- issues_found: {issues_found}
+- original_query: "{original_query}"
+
+### Rules
+1. Choose "retry" if specific dimensions scored below 50 and targeted improvement instructions can address them.
+2. Choose "retry" if citation_correctness is low — this is fixable by re-emphasizing source attribution.
+3. Choose "accept" if the overall score is borderline (within 10% of threshold) and issues are minor.
+4. Choose "accept" if the issues are fundamental (e.g. insufficient source data) — retrying won't help.
+5. If retrying, write specific focus_instructions addressing the weakest dimensions.
+6. Write focus_instructions in {language}.
+7. Return ONLY valid JSON, no extra text.
+
+### Output format
+```json
+{{"action": "retry", "focus_instructions": "specific guidance for re-synthesis"}}
+```"""
+
+# =============================================================================
 # HITL Summary Prompt (citation-aware, for synthesis)
 # =============================================================================
 

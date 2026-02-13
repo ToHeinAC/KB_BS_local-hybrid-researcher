@@ -352,6 +352,58 @@ def quality_check(summary: QuerySummary) -> QualityAssessment:
     """
 ```
 
+### Agentic Decision Points
+
+Two LLM-driven decision points make the orchestrator truly agentic:
+
+#### Reference Following Gate (Phase 3)
+
+Before following each detected reference, the LLM evaluates relevance:
+
+```python
+from src.models.research import ReferenceDecision
+
+# For each detected reference in execute_task():
+decision = ollama.generate_structured(
+    REFERENCE_DECISION_PROMPT.format(
+        reference_type=ref.type,
+        reference_target=ref.target,
+        document_context=ref.document_context or "",
+        query_anchor=json.dumps(query_anchor),
+        language=lang_label,
+    ),
+    ReferenceDecision,
+)
+if not decision.follow:
+    logger.info(f"Skipped ref: {ref.target} — {decision.reason}")
+    continue
+# Only follows refs the LLM deems relevant
+```
+
+#### Quality Remediation Loop (Phase 4)
+
+After quality scoring, the LLM decides whether to accept or retry synthesis:
+
+```python
+from src.models.research import QualityRemediationDecision
+
+# If quality < threshold and retry_count < 1:
+remediation = ollama.generate_structured(
+    QUALITY_REMEDIATION_PROMPT.format(
+        quality_scores=score_summary,
+        issues_found="\n".join(issues),
+        original_query=query,
+        language=lang_label,
+    ),
+    QualityRemediationDecision,
+)
+if remediation.action == "retry":
+    state["synthesis_retry_count"] += 1
+    state["quality_remediation_focus"] = remediation.focus_instructions
+    state["phase"] = "retry_synthesis"
+    # Graph routes back to synthesize node
+```
+
 ### Web Search Tool (Optional)
 
 ```python
@@ -460,6 +512,7 @@ REFERENCE_FOLLOW_DEPTH = 2            # Max nesting levels
 MAX_ITERATIONS_PER_TASK = 3           # Prevent loops
 REFERENCE_TOKEN_BUDGET = 50000        # Max tokens for ref following per task
 CONVERGENCE_SAME_DOC_THRESHOLD = 3    # Stop when same doc appears N times
+SYNTHESIS_RETRY_MAX = 1               # Max quality remediation retries
 
 # Track visited references
 visited_refs: set[str] = set()
@@ -472,4 +525,10 @@ visited_refs: set[str] = set()
 # In execute_task():
 # - Convergence check via detect_convergence(doc_history)
 #   Stops chunk processing loop when same document appears >= threshold times
+# - Agentic reference gate: LLM decides per-ref whether to follow
+
+# In quality_check():
+# - synthesis_retry_count check (max 1 retry)
+# - LLM decides accept/retry via QualityRemediationDecision
+# - route_after_quality() returns "synthesize" on retry, "attribute_sources" otherwise
 ```

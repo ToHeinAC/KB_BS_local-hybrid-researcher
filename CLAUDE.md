@@ -25,7 +25,8 @@ Classical RAG lacks deep contextual understanding and cannot follow inter-docume
 │  For each task:                                                      │
 │    LLM Multi-Query (3) → Vector Search → Extract Info + Quotes →    │
 │    Classify Tier →                                                   │
-│    Hybrid Ref Detection → Registry-Scoped Resolution →              │
+│    Hybrid Ref Detection → **Agentic Ref Gate** →                    │
+│    Registry-Scoped Resolution →                                      │
 │    Token Budget → Convergence Check → Generate Task Summary →       │
 │    Accumulate by Tier (primary/secondary/tertiary) → Next Task      │
 ├────────────────────────────────────────────────────────────────────┤
@@ -34,7 +35,8 @@ Classical RAG lacks deep contextual understanding and cannot follow inter-docume
 ├────────────────────────────────────────────────────────────────────┤
 │  Phase 4: Deep Report Synthesis + Quality Assurance                   │
 │  Pre-Digested Task Summaries + HITL Summary → Deep Report            │
-│  Language Enforcement → Quality Check → Gap Analysis → Report        │
+│  Language Enforcement → Quality Check → **Agentic Remediation** →   │
+│  Re-Synthesis (max 1 retry) OR Accept → Report                      │
 ├────────────────────────────────────────────────────────────────────┤
 │  Phase 5: Source Attribution                                        │
 │  Add citations → Resolve paths → Generate clickable links           │
@@ -68,6 +70,27 @@ The system now uses **tiered context classification** to prevent query drift and
 - **Task Summaries**: Per-task structured summaries with relevance scoring
 - **Drift Detection**: Pre-synthesis filtering warns when >30% of context is irrelevant
 - **Language Enforcement**: Strict single-language output with retry on mismatch
+
+### Agentic Decision Points (NEW)
+
+Two LLM-driven decision points where the orchestrator is no longer deterministic:
+
+1. **Reference Following Gate** (Phase 3, `execute_task`):
+   - Before following each detected reference, LLM evaluates: "Is this reference worth following given the query?"
+   - Uses `REFERENCE_DECISION_PROMPT` → `ReferenceDecision(follow: bool, reason: str)`
+   - Prevents tangential references from wasting token budget and diluting context
+   - Falls back to following on LLM error (safe default)
+
+2. **Quality Remediation Loop** (Phase 4, `quality_check`):
+   - If quality score < threshold (375), LLM decides: accept as-is or retry synthesis with focused instructions
+   - Uses `QUALITY_REMEDIATION_PROMPT` → `QualityRemediationDecision(action: "accept"|"retry", focus_instructions: str)`
+   - Max 1 retry to prevent infinite loops (tracked via `synthesis_retry_count`)
+   - On retry, `quality_remediation_focus` is appended to the synthesis prompt
+   - `route_after_quality` routes to `synthesize` (retry) or `attribute_sources` (accept)
+
+**Agentic State Fields:**
+- `synthesis_retry_count`: int (default 0, max 1)
+- `quality_remediation_focus`: str (cleared after use)
 
 ### Enhanced Phase 1: Iterative HITL with Multi-Vector Retrieval
 
@@ -412,7 +435,24 @@ KB_BS_local-hybrid-researcher/
 - [x] **Live View**: `_render_task_result_expander()` accepts `tiered_context` param; `_run_graph_with_live_updates()` extracts and passes per-task tiered context during streaming
 - [x] **124 Unit Tests**: All pass (no new tests needed — rendering helpers are UI-only)
 
-### Deferred to Week 5+
+### True LLM Agency at Decision Points (Week 5) - COMPLETE
+- [x] **Agentic Reference Following Gate**: LLM decides per-reference whether to follow
+  - `ReferenceDecision` Pydantic model in `src/models/research.py`
+  - `REFERENCE_DECISION_PROMPT` in `src/prompts.py` (4-section format with `{language}`)
+  - Gate in `execute_task()` before `resolve_reference_enhanced()` — skips tangential refs
+  - Falls back to following on LLM error (safe default)
+  - Logged: "Skipped ref: {target} ({type}) — {reason}"
+- [x] **Quality-Gated Re-Synthesis Loop**: LLM decides accept/retry on low-quality synthesis
+  - `QualityRemediationDecision` Pydantic model in `src/models/research.py`
+  - `QUALITY_REMEDIATION_PROMPT` in `src/prompts.py` (4-section format with `{language}`)
+  - Remediation logic in `quality_check()` — triggers when score < threshold and retry_count < 1
+  - `synthesis_retry_count` and `quality_remediation_focus` state fields in `AgentState`
+  - `route_after_quality()` updated: conditional routing to `synthesize` on `phase == "retry_synthesis"`
+  - `synthesize()` appends `quality_remediation_focus` to prompt on retry, clears after use
+  - Graph edge map updated: `quality_check → synthesize` (retry) or `quality_check → attribute_sources` (normal)
+- [x] **142 Unit Tests**: All pass (22 model, 47 agent, 42 reference, 22 task search + other)
+
+### Deferred to Week 6+
 - [ ] Orchestrator-worker parallelization
 - [ ] RAG Triad automated validation
 - [ ] CI/CD integration

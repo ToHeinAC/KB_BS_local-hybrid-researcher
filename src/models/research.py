@@ -14,6 +14,25 @@ from src.models.results import (
 )
 
 
+class ReferenceDecision(BaseModel):
+    """LLM decision on whether to follow a detected reference."""
+
+    follow: bool = Field(description="Whether to follow this reference")
+    reason: str = Field(description="Why to follow or skip this reference")
+
+
+class QualityRemediationDecision(BaseModel):
+    """LLM decision on how to handle low-quality synthesis."""
+
+    action: Literal["accept", "retry"] = Field(
+        description="Whether to accept or retry synthesis"
+    )
+    focus_instructions: str = Field(
+        default="",
+        description="Guidance for re-synthesis if retry",
+    )
+
+
 class NestedChunk(BaseModel):
     """Chunk retrieved from following a reference."""
 

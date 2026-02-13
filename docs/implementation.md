@@ -191,6 +191,35 @@ Universal language enforcement and improved search quality:
 
 - [x] **106 Unit Tests**: All pass including new `tests/test_task_search_queries.py`
 
+### Phase 3.9: True LLM Agency at Decision Points (NEW)
+
+Two agentic decision points where the LLM autonomously decides control flow:
+
+- [x] **Agentic Reference Following Gate** (in `execute_task()`):
+  - `REFERENCE_DECISION_PROMPT` in `src/prompts.py` (4-section format with `{language}`)
+  - `ReferenceDecision` model in `src/models/research.py`: `{follow: bool, reason: str}`
+  - Before each `resolve_reference_enhanced()` call, LLM evaluates reference relevance
+  - Skips tangential, repetitive, or vague references (logged for transparency)
+  - Falls back to following on LLM error (safe default)
+
+- [x] **Quality-Gated Re-Synthesis Loop** (in `quality_check()` + `synthesize()`):
+  - `QUALITY_REMEDIATION_PROMPT` in `src/prompts.py` (4-section format with `{language}`)
+  - `QualityRemediationDecision` model: `{action: "accept"|"retry", focus_instructions: str}`
+  - Triggered when `total_score < quality_threshold` (375) and `synthesis_retry_count < 1`
+  - If `action == "retry"`: increments retry count, stores focus instructions, sets `phase="retry_synthesis"`
+  - `synthesize()` appends `quality_remediation_focus` to prompt on retry, clears after use
+  - `route_after_quality()` conditional: `"retry_synthesis"` → `synthesize`, else → `attribute_sources`
+  - Max 1 retry to prevent infinite loops
+
+- [x] **State Fields** in `AgentState` + `create_initial_state()`:
+  - `synthesis_retry_count: int` (default 0)
+  - `quality_remediation_focus: str` (default "")
+
+- [x] **Graph Update**: `route_after_quality()` returns `Literal["synthesize", "attribute_sources"]`
+  - Edge map: `{"synthesize": "synthesize", "attribute_sources": "attribute_sources"}`
+
+- [x] **142 Unit Tests**: All pass (18 new agentic tests + 3 prompt/model tests)
+
 ### Phase 4: Synthesis + Quality (Research Phase 4)
 - [x] `synthesize` node (LLM synthesis from extracted findings)
 - [x] Enhanced `synthesize` with pre-digested task summaries, HITL summary, language enforcement
@@ -453,11 +482,12 @@ def test_graph_execution():
 | **Infinite reference loops** | Circular cross-references | Maintain `visited_refs` set, track recursion depth, convergence detection |
 | **Reference resolution ambiguity** | Multiple matches | Document registry with 3-stage matching, scoped search within collection |
 | **Hallucinated references** | LLM invents citations | Hybrid: regex provides baseline, LLM adds coverage, dedup filters noise |
-| **Over-following tangential refs** | Poor relevance filter | Set threshold=0.6+, token budget (50K), convergence (same doc >= 3) |
+| **Over-following tangential refs** | Poor relevance filter | Agentic reference gate (LLM decides per-ref), token budget (50K), convergence (same doc >= 3) |
 | **Query drift during synthesis** | Accumulating irrelevant context | Tiered evidence resolved at task summary level, pre-synthesis relevance validation, query_anchor |
 | **Lost HITL context** | HITL findings not used in synthesis | `hitl_smry` fed into todo generation, task summaries, and synthesis + `tertiary_context` from HITL retrieval |
 | **Mixed language output** | LLM ignores language instruction | `generate_structured_with_language()` with validation and retry |
 | **Lost legal/technical precision** | Summarization paraphrases quotes | `preserved_quotes` extracted verbatim during info extraction |
+| **Low-quality synthesis passed through** | No remediation | Agentic quality remediation loop (LLM decides accept/retry, max 1 retry with focused instructions) |
 | **Report bloat** | Including everything | Strict extractive summarization |
 | **Long execution times** | Deep recursion | Default N=3, M=4, depth=2 |
 | **Ollama structured output failures** | Wrong method | Use `method="json_mode"` for <30B models |

@@ -27,7 +27,8 @@ streamlit run src/ui/app.py --server.port 8511
 - **Convergence Detection**: Automated loop termination based on information coverage, knowledge gaps, and content deduplication.
 - **Multi-Angle Search**: Generates original, broader, and alternative queries in parallel to ensure maximum document coverage.
 - **Multi-Query Task Execution**: Each research task generates 3 deduplicated search queries (1 base + 2 LLM-targeted) for comprehensive retrieval.
-- **Deep Reference Following**: Hybrid regex+LLM detection with document registry-based scoped resolution, token budget tracking, and convergence detection.
+- **Deep Reference Following**: Hybrid regex+LLM detection with document registry-based scoped resolution, token budget tracking, and convergence detection. Agentic reference gate lets the LLM skip tangential references.
+- **Agentic Quality Remediation**: LLM evaluates synthesis quality and autonomously retries with focused instructions when below threshold.
 - **Graded Context Management**: Tiered classification (primary/secondary/tertiary) prevents query drift and ensures synthesis quality.
 - **Verbatim Quote Preservation**: Critical legal/technical quotes extracted and preserved for precision.
 - **Deep Report Synthesis**: Produces extensive, structured deep reports (not brief summaries) from pre-digested task summaries, with exact figures, verbatim quotes, and section references, anchored to original intent with HITL context.

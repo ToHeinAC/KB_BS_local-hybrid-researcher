@@ -52,8 +52,15 @@ Located in `src/agents/nodes.py` (lines 312-413):
 │     └─ Hybrid: regex + LLM, deduplicated by type:target key    │
 │     └─ Returns list[DetectedReference] with extraction_method   │
 │                                                                  │
-│  4. Reference Resolution (Enhanced, RECURSIVE) ─────────────────│
+│  4. Agentic Reference Gate (NEW) ─────────────────────────────────│
 │     └─ For each detected reference:                             │
+│         └─ LLM evaluates via REFERENCE_DECISION_PROMPT          │
+│         └─ ReferenceDecision: {follow: bool, reason: str}       │
+│         └─ Skip if not relevant to query (logged for debug)     │
+│         └─ Fallback: follow on LLM error                        │
+│                                                                  │
+│  5. Reference Resolution (Enhanced, RECURSIVE) ─────────────────│
+│     └─ For each followed reference:                             │
 │         └─ Check visited + depth + token budget                 │
 │         └─ Route by type via resolve_reference_enhanced():      │
 │           └─ legal_section/section → registry → scoped search   │
@@ -62,19 +69,19 @@ Located in `src/agents/nodes.py` (lines 312-413):
 │         └─ Track token usage + document history                 │
 │         └─ Mark reference as visited                            │
 │                                                                  │
-│  5. Convergence Check ──────────────────────────────────────────│
+│  6. Convergence Check ──────────────────────────────────────────│
 │     └─ detect_convergence(doc_history) after each chunk         │
 │     └─ Stops early if same doc appears >= threshold times (3)   │
 │                                                                  │
-│  6. Relevance Filtering ────────────────────────────────────────│
+│  7. Relevance Filtering ────────────────────────────────────────│
 │     └─ filter_by_relevance() removes chunks < threshold (0.6)   │
 │     └─ Combines vector score + keyword overlap                  │
 │                                                                  │
-│  7. Context Accumulation ───────────────────────────────────────│
+│  8. Context Accumulation ───────────────────────────────────────│
 │     └─ Add SearchQueryResult to research_context                │
 │     └─ Update metadata (docs_referenced, visited_refs)          │
 │                                                                  │
-│  8. Task Completion & Loop ─────────────────────────────────────│
+│  9. Task Completion & Loop ─────────────────────────────────────│
 │     └─ Mark current task completed                              │
 │     └─ Find next pending task                                   │
 │     └─ Reset depth to 0                                         │
@@ -342,12 +349,12 @@ return {
 | `src/agents/nodes.py` | execute_task node with hybrid detection + enhanced resolution |
 | `src/agents/tools.py` | detect_references, detect_references_hybrid, extract_references_llm, resolve_reference_enhanced, load_document_registry, resolve_document_name, detect_convergence |
 | `src/agents/graph.py` | LangGraph StateGraph definition, routing |
-| `src/models/research.py` | ResearchContext, ChunkWithInfo, DetectedReference, ExtractedReference, ExtractedReferenceList |
+| `src/models/research.py` | ResearchContext, ChunkWithInfo, DetectedReference, ExtractedReference, ExtractedReferenceList, ReferenceDecision, QualityRemediationDecision |
 | `src/models/query.py` | ToDoList, ToDoItem |
-| `src/prompts.py` | REFERENCE_EXTRACTION_PROMPT (LLM reference extraction) |
+| `src/prompts.py` | REFERENCE_EXTRACTION_PROMPT, REFERENCE_DECISION_PROMPT, QUALITY_REMEDIATION_PROMPT |
 | `src/config.py` | All threshold/limit settings (incl. enhanced reference following) |
 | `kb/document_registry.json` | Document-to-synonym mapping across 4 collections |
-| `tests/test_reference_extraction.py` | 39 tests for all reference extraction + resolution logic |
+| `tests/test_reference_extraction.py` | 42 tests for reference extraction, resolution, and agentic gate logic |
 
 ---
 
@@ -390,6 +397,7 @@ RABBITHOLE MAGIC (Phase 3)
 │   ├── Vector Search (ChromaDB)
 │   ├── Chunk Processing (LLM extraction)
 │   ├── Hybrid Reference Detection
+│   ├── Agentic Reference Gate (LLM decides follow/skip)
 │   ├── Enhanced Reference Resolution (scoped)
 │   ├── Convergence Check (doc_history)
 │   ├── Relevance Filtering (threshold 0.6)
@@ -420,4 +428,6 @@ The Rabbithole Magic creates **depth-controlled recursive context expansion** - 
 - **Precise resolution**: Document registry enables scoped search within specific documents/collections
 - **Hybrid detection**: Regex catches structured patterns fast; LLM catches nuanced references regex misses
 - **Quality control**: Relevance filtering prevents noise accumulation
+- **Intelligent selection**: Agentic reference gate lets the LLM skip tangential references, preserving token budget for high-value refs
+- **Self-correcting quality**: Agentic remediation loop detects weak synthesis and retries with focused instructions (max 1 retry)
 - **Safe exploration**: Depth limits, token budget, convergence detection, and loop prevention ensure termination

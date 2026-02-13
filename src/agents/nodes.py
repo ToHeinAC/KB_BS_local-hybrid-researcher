@@ -24,6 +24,8 @@ from src.models.hitl import HITLDecision
 from src.models.query import QueryAnalysis, TaskSearchQueries, ToDoItem, ToDoList
 from src.models.research import (
     ChunkWithInfo,
+    QualityRemediationDecision,
+    ReferenceDecision,
     ResearchContext,
     ResearchContextMetadata,
     SearchQueryResult,
@@ -41,6 +43,8 @@ from src.models.results import (
 from src.prompts import (
     HITL_SUMMARY_PROMPT,
     QUALITY_CHECK_PROMPT,
+    QUALITY_REMEDIATION_PROMPT,
+    REFERENCE_DECISION_PROMPT,
     RELEVANCE_SCORING_PROMPT,
     SYNTHESIS_PROMPT,
     SYNTHESIS_PROMPT_ENHANCED,
@@ -387,6 +391,32 @@ def execute_task(state: AgentState) -> dict:
             for ref in refs:
                 ref_key = f"{ref.type}:{ref.target}"
                 if not context.has_visited_ref(ref_key):
+                    # Agentic gate: LLM decides whether to follow this reference
+                    try:
+                        anchor_text = json.dumps({
+                            "original_query": query_anchor.get("original_query", ""),
+                            "key_entities": query_anchor.get("key_entities", []),
+                        }, ensure_ascii=False)
+                        decision = client.generate_structured(
+                            REFERENCE_DECISION_PROMPT.format(
+                                reference_type=ref.type,
+                                reference_target=ref.target,
+                                document_context=chunk.document,
+                                query_anchor=anchor_text,
+                                language=lang_label,
+                            ),
+                            ReferenceDecision,
+                        )
+                        if not decision.follow:
+                            logger.info(
+                                "Skipped ref: %s (%s) — %s",
+                                ref.target, ref.type, decision.reason,
+                            )
+                            context.mark_ref_visited(ref_key)
+                            continue
+                    except Exception as e:
+                        logger.warning("Reference decision failed: %s, following by default", e)
+
                     nested = resolve_reference_enhanced(
                         ref,
                         chunk.document,
@@ -753,6 +783,15 @@ def synthesize(state: AgentState) -> dict:
         language=language,
     )
 
+    # Append quality remediation focus if retrying synthesis
+    remediation_focus = state.get("quality_remediation_focus", "")
+    if remediation_focus:
+        prompt += (
+            f"\n\n### Additional focus for this re-synthesis attempt\n"
+            f"{remediation_focus}\n"
+            f"Address the above quality issues specifically."
+        )
+
     try:
         # Use language-enforced generation (Phase F)
         result = client.generate_structured_with_language(
@@ -780,7 +819,7 @@ def synthesize(state: AgentState) -> dict:
             remaining_gaps=["Synthesis failed due to error"],
         )
 
-    return {
+    return_dict = {
         "research_context": context.model_dump(),
         "phase": "quality_check",
         "messages": [
@@ -788,6 +827,10 @@ def synthesize(state: AgentState) -> dict:
             f"Query coverage: {result.query_coverage}%",
         ],
     }
+    # Clear remediation focus after use to prevent re-appending on future calls
+    if remediation_focus:
+        return_dict["quality_remediation_focus"] = ""
+    return return_dict
 
 
 def _format_tiered_findings(context_items: list[dict], max_chars: int = 8000) -> str:
@@ -952,6 +995,54 @@ def quality_check(state: AgentState) -> dict:
             passes_quality=False,
             issues_found=[f"Quality check failed: {e}"],
         )
+
+    # Agentic gate: LLM decides whether to retry synthesis if quality is low
+    retry_count = state.get("synthesis_retry_count", 0)
+    if not assessment.passes_quality and retry_count < 1:
+        try:
+            remediation = client.generate_structured(
+                QUALITY_REMEDIATION_PROMPT.format(
+                    quality_scores=json.dumps({
+                        "factual_accuracy": assessment.factual_accuracy,
+                        "semantic_validity": assessment.semantic_validity,
+                        "structural_integrity": assessment.structural_integrity,
+                        "citation_correctness": assessment.citation_correctness,
+                        "query_relevance": assessment.query_relevance,
+                        "total": assessment.overall_score,
+                        "threshold": settings.quality_threshold,
+                    }),
+                    issues_found=json.dumps(assessment.issues_found, ensure_ascii=False),
+                    original_query=original_query,
+                    language=lang_label,
+                ),
+                QualityRemediationDecision,
+            )
+            if remediation.action == "retry":
+                logger.info(
+                    "Quality remediation: retrying synthesis (score=%d/%d), focus: %s",
+                    assessment.overall_score,
+                    settings.quality_threshold,
+                    remediation.focus_instructions[:100],
+                )
+                return {
+                    "quality_assessment": assessment.model_dump(),
+                    "synthesis_retry_count": retry_count + 1,
+                    "quality_remediation_focus": remediation.focus_instructions,
+                    "phase": "retry_synthesis",
+                    "messages": [
+                        f"Quality score: {assessment.overall_score}/500 — retrying synthesis",
+                        f"Focus: {remediation.focus_instructions[:100]}",
+                    ],
+                }
+            else:
+                logger.info(
+                    "Quality remediation: accepting (score=%d/%d), reason: %s",
+                    assessment.overall_score,
+                    settings.quality_threshold,
+                    remediation.focus_instructions[:100],
+                )
+        except Exception as e:
+            logger.warning("Quality remediation decision failed: %s, proceeding", e)
 
     return {
         "quality_assessment": assessment.model_dump(),

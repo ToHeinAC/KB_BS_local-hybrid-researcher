@@ -338,6 +338,30 @@ class FinalReport(BaseModel):
     metadata: dict
 ```
 
+## Agentic Decision Models
+
+### ReferenceDecision
+
+```python
+class ReferenceDecision(BaseModel):
+    """LLM decision on whether to follow a detected reference."""
+    follow: bool = Field(description="Whether to follow this reference")
+    reason: str = Field(description="Why to follow or skip this reference")
+```
+
+Used in `execute_task()` to gate each detected reference before calling `resolve_reference_enhanced()`. The LLM evaluates relevance to the query anchor and skips tangential, circular, or low-value references.
+
+### QualityRemediationDecision
+
+```python
+class QualityRemediationDecision(BaseModel):
+    """LLM decision on how to handle low-quality synthesis."""
+    action: Literal["accept", "retry"] = Field(description="Whether to accept or retry synthesis")
+    focus_instructions: str = Field(default="", description="Guidance for re-synthesis if retry")
+```
+
+Used in `quality_check()` when synthesis scores below `quality_threshold` (375) and `synthesis_retry_count < 1`. If `action == "retry"`, the `focus_instructions` are appended to the synthesis prompt on the retry pass.
+
 ## Document Models
 
 ### SynthesisOutputEnhanced (NEW)

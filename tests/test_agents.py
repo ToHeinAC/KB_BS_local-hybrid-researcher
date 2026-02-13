@@ -488,3 +488,268 @@ class TestTaskSummaryHitlSmry:
 
         prompt = mock_client.generate_structured.call_args[0][0]
         assert "No prior findings" in prompt
+
+
+# =============================================================================
+# Agentic Decision Tests
+# =============================================================================
+
+
+class TestReferenceDecisionModel:
+    """Tests for the ReferenceDecision Pydantic model."""
+
+    def test_follow_true(self):
+        from src.models.research import ReferenceDecision
+
+        d = ReferenceDecision(follow=True, reason="Directly relevant")
+        assert d.follow is True
+        assert d.reason == "Directly relevant"
+
+    def test_follow_false(self):
+        from src.models.research import ReferenceDecision
+
+        d = ReferenceDecision(follow=False, reason="Tangential")
+        assert d.follow is False
+
+    def test_from_dict(self):
+        from src.models.research import ReferenceDecision
+
+        d = ReferenceDecision.model_validate({"follow": True, "reason": "test"})
+        assert d.follow is True
+
+
+class TestQualityRemediationDecisionModel:
+    """Tests for the QualityRemediationDecision Pydantic model."""
+
+    def test_retry_action(self):
+        from src.models.research import QualityRemediationDecision
+
+        d = QualityRemediationDecision(action="retry", focus_instructions="Fix citations")
+        assert d.action == "retry"
+        assert d.focus_instructions == "Fix citations"
+
+    def test_accept_action(self):
+        from src.models.research import QualityRemediationDecision
+
+        d = QualityRemediationDecision(action="accept", focus_instructions="")
+        assert d.action == "accept"
+
+    def test_invalid_action_rejected(self):
+        from src.models.research import QualityRemediationDecision
+
+        with pytest.raises(Exception):
+            QualityRemediationDecision(action="invalid", focus_instructions="")
+
+
+class TestRouteAfterQuality:
+    """Tests for route_after_quality with remediation loop."""
+
+    def test_route_to_attribute_sources_default(self):
+        """Default routing goes to attribute_sources."""
+        from src.agents.graph import route_after_quality
+
+        state = {"phase": "attribute_sources"}
+        assert route_after_quality(state) == "attribute_sources"
+
+    def test_route_to_synthesize_on_retry(self):
+        """Routes to synthesize when phase is retry_synthesis."""
+        from src.agents.graph import route_after_quality
+
+        state = {"phase": "retry_synthesis"}
+        assert route_after_quality(state) == "synthesize"
+
+    def test_route_default_empty_state(self):
+        """Empty state routes to attribute_sources."""
+        from src.agents.graph import route_after_quality
+
+        assert route_after_quality({}) == "attribute_sources"
+
+
+class TestQualityRemediationIntegration:
+    """Tests for quality remediation logic in quality_check node."""
+
+    def test_remediation_triggers_retry_on_low_score(self):
+        """Quality check triggers retry when LLM decides to retry."""
+        from unittest.mock import MagicMock, patch
+
+        from src.agents.nodes import quality_check
+        from src.models.research import QualityRemediationDecision
+
+        mock_client = MagicMock()
+        # First call: quality check returns low scores
+        mock_quality = MagicMock(
+            factual_accuracy=30, semantic_validity=40,
+            structural_integrity=50, citation_correctness=20,
+            query_relevance=60, issues_found=["Poor citations"],
+        )
+        # Second call: remediation decides to retry
+        mock_remediation = QualityRemediationDecision(
+            action="retry", focus_instructions="Improve citation format"
+        )
+        mock_client.generate_structured.side_effect = [mock_quality, mock_remediation]
+
+        state = {
+            "research_context": {
+                "search_queries": [{"query": "q", "chunks": [], "summary": "Some summary"}],
+                "metadata": {"total_iterations": 1, "documents_referenced": [],
+                             "external_sources_used": False, "visited_refs": []},
+            },
+            "query_analysis": {
+                "original_query": "Test", "key_concepts": [], "entities": [],
+                "scope": "", "assumed_context": [], "clarification_needed": False,
+                "detected_language": "de",
+            },
+            "query_anchor": {"original_query": "Test", "detected_language": "de"},
+            "synthesis_retry_count": 0,
+        }
+
+        with patch("src.agents.nodes.get_ollama_client", return_value=mock_client), \
+             patch("src.agents.nodes.settings") as mock_settings:
+            mock_settings.enable_quality_checker = True
+            mock_settings.quality_threshold = 375
+            result = quality_check(state)
+
+        assert result["phase"] == "retry_synthesis"
+        assert result["synthesis_retry_count"] == 1
+        assert result["quality_remediation_focus"] == "Improve citation format"
+
+    def test_remediation_skipped_after_max_retries(self):
+        """Quality check does not retry when retry count already at max."""
+        from unittest.mock import MagicMock, patch
+
+        from src.agents.nodes import quality_check
+
+        mock_client = MagicMock()
+        mock_quality = MagicMock(
+            factual_accuracy=30, semantic_validity=40,
+            structural_integrity=50, citation_correctness=20,
+            query_relevance=60, issues_found=["issue"],
+        )
+        mock_client.generate_structured.return_value = mock_quality
+
+        state = {
+            "research_context": {
+                "search_queries": [{"query": "q", "chunks": [], "summary": "Some summary"}],
+                "metadata": {"total_iterations": 1, "documents_referenced": [],
+                             "external_sources_used": False, "visited_refs": []},
+            },
+            "query_analysis": {
+                "original_query": "Test", "key_concepts": [], "entities": [],
+                "scope": "", "assumed_context": [], "clarification_needed": False,
+                "detected_language": "de",
+            },
+            "query_anchor": {"original_query": "Test", "detected_language": "de"},
+            "synthesis_retry_count": 1,  # Already retried once
+        }
+
+        with patch("src.agents.nodes.get_ollama_client", return_value=mock_client), \
+             patch("src.agents.nodes.settings") as mock_settings:
+            mock_settings.enable_quality_checker = True
+            mock_settings.quality_threshold = 375
+            result = quality_check(state)
+
+        # Should proceed to attribute_sources, not retry
+        assert result["phase"] == "attribute_sources"
+        # generate_structured called only once (quality check, no remediation)
+        assert mock_client.generate_structured.call_count == 1
+
+
+class TestSynthesizeRetryFocus:
+    """Tests for remediation focus being appended to synthesis prompt."""
+
+    def test_focus_appended_on_retry(self):
+        """Remediation focus instructions are appended to synthesis prompt."""
+        from unittest.mock import MagicMock, patch
+
+        from src.agents.nodes import synthesize
+
+        mock_client = MagicMock()
+        mock_result = MagicMock(
+            summary="Improved report", key_findings=["f1"],
+            query_coverage=80, remaining_gaps=[],
+        )
+        mock_client.generate_structured_with_language.return_value = mock_result
+
+        state = {
+            "research_context": {
+                "search_queries": [{"query": "q", "chunks": [], "summary": None}],
+                "metadata": {"total_iterations": 1, "documents_referenced": [],
+                             "external_sources_used": False, "visited_refs": []},
+            },
+            "query_analysis": {
+                "original_query": "Test", "key_concepts": [], "entities": [],
+                "scope": "", "assumed_context": [], "clarification_needed": False,
+                "detected_language": "de",
+            },
+            "query_anchor": {"original_query": "Test", "detected_language": "de", "key_entities": []},
+            "primary_context": [{"extracted_info": "data", "document": "d.pdf", "page": 1}],
+            "secondary_context": [],
+            "task_summaries": [{"task_id": 0, "summary": "s", "key_findings": [], "gaps": []}],
+            "hitl_smry": "",
+            "quality_remediation_focus": "Improve citation correctness",
+        }
+
+        with patch("src.agents.nodes.get_ollama_client", return_value=mock_client):
+            result = synthesize(state)
+
+        # Verify focus instructions were in the prompt
+        call_args = mock_client.generate_structured_with_language.call_args
+        prompt = call_args[0][0]
+        assert "Improve citation correctness" in prompt
+        assert "Additional focus for this re-synthesis attempt" in prompt
+        # Verify focus was cleared
+        assert result["quality_remediation_focus"] == ""
+
+    def test_no_focus_when_not_retrying(self):
+        """No extra focus appended when not retrying."""
+        from unittest.mock import MagicMock, patch
+
+        from src.agents.nodes import synthesize
+
+        mock_client = MagicMock()
+        mock_result = MagicMock(
+            summary="Report", key_findings=["f1"],
+            query_coverage=90, remaining_gaps=[],
+        )
+        mock_client.generate_structured_with_language.return_value = mock_result
+
+        state = {
+            "research_context": {
+                "search_queries": [{"query": "q", "chunks": [], "summary": None}],
+                "metadata": {"total_iterations": 1, "documents_referenced": [],
+                             "external_sources_used": False, "visited_refs": []},
+            },
+            "query_analysis": {
+                "original_query": "Test", "key_concepts": [], "entities": [],
+                "scope": "", "assumed_context": [], "clarification_needed": False,
+                "detected_language": "de",
+            },
+            "query_anchor": {"original_query": "Test", "detected_language": "de", "key_entities": []},
+            "primary_context": [{"extracted_info": "data", "document": "d.pdf", "page": 1}],
+            "secondary_context": [],
+            "task_summaries": [{"task_id": 0, "summary": "s", "key_findings": [], "gaps": []}],
+            "hitl_smry": "",
+            "quality_remediation_focus": "",  # No focus
+        }
+
+        with patch("src.agents.nodes.get_ollama_client", return_value=mock_client):
+            result = synthesize(state)
+
+        prompt = mock_client.generate_structured_with_language.call_args[0][0]
+        assert "Additional focus" not in prompt
+        # No quality_remediation_focus key in return since it was already empty
+        assert "quality_remediation_focus" not in result
+
+
+class TestAgentStateNewFields:
+    """Tests for new agentic decision fields in AgentState."""
+
+    def test_initial_state_has_retry_count(self):
+        """Initial state includes synthesis_retry_count = 0."""
+        state = create_initial_state("Test query")
+        assert state["synthesis_retry_count"] == 0
+
+    def test_initial_state_has_remediation_focus(self):
+        """Initial state includes empty quality_remediation_focus."""
+        state = create_initial_state("Test query")
+        assert state["quality_remediation_focus"] == ""
