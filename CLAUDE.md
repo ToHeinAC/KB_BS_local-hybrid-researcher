@@ -452,6 +452,14 @@ KB_BS_local-hybrid-researcher/
   - Graph edge map updated: `quality_check → synthesize` (retry) or `quality_check → attribute_sources` (normal)
 - [x] **142 Unit Tests**: All pass (22 model, 47 agent, 42 reference, 22 task search + other)
 
+### LLM-Based Task Relevance Scoring (Week 5.1) - COMPLETE
+- [x] **LLM relevance_score in TaskSummaryOutput**: Replaced broken keyword-overlap `_calculate_task_relevance()` with LLM-generated `relevance_score` (0-100)
+  - `TaskSummaryOutput` gains `relevance_score: int` field (0-100, default 50)
+  - `TASK_SUMMARY_PROMPT` updated with 4-tier scoring rubric (80-100 / 50-79 / 20-49 / 0-19)
+  - `_generate_task_summary()` uses `result.relevance_score / 100.0` on success
+  - `_calculate_task_relevance()` retained as fallback on LLM error only
+- [x] **144 Unit Tests**: All pass (22 model, 49 agent, 42 reference, 22 task search + other)
+
 ### Deferred to Week 6+
 - [ ] Orchestrator-worker parallelization
 - [ ] RAG Triad automated validation

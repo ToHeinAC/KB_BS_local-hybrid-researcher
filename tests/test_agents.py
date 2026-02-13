@@ -448,6 +448,7 @@ class TestTaskSummaryHitlSmry:
         mock_client.generate_structured.return_value = MagicMock(
             summary="s", key_findings=[], gaps=[],
             relevance_assessment="ok", irrelevant_findings=[],
+            relevance_score=75,
         )
 
         task = ToDoItem(id=1, task="Test task", context="ctx")
@@ -474,6 +475,7 @@ class TestTaskSummaryHitlSmry:
         mock_client.generate_structured.return_value = MagicMock(
             summary="s", key_findings=[], gaps=[],
             relevance_assessment="ok", irrelevant_findings=[],
+            relevance_score=75,
         )
 
         task = ToDoItem(id=1, task="Test task", context="ctx")
@@ -488,6 +490,64 @@ class TestTaskSummaryHitlSmry:
 
         prompt = mock_client.generate_structured.call_args[0][0]
         assert "No prior findings" in prompt
+
+    def test_task_summary_uses_llm_relevance_score(self):
+        """relevance_to_query uses LLM's relevance_score, not keyword overlap."""
+        from unittest.mock import MagicMock, patch
+
+        from src.agents.nodes import _generate_task_summary
+        from src.models.query import ToDoItem
+
+        mock_client = MagicMock()
+        mock_client.generate_structured.return_value = MagicMock(
+            summary="s", key_findings=[], gaps=[],
+            relevance_assessment="ok", irrelevant_findings=[],
+            relevance_score=85,
+        )
+
+        task = ToDoItem(id=1, task="Recherchiere Dosisgrenzwerte", context="ctx")
+        anchor = {
+            "original_query": "Grenzwerte fur Strahlenexposition",
+            "key_entities": [],
+            "detected_language": "de",
+        }
+
+        with patch("src.agents.nodes.get_ollama_client", return_value=mock_client):
+            result = _generate_task_summary(
+                task=task, task_primary=[], task_secondary=[],
+                task_tertiary=[], preserved_quotes=[],
+                query_anchor=anchor, hitl_smry="",
+            )
+
+        assert result["relevance_to_query"] == 0.85
+
+    def test_task_summary_falls_back_to_keyword_on_llm_error(self):
+        """On LLM failure, falls back to _calculate_task_relevance."""
+        from unittest.mock import MagicMock, patch
+
+        from src.agents.nodes import _generate_task_summary
+        from src.models.query import ToDoItem
+
+        mock_client = MagicMock()
+        mock_client.generate_structured.side_effect = Exception("LLM error")
+
+        task = ToDoItem(id=1, task="Test task", context="ctx")
+        anchor = {
+            "original_query": "Test task query",
+            "key_entities": [],
+            "detected_language": "en",
+        }
+
+        with patch("src.agents.nodes.get_ollama_client", return_value=mock_client):
+            result = _generate_task_summary(
+                task=task, task_primary=[], task_secondary=[],
+                task_tertiary=[], preserved_quotes=[],
+                query_anchor=anchor, hitl_smry="",
+            )
+
+        # Should use keyword fallback, not crash
+        assert 0.0 <= result["relevance_to_query"] <= 1.0
+        assert result["summary"].startswith("Completed task:")
 
 
 # =============================================================================

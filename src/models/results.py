@@ -286,6 +286,12 @@ class TaskSummaryOutput(BaseModel):
         default_factory=list,
         description="Findings superficially related but not answering the query"
     )
+    relevance_score: int = Field(
+        default=50,
+        ge=0,
+        le=100,
+        description="Relevance of findings to the original query (0-100)"
+    )
 
 
 class RelevanceScoreOutput(BaseModel):

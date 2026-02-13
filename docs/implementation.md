@@ -114,7 +114,8 @@ Prevents query drift and ensures synthesis quality through tiered context classi
   - Uses `_format_tiered_findings()` to format each tier for the prompt
   - `TASK_SUMMARY_PROMPT` receives `{primary_findings}`, `{secondary_findings}`, `{tertiary_findings}`, `{preserved_quotes}`, `{hitl_smry}`
   - Tier priority rule: primary > secondary > tertiary (conflicts noted in gaps)
-  - `_calculate_task_relevance()`: Word/entity overlap scoring
+  - LLM generates `relevance_score` (0-100) as part of `TaskSummaryOutput`, converted to 0.0-1.0
+  - `_calculate_task_relevance()` retained as keyword-overlap fallback on LLM error only
   - `task_summaries` state field accumulated during task execution
 
 - [x] **Pre-Synthesis Relevance Validation** (Phase G):
@@ -177,6 +178,7 @@ Universal language enforcement and improved search quality:
 - [x] **Enhanced `TaskSummaryOutput`**:
   - `relevance_assessment: str`: Whether findings actually match query intent
   - `irrelevant_findings: list[str]`: Findings superficially related but not answering the query
+  - `relevance_score: int` (0-100): LLM-generated relevance score with 4-tier rubric
 
 - [x] **Relevance Filter Backfill**: `filter_by_relevance()` accepts `min_results: int = 0`
   - When threshold filtering yields fewer results, backfills from top-scoring rejected chunks

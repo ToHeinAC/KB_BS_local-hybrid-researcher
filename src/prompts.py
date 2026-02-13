@@ -619,7 +619,7 @@ IMPORTANT: Replace all angle-bracket placeholders with actual content from the t
 #        {hitl_smry} — HITL findings summary (established context)
 #        {language} — "German" or "English"
 # Output: JSON with summary, key_findings[], gaps[],
-#         relevance_assessment, irrelevant_findings[]
+#         relevance_assessment, irrelevant_findings[], relevance_score (0-100)
 # Consumed by: Appended to state["task_summaries"]. Included in
 #              SYNTHESIS_PROMPT_ENHANCED as {task_summaries}.
 #
@@ -657,6 +657,11 @@ STEP-BY-STEP INSTRUCTIONS
 8. Identify gaps: what information is still missing to fully answer the original_query for this task?
 9. Write a comprehensive synthesis in {language} that makes use of all information and especially on NEW information from this task. Include literal references to documents, article numbers, section references (e.g., §3 Abs. 2, Anlage 4) exactly as they appear in the source. Reference hitl_findings only when essential context is needed.
 10. Write a one-sentence relevance_assessment.
+11. Score relevance_score (0-100): how well do the findings answer the original_query?
+    - 80-100: findings directly and substantially answer the query
+    - 50-79: findings are partially relevant or cover only a subset
+    - 20-49: findings are tangentially related
+    - 0-19: findings do not address the query at all
 
 IMPORTANT
 - Write in {language}.
@@ -670,7 +675,8 @@ OUTPUT — Return ONLY this JSON, no other text:
   "key_findings": ["<finding with exact terminology and \"verbatim quote\" [Document.pdf, Page N] citation>"],
   "gaps": ["<what is still missing>"],
   "relevance_assessment": "<one sentence>",
-  "irrelevant_findings": ["<finding that looks related but does not answer the query>"]}}
+  "irrelevant_findings": ["<finding that looks related but does not answer the query>"],
+  "relevance_score": 75}}
 ```
 """
 

@@ -1527,13 +1527,6 @@ def _generate_task_summary(
     # Format quotes
     quotes_text = json.dumps(preserved_quotes[:5], ensure_ascii=False) if preserved_quotes else "[]"
 
-    # Calculate relevance score
-    relevance_score = _calculate_task_relevance(
-        task_text=task.task,
-        original_query=original_query,
-        key_entities=query_anchor.get("key_entities", []),
-    )
-
     prompt = TASK_SUMMARY_PROMPT.format(
         task=task.task,
         original_query=original_query,
@@ -1555,10 +1548,16 @@ def _generate_task_summary(
             "gaps": result.gaps,
             "preserved_quotes": preserved_quotes,
             "sources": list(set(sources)),
-            "relevance_to_query": relevance_score,
+            "relevance_to_query": result.relevance_score / 100.0,
         }
     except Exception as e:
         logger.warning(f"Failed to generate task summary: {e}")
+        # Fallback to keyword overlap when LLM fails
+        fallback_score = _calculate_task_relevance(
+            task_text=task.task,
+            original_query=original_query,
+            key_entities=query_anchor.get("key_entities", []),
+        )
         return {
             "task_id": task.id,
             "task_text": task.task,
@@ -1567,7 +1566,7 @@ def _generate_task_summary(
             "gaps": [],
             "preserved_quotes": preserved_quotes,
             "sources": list(set(sources)),
-            "relevance_to_query": relevance_score,
+            "relevance_to_query": fallback_score,
         }
 
 

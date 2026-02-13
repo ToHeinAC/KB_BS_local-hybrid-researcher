@@ -394,6 +394,7 @@ class TaskSummaryOutput(BaseModel):
     gaps: list[str] = []                   # Identified gaps or limitations
     relevance_assessment: str = ""         # Whether findings match query intent
     irrelevant_findings: list[str] = []    # Findings superficially related but not answering the query
+    relevance_score: int = 50              # LLM-scored relevance to original query (0-100)
 ```
 
 ### RelevanceScoreOutput (NEW)
@@ -542,7 +543,7 @@ task_summary = {
     "gaps": list[str],            # Identified gaps
     "preserved_quotes": list[dict], # Quotes from this task
     "sources": list[str],         # Source documents
-    "relevance_to_query": float,  # 0.0-1.0 relevance score
+    "relevance_to_query": float,  # 0.0-1.0 (from LLM relevance_score / 100; keyword fallback on error)
 }
 ```
 

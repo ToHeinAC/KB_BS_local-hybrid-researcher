@@ -346,7 +346,7 @@ For each ToDoList item (starting from Task 0 = original query):
 4. **Reference Detection**: Identify section/document/external refs
 5. **Agentic Reference Gate**: LLM decides per-reference whether to follow (`ReferenceDecision` model). Skips tangential refs to preserve token budget.
 6. **Reference Following**: Resolve and retrieve nested chunks (classified into Tier 2/3)
-7. **Task Summary**: Generate structured summary with key findings and relevance score
+7. **Task Summary**: Generate structured summary with key findings and LLM-scored relevance (0-100)
 7. **ToDoList Update**: Mark task complete and continue to next task
 
 Output: Fully populated ResearchContext + tiered context (primary/secondary/tertiary) + task_summaries (with per-task tiered evidence) + preserved_quotes
