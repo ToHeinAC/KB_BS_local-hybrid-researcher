@@ -577,10 +577,10 @@ Extract relevant information and preserve critical verbatim quotes from the text
 - text_chunk: {chunk_text}
 
 ### Rules
-1. extracted_info: condensed relevant passages in {language}. Preserve exact and precise terminology.
+1. extracted_info: condensed relevant passages. Preserve exact and precise terminology.
 2. preserved_quotes: list of exact verbatim quotes that must not be paraphrased.
 3. Preserve quotes for: legal definitions with numbers/thresholds, technical specifications with units, named regulations with section numbers.
-4. For each quote include the exact text and a brief relevance reason.
+4. For each quote include the exact text and a brief relevance reason in {language}.
 5. Return ONLY valid JSON, no extra text.
 
 ### Output format
@@ -806,7 +806,7 @@ COVERAGE AND GAPS
 ### Output format
 Return ONLY this JSON, no other text:
 ```json
-{{"summary": "<extensive structured deep report in {language} with markdown formatting and [Document.pdf, Page N] citations>",
+{{"summary": "<your extensive structured deep report in {language} with markdown formatting and [Document.pdf, Page N] citations>",
   "key_findings": ["<one key finding with [Document.pdf, Page N] citation>"],
   "query_coverage": 0,
   "remaining_gaps": ["<one gap or uncertainty>"]}}
@@ -901,7 +901,7 @@ You are a senior decision expert with deep knowledge of methodological best prac
 Decide whether following this reference is worthwhile for answering the research query.
 Best workflow is:
 1. Analyse the query_anchor given to you carefully and methodically with respect to scope and current_task based on the original_query and key_entities.
-2. Take into account the reference_type, reference_target, and the context in which it was found.
+2. Take into account the reference_type, reference_target, and the deeply analyse the surrounding_context in which it was found.
 3. With the analysis in 1. and considering 2., decide whether following this reference in source_document is worthwhile.
 
 ### Input
