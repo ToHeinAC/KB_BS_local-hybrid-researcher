@@ -205,6 +205,45 @@ def detect_references(text: str) -> list[DetectedReference]:
     return references
 
 
+def get_context_window(text: str, mention: str, window_size: int = 400) -> str:
+    """Extract a focused window of text around a mention.
+
+    Args:
+        text: The full text context
+        mention: The verbatim mention to center on
+        window_size: Total target size of the window
+
+    Returns:
+        A snippet of text containing the mention with surrounding context
+    """
+    if not text or not mention:
+        return text[:window_size] if text else ""
+
+    try:
+        idx = text.lower().find(mention.lower())
+        if idx == -1:
+            return text[:window_size]
+
+        half_window = window_size // 2
+        start = max(0, idx - half_window)
+        end = min(len(text), idx + len(mention) + half_window)
+
+        # Try to expand to sentence boundaries if possible
+        snippet = text[start:end]
+        
+        # Add ellipsis if truncated
+        result = ""
+        if start > 0:
+            result += "..."
+        result += snippet
+        if end < len(text):
+            result += "..."
+            
+        return result
+    except Exception:
+        return text[:window_size]
+
+
 def resolve_reference(
     ref: DetectedReference,
     current_doc: str,
@@ -776,7 +815,11 @@ def _resolve_legal_ref_enhanced(
         filename, collection_key = resolve_document_name(doc_hint)
         if filename and collection_key:
             return _vector_search_scoped(
-                f"§ {ref.target}", filename, collection_key
+                f"§ {ref.target}", 
+                filename, 
+                collection_key,
+                center_mention=ref.original_text,
+                window_size=5000
             )
 
     # Fallback to broad search
@@ -789,7 +832,13 @@ def _resolve_document_ref_enhanced(ref: DetectedReference) -> list[NestedChunk]:
     filename, collection_key = resolve_document_name(doc_hint)
 
     if filename and collection_key:
-        return _vector_search_scoped(ref.target, filename, collection_key)
+        return _vector_search_scoped(
+            ref.target, 
+            filename, 
+            collection_key,
+            center_mention=ref.original_text,
+            window_size=5000
+        )
 
     # Fallback to broad search
     return _resolve_document_ref(ref)
@@ -826,6 +875,8 @@ def _vector_search_scoped(
         document_filename: Target document filename to filter by
         collection_key: Collection to search in
         top_k: Number of results to retrieve (before filtering)
+        center_mention: Optional text to center the context window on
+        window_size: Size of the context window (default 3000)
 
     Returns:
         Filtered list of NestedChunk objects
@@ -848,9 +899,19 @@ def _vector_search_scoped(
             or document_filename.lower() in result_doc
         ):
             if result.relevance_score >= settings.reference_relevance_threshold:
+                chunk_text = result.chunk_text
+                
+                # Apply windowing if center_mention is provided
+                if center_mention:
+                    chunk_text = get_context_window(
+                        chunk_text, 
+                        center_mention, 
+                        window_size=window_size
+                    )
+
                 chunks.append(
                     NestedChunk(
-                        chunk=result.chunk_text,
+                        chunk=chunk_text,
                         document=result.doc_name,
                         relevance_score=result.relevance_score,
                     )

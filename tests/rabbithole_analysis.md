@@ -6,8 +6,7 @@ The **Rabbithole Deep Search** is the signature iterative retrieval mechanism of
 
 ### 1.1 The Process Flow
 1.  **Initial Retrieval**: Performed during the `execute_task` node. It uses the `TASK_SEARCH_QUERIES_PROMPT` to generate multiple targeted queries from the task description, ensuring high recall from the vector database.
-2.  **Extraction & Detection**: (Detailed below)
-...
+2.  **Extraction & Detection**: Detailed in Section 1.2 below.
 #### E. Prompt Architecture
 All prompts in the system follow a strict 4-section format optimized for local LLMs (<=20B parameters):
 1. **Task**: One-sentence imperative.
@@ -35,9 +34,9 @@ Once filtered for relevance, the system looks for "exits" to other documents.
 #### C. Agentic Gating (The "Gatekeeper")
 Not every reference is worth the token cost of follow-up retrieval. 
 - **Prompt**: `REFERENCE_DECISION_PROMPT`.
-- **Input**: The detected reference, its source document, the **Query Anchor** (original intent), and **surrounding_context**.
-- **Logic**: The LLM evaluates the reference within its immediate textual environment (the paragraph where it was mentioned).
-- **Benefit**: Prevents "blind" decision-making; the model now knows if § 12 is mentioned as a core requirement or just a trivial side-note.
+- **Input**: The detected reference, its source document, the **Query Anchor** (original intent), and a focused **surrounding_context** window.
+- **Logic**: The LLM evaluates the reference within a tuned context window (e.g., +/- 400 characters) extracted from the query-relevant info.
+- **Optimization**: Windowing ensures the small LLM (Ollama) stays focused on the citation and significantly reduces the token budget per research iteration.
 - **Output**: A boolean `follow` decision and a `reason`.
 
 #### D. Task Summarization

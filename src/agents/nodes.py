@@ -15,6 +15,7 @@ from src.agents.tools import (
     detect_references,
     detect_references_hybrid,
     filter_by_relevance,
+    get_context_window,
     resolve_reference,
     resolve_reference_enhanced,
     vector_search,
@@ -400,12 +401,19 @@ def execute_task(state: AgentState) -> dict:
                             "scope": query_anchor.get("scope", ""),
                             "current_task": current_task.task,
                         }, ensure_ascii=False)
+                        # Use a focused context window (e.g. 800 chars) instead of full extraction
+                        surrounding_window = get_context_window(
+                            chunk.extracted_info, 
+                            ref.original_text, 
+                            window_size=800
+                        ) if chunk.extracted_info else "Context missing"
+
                         decision = client.generate_structured(
                             REFERENCE_DECISION_PROMPT.format(
                                 reference_type=ref.type,
                                 reference_target=ref.target,
                                 document_context=chunk.document,
-                                surrounding_context=chunk.extracted_info[:2000] if chunk.extracted_info else "Context missing",
+                                surrounding_context=surrounding_window,
                                 query_anchor=anchor_text,
                                 language=lang_label,
                             ),
