@@ -893,20 +893,29 @@ Extract all references from the given text and classify each by type.
 #        following a reference is worth the token budget. Prevents tangential
 #        references from diluting context.
 # ─────────────────────────────────────────────────────────────────────────────
-REFERENCE_DECISION_PROMPT = """### Task
+REFERENCE_DECISION_PROMPT = """
+### Role
+You are a senior decision expert with deep knowledge of methodological best practices to find relevant references.
+
+### Task
 Decide whether following this reference is worthwhile for answering the research query.
+Best workflow is:
+1. Analyse the query_anchor given to you carefully and methodically with respect to scope and current_task based on the original_query and key_entities.
+2. Take into account the reference_type, reference_target, and the context in which it was found.
+3. With the analysis in 1. and considering 2., decide whether following this reference in source_document is worthwhile.
 
 ### Input
+- query_anchor: {query_anchor}  (contains: original_query, key_entities, scope, current_task)
 - reference_type: "{reference_type}"
 - reference_target: "{reference_target}"
 - source_document: "{document_context}"
-- query_anchor: {query_anchor}  (contains: original_query, key_entities, scope, current_task)
+- surrounding_context: "{surrounding_context}"
 
 ### Rules
-1. Follow if the reference likely contains information directly relevant to the query.
+1. Follow if the reference likely contains information directly relevant to the query based on the surrounding_context.
 2. Follow if the reference defines a key term, threshold, or regulation mentioned in the query.
-3. Skip if the reference is tangential (e.g. general administrative procedures when the query is about dose limits).
-4. Skip if the reference would likely repeat information already covered by the source document.
+3. Skip if the reference is tangential (e.g. general administrative procedures when the query is very specific details).
+4. Skip if the surrounding_context indicates the reference is for background reading only.
 5. Skip if the reference target is too vague to resolve (e.g. "see above").
 6. When uncertain, FOLLOW — skipping a relevant reference is costlier than following a tangential one.
 7. Write the reason in {language}.

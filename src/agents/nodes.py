@@ -405,6 +405,7 @@ def execute_task(state: AgentState) -> dict:
                                 reference_type=ref.type,
                                 reference_target=ref.target,
                                 document_context=chunk.document,
+                                surrounding_context=chunk.extracted_info[:2000] if chunk.extracted_info else "Context missing",
                                 query_anchor=anchor_text,
                                 language=lang_label,
                             ),
