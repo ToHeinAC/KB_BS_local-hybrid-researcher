@@ -7,12 +7,16 @@ The **Rabbithole Deep Search** is the signature iterative retrieval mechanism of
 ### 1.1 The Process Flow
 1.  **Initial Retrieval**: Performed during the `execute_task` node. It uses the `TASK_SEARCH_QUERIES_PROMPT` to generate multiple targeted queries from the task description, ensuring high recall from the vector database.
 2.  **Extraction & Detection**: Detailed in Section 1.2 below.
-#### E. Prompt Architecture
+3.  **Reference Following**: Detected references are evaluated by the Agentic Gate (Section 1.2C) and resolved via scoped vector search with context windowing.
+4.  **Task Summarization**: Findings are synthesized per-task with tiered prioritization (Section 1.2D).
+
+#### Prompt Architecture
 All prompts in the system follow a strict 4-section format optimized for local LLMs (<=20B parameters):
 1. **Task**: One-sentence imperative.
 2. **Input**: Enumerated variables.
 3. **Rules**: Numbered constraints (e.g., language enforcement, JSON output).
 4. **Output format**: Exact JSON or text template.
+
 ### 1.2 Extraction & Detection Deep-Dive
 The system employs a multi-step LLM pipeline for each retrieved chunk to ensure maximum information density and structural awareness.
 

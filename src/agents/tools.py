@@ -867,6 +867,8 @@ def _vector_search_scoped(
     document_filename: str,
     collection_key: str,
     top_k: int = 5,
+    center_mention: str | None = None,
+    window_size: int = 3000,
 ) -> list[NestedChunk]:
     """Search within a specific collection, post-filtered by document name.
 

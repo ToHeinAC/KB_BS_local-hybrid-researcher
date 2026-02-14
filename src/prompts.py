@@ -901,7 +901,7 @@ You are a senior decision expert with deep knowledge of methodological best prac
 Decide whether following this reference is worthwhile for answering the research query.
 Best workflow is:
 1. Analyse the query_anchor given to you carefully and methodically with respect to scope and current_task based on the original_query and key_entities.
-2. Take into account the reference_type, reference_target, and the deeply analyse the surrounding_context in which it was found.
+2. Take into account the reference_type, reference_target, and deeply analyse the surrounding_context in which it was found.
 3. With the analysis in 1. and considering 2., decide whether following this reference in source_document is worthwhile.
 
 ### Input

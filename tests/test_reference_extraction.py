@@ -468,6 +468,7 @@ class TestReferenceDecisionPrompt:
         assert "{reference_target}" in REFERENCE_DECISION_PROMPT
         assert "{document_context}" in REFERENCE_DECISION_PROMPT
         assert "{query_anchor}" in REFERENCE_DECISION_PROMPT
+        assert "{surrounding_context}" in REFERENCE_DECISION_PROMPT
         assert "{language}" in REFERENCE_DECISION_PROMPT
 
     def test_reference_decision_prompt_format(self):
@@ -478,11 +479,13 @@ class TestReferenceDecisionPrompt:
             reference_type="legal_section",
             reference_target="§ 5 StrlSchV",
             document_context="StrlSchG.pdf",
+            surrounding_context="gemäß § 5 der Strahlenschutzverordnung gelten folgende Grenzwerte",
             query_anchor='{"original_query": "Grenzwerte", "key_entities": ["StrlSchV"]}',
             language="German",
         )
         assert "legal_section" in formatted
         assert "§ 5 StrlSchV" in formatted
+        assert "gemäß § 5 der Strahlenschutzverordnung" in formatted
 
     def test_reference_decision_model_serialization(self):
         """ReferenceDecision round-trips through dict."""
@@ -493,3 +496,86 @@ class TestReferenceDecisionPrompt:
         restored = ReferenceDecision.model_validate(data)
         assert restored.follow is False
         assert restored.reason == "Tangential to query"
+
+
+# =============================================================================
+# Context Window Tests
+# =============================================================================
+
+
+class TestGetContextWindow:
+    """Tests for the get_context_window utility function."""
+
+    def test_mention_found_centered(self):
+        """Window centers on the mention with surrounding context."""
+        from src.agents.tools import get_context_window
+
+        text = "A" * 200 + " TARGET_MENTION " + "B" * 200
+        result = get_context_window(text, "TARGET_MENTION", window_size=100)
+        assert "TARGET_MENTION" in result
+        # Should have ellipsis since we're truncating both sides
+        assert result.startswith("...")
+        assert result.endswith("...")
+
+    def test_mention_not_found_returns_start(self):
+        """When mention is not in text, return the first window_size chars."""
+        from src.agents.tools import get_context_window
+
+        text = "Some long text without the expected mention."
+        result = get_context_window(text, "NONEXISTENT", window_size=20)
+        assert result == text[:20]
+
+    def test_empty_text(self):
+        """Empty text returns empty string."""
+        from src.agents.tools import get_context_window
+
+        assert get_context_window("", "mention", window_size=100) == ""
+
+    def test_empty_mention(self):
+        """Empty mention returns first window_size chars of text."""
+        from src.agents.tools import get_context_window
+
+        text = "Some text content here."
+        result = get_context_window(text, "", window_size=10)
+        assert result == text[:10]
+
+    def test_mention_at_start_no_leading_ellipsis(self):
+        """Mention at start of text should not have leading ellipsis."""
+        from src.agents.tools import get_context_window
+
+        text = "TARGET at the very beginning" + " extra" * 100
+        result = get_context_window(text, "TARGET", window_size=40)
+        assert not result.startswith("...")
+        assert "TARGET" in result
+
+    def test_mention_at_end_no_trailing_ellipsis(self):
+        """Mention at end of text should not have trailing ellipsis."""
+        from src.agents.tools import get_context_window
+
+        text = "x" * 200 + "END_TARGET"
+        result = get_context_window(text, "END_TARGET", window_size=40)
+        assert not result.endswith("...")
+        assert "END_TARGET" in result
+
+    def test_short_text_no_ellipsis(self):
+        """Text shorter than window_size returns full text without ellipsis."""
+        from src.agents.tools import get_context_window
+
+        text = "Short text with MENTION inside."
+        result = get_context_window(text, "MENTION", window_size=500)
+        assert result == text
+
+    def test_case_insensitive_match(self):
+        """Mention matching is case-insensitive."""
+        from src.agents.tools import get_context_window
+
+        text = "Before § 12 StrlSchG defines the limits after"
+        result = get_context_window(text, "§ 12 strlschg", window_size=100)
+        assert "§ 12 StrlSchG" in result
+
+    def test_none_text_returns_empty(self):
+        """None text is handled gracefully."""
+        from src.agents.tools import get_context_window
+
+        assert get_context_window(None, "mention") == ""
+
