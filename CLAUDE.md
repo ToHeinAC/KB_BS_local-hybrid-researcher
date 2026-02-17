@@ -123,7 +123,7 @@ The enhanced iterative HITL system provides intelligent query refinement through
 6. **hitl_process_response**: Analyze user response, check termination conditions
 7. **hitl_finalize**: Generate research_queries and hand off to Phase 2
 
-**Termination Conditions**:
+**Termination Conditions** (all paths sync `hitl_conversation_history` to agent state):
 - User types `/end` → `user_end`
 - Max iterations reached (default: 5) → `max_iterations`
 - **Convergence** (coverage ≥ 0.8 AND dedup_ratio ≥ 0.7 AND gaps ≤ 2) → `convergence`
@@ -138,8 +138,8 @@ The enhanced iterative HITL system provides intelligent query refinement through
 - `query_retrieval`: Accumulated retrieval text (converted to tertiary_context in finalize)
 
 **Graded Context State Fields** (NEW):
-- `query_anchor`: Immutable reference to original intent (created in hitl_finalize)
-- `hitl_smry`: Synthesized HITL findings for final synthesis
+- `query_anchor`: Immutable reference to original intent (created in `hitl_finalize` for graph-based HITL, or in `_start_research_from_hitl` for chat-based HITL)
+- `hitl_smry`: Citation-aware HITL summary (generated in `hitl_finalize` or `_start_research_from_hitl`)
 - `primary_context`: Tier 1 high-confidence findings (list of dicts)
 - `secondary_context`: Tier 2 supporting findings (list of dicts)
 - `tertiary_context`: Tier 3 background context (list of dicts)

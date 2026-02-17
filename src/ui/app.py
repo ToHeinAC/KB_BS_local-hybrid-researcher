@@ -2,11 +2,13 @@
 
 import logging
 import uuid
+from datetime import datetime
 from pathlib import Path
 
 import streamlit as st
 
 from src.agents.graph import create_research_graph
+from src.agents.nodes import _generate_hitl_summary
 from src.agents.state import create_initial_state
 from src.config import settings
 from src.services.chromadb_client import ChromaDBClient
@@ -583,6 +585,42 @@ def _start_research_from_hitl(hitl_result: dict) -> None:
         initial_state["research_queries"] = research_queries
         initial_state["additional_context"] = additional_context
         initial_state["detected_language"] = hitl_result.get("language", "de")
+
+        # Build query_anchor (immutable reference to original intent)
+        initial_state["query_anchor"] = {
+            "original_query": user_query,
+            "detected_language": hitl_result.get("language", "de"),
+            "key_entities": entities,
+            "scope": scope,
+            "hitl_refinements": [],
+            "created_at": datetime.now().isoformat(),
+        }
+
+        # Generate citation-aware HITL summary (chat-based HITL bypasses hitl_finalize)
+        hitl_conv = session.hitl_conversation_history or []
+        query_retrieval = (
+            session.hitl_state.get("query_retrieval", "")
+            if session.hitl_state
+            else ""
+        )
+        knowledge_gaps = (
+            session.hitl_state.get("analysis", {}).get("knowledge_gaps", [])
+            if session.hitl_state
+            else []
+        )
+        lang = hitl_result.get("language", "de")
+        try:
+            hitl_smry = _generate_hitl_summary(
+                query=user_query,
+                conversation=hitl_conv,
+                retrieval=query_retrieval,
+                knowledge_gaps=knowledge_gaps,
+                language=lang,
+            )
+        except Exception as e:
+            logger.warning(f"Failed to generate HITL summary in UI path: {e}")
+            hitl_smry = additional_context  # Fallback to plain summary
+        initial_state["hitl_smry"] = hitl_smry
 
         # Skip analyze phase since we have HITL results - go directly to generate_todo
         initial_state["phase"] = "generate_todo"

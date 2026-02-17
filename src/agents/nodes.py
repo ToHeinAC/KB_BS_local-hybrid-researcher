@@ -1334,11 +1334,13 @@ def hitl_process_response(state: AgentState) -> dict:
     # Check for termination
     if user_response.strip().lower() == "/end":
         return {
+            "hitl_state": hitl_state,
             "hitl_active": False,
             "hitl_termination_reason": "user_end",
             "hitl_pending": False,
             "hitl_checkpoint": None,
             "hitl_decision": None,
+            "hitl_conversation_history": hitl_state.get("conversation_history", []),
             "phase": "hitl_finalize",
             "messages": ["User ended HITL conversation"],
         }
@@ -1355,6 +1357,7 @@ def hitl_process_response(state: AgentState) -> dict:
             "hitl_pending": False,
             "hitl_checkpoint": None,
             "hitl_decision": None,
+            "hitl_conversation_history": hitl_state.get("conversation_history", []),
             "phase": "hitl_finalize",
             "messages": [f"HITL max iterations ({max_iterations}) reached"],
         }
@@ -1381,6 +1384,7 @@ def hitl_process_response(state: AgentState) -> dict:
             "hitl_pending": False,
             "hitl_checkpoint": None,
             "hitl_decision": None,
+            "hitl_conversation_history": hitl_state.get("conversation_history", []),
             "coverage_score": coverage,
             "phase": "hitl_finalize",
             "messages": [f"HITL converged with coverage {coverage:.0%}"],
@@ -1689,8 +1693,8 @@ def _generate_hitl_summary(
     # Format gaps
     gaps_text = "\n".join(f"- {gap}" for gap in knowledge_gaps) if knowledge_gaps else "None identified"
 
-    # Truncate retrieval if too long — keep 8000 chars to preserve [doc, p.N] prefixes
-    retrieval_truncated = retrieval[:8000] if len(retrieval) > 8000 else retrieval
+    # Truncate retrieval if too long — keep 12000 chars to preserve [doc, p.N] prefixes
+    retrieval_truncated = retrieval[:12000] if len(retrieval) > 12000 else retrieval
 
     lang_label = "German" if language == "de" else "English"
     system_prompt = HITL_SUMMARY_PROMPT_SYSTEM.format(language=lang_label)

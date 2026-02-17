@@ -131,7 +131,7 @@ class AgentState(TypedDict):
 
 ### Query Anchor Structure (NEW)
 
-Created in `hitl_finalize`, immutable throughout execution:
+Created in `hitl_finalize` (graph-based HITL) or `_start_research_from_hitl` (chat-based HITL), immutable throughout execution:
 
 ```python
 query_anchor = {
@@ -426,6 +426,12 @@ The chat-based HITL (`render_chat_hitl`) runs independently from the LangGraph, 
 │      │                                                           │
 │      ▼                                                           │
 │  On /end: create_hitl_result() → research_queries                │
+│      │                                                           │
+│      ▼                                                           │
+│  _start_research_from_hitl()                                     │
+│      ├─ Builds query_anchor (entities, scope, language)          │
+│      ├─ Calls _generate_hitl_summary() → hitl_smry               │
+│      └─ Sets initial_state for graph                             │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
@@ -467,7 +473,9 @@ This enables:
 - **Resume HITL**: When user responds to an interrupted iterative HITL session
 - **New HITL**: Default behavior when starting fresh
 
-**Key invariant**: `_start_research_from_hitl()` sets `hitl_active=False` before entering the graph, so post-approval resume never misroutes to `hitl_process_response`.
+**Key invariants**:
+- `_start_research_from_hitl()` sets `hitl_active=False` before entering the graph, so post-approval resume never misroutes to `hitl_process_response`.
+- `_start_research_from_hitl()` generates `hitl_smry` (via `_generate_hitl_summary()`) and builds `query_anchor`, since the chat-based HITL UI bypasses `hitl_finalize` entirely.
 
 ### Completed Results View
 

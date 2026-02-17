@@ -501,7 +501,7 @@ preserved_quotes: list[dict]  # Critical verbatim quotes
 
 ### Query Anchor Structure (NEW)
 
-Created in `hitl_finalize`, immutable throughout execution:
+Created in `hitl_finalize` (graph-based HITL) or `_start_research_from_hitl` (chat-based HITL), immutable throughout execution:
 
 ```python
 query_anchor = {

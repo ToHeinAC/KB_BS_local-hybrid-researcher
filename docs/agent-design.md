@@ -477,6 +477,7 @@ hitl_init → hitl_generate_queries → hitl_retrieve_chunks → hitl_analyze_re
 6. **hitl_process_response**: Analyze user response
    - Extracts insights from user feedback
    - Checks termination: `/end`, max_iterations, convergence
+   - All termination paths sync `hitl_conversation_history` to agent state
    - Increments `hitl_iteration` and loops back to query generation
 
 7. **hitl_finalize**: Generate research_queries for Phase 2

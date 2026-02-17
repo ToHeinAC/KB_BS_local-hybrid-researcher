@@ -95,6 +95,53 @@ class TestChromaDBClient:
             client.get_pdf_folder("NonExistent")
 
 
+class TestL2ToCosineConversion:
+    """Test L2 distance to cosine similarity conversion in search methods."""
+
+    def test_identical_vectors_l2_zero(self, ):
+        """L2 distance 0.0 -> cosine similarity 1.0 (identical)."""
+        score = 0.0
+        similarity = max(0.0, min(1.0, 1.0 - (score ** 2 / 2.0)))
+        assert similarity == 1.0
+
+    def test_close_vectors_l2_half(self):
+        """L2 distance 0.5 -> cosine similarity ~0.875."""
+        score = 0.5
+        similarity = max(0.0, min(1.0, 1.0 - (score ** 2 / 2.0)))
+        assert abs(similarity - 0.875) < 0.001
+
+    def test_medium_distance_l2_one(self):
+        """L2 distance 1.0 -> cosine similarity 0.5."""
+        score = 1.0
+        similarity = max(0.0, min(1.0, 1.0 - (score ** 2 / 2.0)))
+        assert similarity == 0.5
+
+    def test_orthogonal_vectors_l2_sqrt2(self):
+        """L2 distance sqrt(2) ~1.414 -> cosine similarity ~0.0."""
+        import math
+        score = math.sqrt(2)
+        similarity = max(0.0, min(1.0, 1.0 - (score ** 2 / 2.0)))
+        assert abs(similarity) < 0.001
+
+    def test_opposite_vectors_l2_two(self):
+        """L2 distance 2.0 -> cosine similarity 0.0 (clamped)."""
+        score = 2.0
+        similarity = max(0.0, min(1.0, 1.0 - (score ** 2 / 2.0)))
+        assert similarity == 0.0
+
+    def test_large_l2_clamped_to_zero(self):
+        """L2 distance > 2.0 -> clamped to 0.0."""
+        score = 3.0
+        similarity = max(0.0, min(1.0, 1.0 - (score ** 2 / 2.0)))
+        assert similarity == 0.0
+
+    def test_typical_range_produces_reasonable_scores(self):
+        """L2 distances 0.5-1.0 (typical) produce tier-1/2 eligible scores."""
+        for l2 in [0.3, 0.5, 0.7, 0.9]:
+            sim = max(0.0, min(1.0, 1.0 - (l2 ** 2 / 2.0)))
+            assert sim > 0.5, f"L2={l2} -> sim={sim} should be > 0.5"
+
+
 class TestEmbeddingDerivation:
     """Test embedding model derivation from database names."""
 

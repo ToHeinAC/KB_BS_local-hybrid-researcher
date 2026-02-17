@@ -244,7 +244,26 @@ All prompts migrated from single constants to `_SYSTEM` / `_HUMAN` pairs, and al
   - `src/services/hitl_service.py`: `_detect_language_llm`, `_generate_follow_up_questions_llm`, `_analyse_user_feedback_llm`, `_generate_knowledge_base_questions_llm`, `generate_alternative_queries_llm`, `analyze_retrieval_context_llm`, `generate_refined_queries_llm`
 - [x] **Quality Check & Remediation Enhanced**: Both now receive `hitl_findings` context for better evaluation
 - [x] **Bug Fix**: Legacy synthesis path: `findings=info_text` → `research_findings=info_text` (KeyError fix)
-- [x] **153 Unit Tests**: All pass
+- [x] **164 Unit Tests**: All pass
+
+### Phase 3.11: Tiered Context & HITL Pipeline Fixes
+
+Fixes for tier classification and chat-based HITL context propagation:
+
+- [x] **L2-to-Cosine Similarity Conversion** (`chromadb_client.py`):
+  - `search()` and `search_by_database_name()` both fixed
+  - Old: `1 - score` (wrong for L2 distance, produced 0.0-0.5 range)
+  - New: `max(0.0, min(1.0, 1.0 - (score ** 2 / 2.0)))` (proper cosine for normalized embeddings)
+  - Fixes tier classification: chunks now reach Tier 1 (≥0.85) and Tier 2 (0.6-0.85) thresholds
+- [x] **Chat-Based HITL Generates `hitl_smry` and `query_anchor`** (`app.py`):
+  - `_start_research_from_hitl()` now calls `_generate_hitl_summary()` to produce citation-aware summary
+  - Builds `query_anchor` dict with entities, scope, language (needed by `classify_context_tier()`)
+  - Previously both were empty because chat-based HITL bypasses `hitl_finalize` entirely
+- [x] **Termination Paths Sync `hitl_conversation_history`** (`nodes.py`):
+  - `/end`, `max_iterations`, and `convergence` paths in `hitl_process_response()` now include `hitl_conversation_history` in return dict
+  - Previously only the `continue` (non-termination) path synced it, causing `hitl_finalize` to receive stale conversation
+- [x] **Retrieval Truncation**: `_generate_hitl_summary()` truncation increased from 8K to 12K chars to preserve more `[doc, p.N]` citation prefixes
+- [x] **164 Unit Tests**: All pass (7 L2 conversion + 4 termination path tests added)
 
 ### Phase 4: Synthesis + Quality (Research Phase 4)
 - [x] `synthesize` node (LLM synthesis from extracted findings)
@@ -422,7 +441,7 @@ def search_vectors(
     return [
         SearchResult(
             text=doc,
-            score=1 - dist,  # Convert distance to similarity
+            score=max(0.0, min(1.0, 1.0 - (dist ** 2 / 2.0))),  # L2 to cosine similarity
             source=meta.get("source", "unknown"),
         )
         for doc, dist, meta in zip(
@@ -510,7 +529,9 @@ def test_graph_execution():
 | **Hallucinated references** | LLM invents citations | Hybrid: regex provides baseline, LLM adds coverage, dedup filters noise |
 | **Over-following tangential refs** | Poor relevance filter | Agentic reference gate (LLM decides per-ref), token budget (50K), convergence (same doc >= 3) |
 | **Query drift during synthesis** | Accumulating irrelevant context | Tiered evidence resolved at task summary level, pre-synthesis relevance validation, query_anchor |
-| **Lost HITL context** | HITL findings not used in synthesis | `hitl_smry` fed into todo generation, task summaries, and synthesis + `tertiary_context` from HITL retrieval |
+| **Wrong similarity scores broke tiers** | ChromaDB L2 distance naively converted via `1-score` | Proper L2→cosine: `1 - (L2^2/2)`, clamped to [0,1]. Tier thresholds (0.85/0.6) now reachable |
+| **Lost HITL context (chat-based UI)** | Chat-based HITL bypassed `hitl_finalize` | `_start_research_from_hitl()` now generates `hitl_smry` and `query_anchor` directly |
+| **Stale conversation on termination** | Only `continue` path synced `hitl_conversation_history` | All 3 termination paths (`/end`, max_iterations, convergence) now sync conversation history |
 | **Mixed language output** | LLM ignores language instruction | `generate_structured_with_language()` with validation and retry |
 | **Lost legal/technical precision** | Summarization paraphrases quotes | `preserved_quotes` extracted verbatim during info extraction |
 | **Low-quality synthesis passed through** | No remediation | Agentic quality remediation loop (LLM decides accept/retry, max 1 retry with focused instructions) |

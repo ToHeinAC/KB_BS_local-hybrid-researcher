@@ -298,8 +298,8 @@ class TestGenerateHitlSummary:
         assert "HITL Summary" in result
         assert "test query" in result
 
-    def test_retrieval_truncation_at_8000(self):
-        """Retrieval text is truncated at 8000 chars, not 4000."""
+    def test_retrieval_truncation_at_12000(self):
+        """Retrieval text is truncated at 12000 chars."""
         from unittest.mock import MagicMock, patch
 
         from src.agents.nodes import _generate_hitl_summary
@@ -307,7 +307,7 @@ class TestGenerateHitlSummary:
         mock_client = MagicMock()
         mock_client.generate_messages.return_value = "summary"
 
-        long_retrieval = "x" * 10000
+        long_retrieval = "x" * 15000
 
         with patch("src.agents.nodes.get_ollama_client", return_value=mock_client):
             _generate_hitl_summary(
@@ -316,9 +316,8 @@ class TestGenerateHitlSummary:
             )
 
         human_prompt = mock_client.generate_messages.call_args[0][1]
-        # 8000 x's should be in human prompt, not 4000
-        assert "x" * 8000 in human_prompt
-        assert "x" * 8001 not in human_prompt
+        assert "x" * 12000 in human_prompt
+        assert "x" * 12001 not in human_prompt
 
 
 class TestGenerateTodoHitlSmry:
@@ -816,3 +815,80 @@ class TestAgentStateNewFields:
         """Initial state includes empty quality_remediation_focus."""
         state = create_initial_state("Test query")
         assert state["quality_remediation_focus"] == ""
+
+
+class TestHitlTerminationPaths:
+    """Test that all termination paths sync hitl_conversation_history."""
+
+    def _make_state(self, user_response="/end", iteration=0, coverage=0.0):
+        """Helper to create minimal HITL state."""
+        return {
+            "hitl_state": {
+                "conversation_history": [
+                    {"role": "user", "content": "initial question"},
+                    {"role": "assistant", "content": "follow-up"},
+                    {"role": "user", "content": user_response},
+                ],
+                "user_query": "test query",
+                "language": "de",
+                "analysis": {},
+            },
+            "hitl_decision": {
+                "approved": user_response != "/end",
+                "modifications": {"user_response": user_response},
+            },
+            "hitl_iteration": iteration,
+            "hitl_max_iterations": 5,
+            "coverage_score": coverage,
+        }
+
+    def test_user_end_syncs_conversation(self):
+        """The /end path includes hitl_conversation_history."""
+        from src.agents.nodes import hitl_process_response
+
+        state = self._make_state(user_response="/end")
+        # Override decision to signal /end
+        state["hitl_decision"] = {"approved": False}
+        result = hitl_process_response(state)
+        assert "hitl_conversation_history" in result
+        assert result["hitl_termination_reason"] == "user_end"
+        assert len(result["hitl_conversation_history"]) == 3
+
+    def test_max_iterations_syncs_conversation(self):
+        """The max_iterations path includes hitl_conversation_history."""
+        from unittest.mock import patch
+        from src.agents.nodes import hitl_process_response
+
+        state = self._make_state(user_response="some answer", iteration=4)
+
+        with patch("src.services.hitl_service.process_human_feedback", return_value=state["hitl_state"]):
+            result = hitl_process_response(state)
+
+        assert "hitl_conversation_history" in result
+        assert result["hitl_termination_reason"] == "max_iterations"
+
+    def test_convergence_syncs_conversation(self):
+        """The convergence path includes hitl_conversation_history."""
+        from unittest.mock import patch
+        from src.agents.nodes import hitl_process_response
+
+        state = self._make_state(user_response="some answer", coverage=0.95)
+
+        with patch("src.services.hitl_service.process_human_feedback", return_value=state["hitl_state"]):
+            result = hitl_process_response(state)
+
+        assert "hitl_conversation_history" in result
+        assert result["hitl_termination_reason"] == "convergence"
+
+    def test_continue_syncs_conversation(self):
+        """The continue (non-termination) path also includes hitl_conversation_history."""
+        from unittest.mock import patch
+        from src.agents.nodes import hitl_process_response
+
+        state = self._make_state(user_response="some answer", iteration=0, coverage=0.3)
+
+        with patch("src.services.hitl_service.process_human_feedback", return_value=state["hitl_state"]):
+            result = hitl_process_response(state)
+
+        assert "hitl_conversation_history" in result
+        assert "hitl_termination_reason" not in result or result.get("hitl_termination_reason") is None

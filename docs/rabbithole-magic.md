@@ -236,7 +236,7 @@ context.mark_ref_visited(ref_key)
 
 **Two-Tier Scoring** in `filter_by_relevance()`:
 
-1. **Vector Similarity Score**: From ChromaDB embedding distance
+1. **Vector Similarity Score**: From ChromaDB L2 distance, converted to cosine similarity via `1 - (L2^2/2)`
 2. **Keyword Overlap Score**:
    ```python
    overlap = len(query_words & chunk_words)

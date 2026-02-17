@@ -163,6 +163,25 @@ results = client.search_all(
 )
 ```
 
+### Similarity Score Conversion
+
+ChromaDB returns **L2 (Euclidean) distance** by default. With normalized embeddings (`normalize_embeddings=True`), L2 distances typically range from 0.0 (identical) to ~1.5 (very different). The client converts these to **cosine similarity** using:
+
+```python
+# L2 to cosine similarity for normalized embeddings
+similarity = max(0.0, min(1.0, 1.0 - (l2_distance ** 2 / 2.0)))
+```
+
+| L2 Distance | Cosine Similarity | Interpretation |
+|-------------|-------------------|----------------|
+| 0.0 | 1.0 | Identical vectors |
+| 0.5 | 0.875 | Very similar |
+| 1.0 | 0.5 | Moderate similarity |
+| 1.414 | ~0.0 | Orthogonal |
+| 2.0 | 0.0 (clamped) | Opposite |
+
+This conversion is critical for the tiered context classification system (Tier 1: ≥0.85, Tier 2: 0.6-0.85, Tier 3: <0.6).
+
 ---
 
 ## Document Registry

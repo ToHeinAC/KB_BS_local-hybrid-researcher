@@ -223,8 +223,9 @@ class ChromaDBClient:
         for doc, score in results:
             metadata = doc.metadata or {}
 
-            # Score is distance, convert to similarity
-            similarity = 1 - score if score < 1 else 1 / (1 + score)
+            # ChromaDB returns L2 distance. For normalized embeddings,
+            # convert to cosine similarity: cos_sim = 1 - (L2^2 / 2)
+            similarity = max(0.0, min(1.0, 1.0 - (score ** 2 / 2.0)))
 
             vector_results.append(
                 VectorResult(
@@ -440,8 +441,9 @@ class ChromaDBClient:
         for doc, score in results:
             metadata = doc.metadata or {}
 
-            # Score is distance, convert to similarity
-            similarity = 1 - score if score < 1 else 1 / (1 + score)
+            # ChromaDB returns L2 distance. For normalized embeddings,
+            # convert to cosine similarity: cos_sim = 1 - (L2^2 / 2)
+            similarity = max(0.0, min(1.0, 1.0 - (score ** 2 / 2.0)))
 
             # Extract collection key from db_name
             collection_key = db_name.split("__")[0] if "__" in db_name else db_name

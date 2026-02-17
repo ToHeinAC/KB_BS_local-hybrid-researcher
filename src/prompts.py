@@ -13,7 +13,8 @@ Use template variables for dynamic content.
 Each half follows the strict 4-section format optimised for small
 local LLMs (<=20B parameters):
 
-### Goal   – one-sentence imperative
+### Role   - one-sentence role in the agentic workflow
+### Goal   – task to work out
 ### Input  – enumerated variables
 ### Rules  – numbered constraints
 ### Output format – exact JSON / text template
@@ -158,16 +159,18 @@ Analyse the retrieved context against the user's research query.
 ### Rules
 1. Always think step by step and keep your reasoning internal.
 2. Be concise, factual, and avoid adding new information that is not in the context.
-3. Extract 5-7 core concepts from query and retrieved content.
-4. Scope:
-- State the primary focus area in one sentence.
-- Identify and list explicit DOs (recommended practices). 
-- Identify and list explicit DONTs (things to avoid, risks, pitfalls).
-5. List named entities (organisations, dates, technical terms).
-6. List concrete knowledge gaps (not vague phrases like "more details").
-7. Estimate coverage as a decimal 0.00-1.00 considering foundational, intermediate, and advanced coverage.
-8. Write all JSON values in {language}.
-9. Return ONLY valid JSON, no extra text.
+3. Deliverables:
+  a. Extract 5-7 key concepts from query and retrieved content.
+  b. List named entities (organisations, dates, technical terms).
+  c. Work out the scope:
+    - State the primary focus area in one sentence.
+    - Identify and list explicit DOs (recommended practices). 
+    - Identify and list explicit DONTs (things to avoid, risks, pitfalls).
+    Reply by "Scope: ... \n DOs: ... \n DONTs: ..."
+  d. List concrete knowledge gaps (not vague phrases like "more details").
+  e. Estimate coverage as a decimal 0.00-1.00 considering foundational, intermediate, and advanced coverage.
+4. Write all JSON values in {language}.
+5. Return ONLY valid JSON, no extra text.
 
 
 ### Output format
@@ -392,9 +395,9 @@ Produce a citation-aware summary that preserves source attribution.
 4. Use direct quotes `"..."` for key definitions, legal formulations, and technical terms.
 5. Preserve section/paragraph references (e.g., §3 Abs. 2, Anlage 4 Teil B) exactly as they appear in the source.
 6. Structure the output into two sections:
-   - **PRIMARY**: Findings directly relevant to the original query.
+   - **PRIMARY**: Findings directly relevant to the original query. 
    - **SECONDARY**: Tangential or supporting findings that provide useful background.
-7. Cover: user's refined intent, key clarifications, most relevant retrieval findings, remaining gaps.
+7. Cover: user's refined intent, key clarifications, most relevant retrieval findings, DOs (recommended practices) and DONTs (things to avoid, risks, pitfalls), remaining gaps.
 8. No prefix, suffix, or meta-commentary. Output the summary directly as plain text, no JSON.
 
 ### Output format
@@ -403,6 +406,9 @@ Factual statement with exact values [source_document.pdf]. Key definition: "verb
 
 SECONDARY:
 Supporting context with citation [background_doc.pdf]. Additional background detail [other_doc.pdf].
+
+RULES:
+Identified DOs (recommended practices) and DONTs (things to avoid, risks, pitfalls).
 
 GAPS:
 - Remaining gap 1
