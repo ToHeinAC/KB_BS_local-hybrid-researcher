@@ -1,3 +1,7 @@
+---
+name: code-best-practices
+description: Code best practices for our services
+---
 # Code Best Practices Guide
 
 A comprehensive guide to writing clean, maintainable, and professional code.

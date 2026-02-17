@@ -32,6 +32,7 @@ streamlit run src/ui/app.py --server.port 8511
 - **Graded Context Management**: Tiered classification (primary/secondary/tertiary) prevents query drift and ensures synthesis quality.
 - **Verbatim Quote Preservation**: Critical legal/technical quotes extracted and preserved for precision.
 - **Deep Report Synthesis**: Produces extensive, structured deep reports (not brief summaries) from pre-digested task summaries, with exact figures, verbatim quotes, and section references, anchored to original intent with HITL context.
+- **Optimized Prompt Architecture**: All prompts split into SYSTEM/HUMAN pairs with proper role separation via `SystemMessage`/`HumanMessage`, improving instruction adherence on small local LLMs.
 - **Language Enforcement**: All 17 content-bearing prompts enforce `{language}`, with validation and retry on mismatch.
 - **Pre-Synthesis Drift Detection**: Filters irrelevant accumulated context before synthesis.
 - **Full Human-In-The-Loop**: Checkpoints for query refinement, task list approval, and final result verification.

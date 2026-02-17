@@ -253,7 +253,7 @@ class TestGenerateHitlSummary:
         from src.agents.nodes import _generate_hitl_summary
 
         mock_client = MagicMock()
-        mock_client.generate.return_value = "PRIMARY:\nFact [doc.pdf]\nSECONDARY:\nNone"
+        mock_client.generate_messages.return_value = "PRIMARY:\nFact [doc.pdf]\nSECONDARY:\nNone"
 
         with patch("src.agents.nodes.get_ollama_client", return_value=mock_client):
             result = _generate_hitl_summary(
@@ -261,18 +261,20 @@ class TestGenerateHitlSummary:
                 conversation=[{"role": "user", "content": "Frage"}],
                 retrieval="[strlsch.pdf, p.5]: Grenzwert 6 mSv/a",
                 knowledge_gaps=["gap1"],
-                language="German",
+                language="de",
             )
 
         # Verify LLM was called
-        mock_client.generate.assert_called_once()
-        prompt = mock_client.generate.call_args[0][0]
+        mock_client.generate_messages.assert_called_once()
+        system_prompt = mock_client.generate_messages.call_args[0][0]
+        human_prompt = mock_client.generate_messages.call_args[0][1]
 
-        # Verify citation rules are in prompt
-        assert "[Source_filename]" in prompt
-        assert "PRIMARY" in prompt
-        assert "SECONDARY" in prompt
-        assert "German" in prompt
+        # Verify citation rules are in system prompt
+        assert "[Source_filename]" in system_prompt
+        assert "PRIMARY" in system_prompt
+        assert "SECONDARY" in system_prompt
+        # Language appears in both
+        assert "German" in system_prompt or "German" in human_prompt
         assert result == "PRIMARY:\nFact [doc.pdf]\nSECONDARY:\nNone"
 
     def test_fallback_on_llm_error(self):
@@ -282,7 +284,7 @@ class TestGenerateHitlSummary:
         from src.agents.nodes import _generate_hitl_summary
 
         mock_client = MagicMock()
-        mock_client.generate.side_effect = RuntimeError("LLM down")
+        mock_client.generate_messages.side_effect = RuntimeError("LLM down")
 
         with patch("src.agents.nodes.get_ollama_client", return_value=mock_client):
             result = _generate_hitl_summary(
@@ -303,7 +305,7 @@ class TestGenerateHitlSummary:
         from src.agents.nodes import _generate_hitl_summary
 
         mock_client = MagicMock()
-        mock_client.generate.return_value = "summary"
+        mock_client.generate_messages.return_value = "summary"
 
         long_retrieval = "x" * 10000
 
@@ -313,10 +315,10 @@ class TestGenerateHitlSummary:
                 retrieval=long_retrieval, knowledge_gaps=[], language="de",
             )
 
-        prompt = mock_client.generate.call_args[0][0]
-        # 8000 x's should be in prompt, not 4000
-        assert "x" * 8000 in prompt
-        assert "x" * 8001 not in prompt
+        human_prompt = mock_client.generate_messages.call_args[0][1]
+        # 8000 x's should be in human prompt, not 4000
+        assert "x" * 8000 in human_prompt
+        assert "x" * 8001 not in human_prompt
 
 
 class TestGenerateTodoHitlSmry:
@@ -329,7 +331,7 @@ class TestGenerateTodoHitlSmry:
         from src.agents.nodes import generate_todo
 
         mock_client = MagicMock()
-        mock_client.generate_structured.return_value = MagicMock(
+        mock_client.generate_structured_messages.return_value = MagicMock(
             items=[{"id": 1, "task": "Research task", "context": "ctx"}]
         )
 
@@ -350,10 +352,10 @@ class TestGenerateTodoHitlSmry:
         with patch("src.agents.nodes.get_ollama_client", return_value=mock_client):
             result = generate_todo(state)
 
-        mock_client.generate_structured.assert_called_once()
-        prompt = mock_client.generate_structured.call_args[0][0]
-        assert "Grenzwert 6 mSv/a [strlsch.pdf]" in prompt
-        assert "hitl_findings" in prompt
+        mock_client.generate_structured_messages.assert_called_once()
+        human_prompt = mock_client.generate_structured_messages.call_args[0][1]
+        assert "Grenzwert 6 mSv/a [strlsch.pdf]" in human_prompt
+        assert "hitl_findings" in human_prompt
 
     def test_llm_fallback_uses_fallback_when_no_hitl_smry(self):
         """LLM fallback path uses 'No prior findings' when hitl_smry empty."""
@@ -362,7 +364,7 @@ class TestGenerateTodoHitlSmry:
         from src.agents.nodes import generate_todo
 
         mock_client = MagicMock()
-        mock_client.generate_structured.return_value = MagicMock(
+        mock_client.generate_structured_messages.return_value = MagicMock(
             items=[{"id": 1, "task": "Task", "context": "ctx"}]
         )
 
@@ -382,8 +384,8 @@ class TestGenerateTodoHitlSmry:
         with patch("src.agents.nodes.get_ollama_client", return_value=mock_client):
             generate_todo(state)
 
-        prompt = mock_client.generate_structured.call_args[0][0]
-        assert "No prior findings" in prompt
+        human_prompt = mock_client.generate_structured_messages.call_args[0][1]
+        assert "No prior findings" in human_prompt
 
     def test_research_queries_path_uses_hitl_smry_as_context(self):
         """research_queries path prefers hitl_smry over additional_context."""
@@ -438,14 +440,14 @@ class TestTaskSummaryHitlSmry:
     """Tests for hitl_smry integration in _generate_task_summary."""
 
     def test_task_summary_passes_hitl_smry_to_prompt(self):
-        """hitl_smry value is forwarded into the TASK_SUMMARY_PROMPT."""
+        """hitl_smry value is forwarded into the TASK_SUMMARY_PROMPT_HUMAN."""
         from unittest.mock import MagicMock, patch
 
         from src.agents.nodes import _generate_task_summary
         from src.models.query import ToDoItem
 
         mock_client = MagicMock()
-        mock_client.generate_structured.return_value = MagicMock(
+        mock_client.generate_structured_messages.return_value = MagicMock(
             summary="s", key_findings=[], gaps=[],
             relevance_assessment="ok", irrelevant_findings=[],
             relevance_score=75,
@@ -461,8 +463,9 @@ class TestTaskSummaryHitlSmry:
                 query_anchor=anchor, hitl_smry="HITL established facts",
             )
 
-        prompt = mock_client.generate_structured.call_args[0][0]
-        assert "HITL established facts" in prompt
+        # human_prompt is the second positional arg
+        human_prompt = mock_client.generate_structured_messages.call_args[0][1]
+        assert "HITL established facts" in human_prompt
 
     def test_task_summary_uses_fallback_when_no_hitl_smry(self):
         """Empty hitl_smry is replaced with 'No prior findings'."""
@@ -472,7 +475,7 @@ class TestTaskSummaryHitlSmry:
         from src.models.query import ToDoItem
 
         mock_client = MagicMock()
-        mock_client.generate_structured.return_value = MagicMock(
+        mock_client.generate_structured_messages.return_value = MagicMock(
             summary="s", key_findings=[], gaps=[],
             relevance_assessment="ok", irrelevant_findings=[],
             relevance_score=75,
@@ -488,8 +491,8 @@ class TestTaskSummaryHitlSmry:
                 query_anchor=anchor, hitl_smry="",
             )
 
-        prompt = mock_client.generate_structured.call_args[0][0]
-        assert "No prior findings" in prompt
+        human_prompt = mock_client.generate_structured_messages.call_args[0][1]
+        assert "No prior findings" in human_prompt
 
     def test_task_summary_uses_llm_relevance_score(self):
         """relevance_to_query uses LLM's relevance_score, not keyword overlap."""
@@ -499,7 +502,7 @@ class TestTaskSummaryHitlSmry:
         from src.models.query import ToDoItem
 
         mock_client = MagicMock()
-        mock_client.generate_structured.return_value = MagicMock(
+        mock_client.generate_structured_messages.return_value = MagicMock(
             summary="s", key_findings=[], gaps=[],
             relevance_assessment="ok", irrelevant_findings=[],
             relevance_score=85,
@@ -529,7 +532,7 @@ class TestTaskSummaryHitlSmry:
         from src.models.query import ToDoItem
 
         mock_client = MagicMock()
-        mock_client.generate_structured.side_effect = Exception("LLM error")
+        mock_client.generate_structured_messages.side_effect = Exception("LLM error")
 
         task = ToDoItem(id=1, task="Test task", context="ctx")
         anchor = {
@@ -646,7 +649,7 @@ class TestQualityRemediationIntegration:
         mock_remediation = QualityRemediationDecision(
             action="retry", focus_instructions="Improve citation format"
         )
-        mock_client.generate_structured.side_effect = [mock_quality, mock_remediation]
+        mock_client.generate_structured_messages.side_effect = [mock_quality, mock_remediation]
 
         state = {
             "research_context": {
@@ -685,7 +688,7 @@ class TestQualityRemediationIntegration:
             structural_integrity=50, citation_correctness=20,
             query_relevance=60, issues_found=["issue"],
         )
-        mock_client.generate_structured.return_value = mock_quality
+        mock_client.generate_structured_messages.return_value = mock_quality
 
         state = {
             "research_context": {
@@ -710,8 +713,8 @@ class TestQualityRemediationIntegration:
 
         # Should proceed to attribute_sources, not retry
         assert result["phase"] == "attribute_sources"
-        # generate_structured called only once (quality check, no remediation)
-        assert mock_client.generate_structured.call_count == 1
+        # generate_structured_messages called only once (quality check, no remediation)
+        assert mock_client.generate_structured_messages.call_count == 1
 
 
 class TestSynthesizeRetryFocus:
@@ -728,7 +731,7 @@ class TestSynthesizeRetryFocus:
             summary="Improved report", key_findings=["f1"],
             query_coverage=80, remaining_gaps=[],
         )
-        mock_client.generate_structured_with_language.return_value = mock_result
+        mock_client.generate_structured_messages_with_language.return_value = mock_result
 
         state = {
             "research_context": {
@@ -752,11 +755,11 @@ class TestSynthesizeRetryFocus:
         with patch("src.agents.nodes.get_ollama_client", return_value=mock_client):
             result = synthesize(state)
 
-        # Verify focus instructions were in the prompt
-        call_args = mock_client.generate_structured_with_language.call_args
-        prompt = call_args[0][0]
-        assert "Improve citation correctness" in prompt
-        assert "Additional focus for this re-synthesis attempt" in prompt
+        # Verify focus instructions were in the human prompt
+        call_args = mock_client.generate_structured_messages_with_language.call_args
+        human_prompt = call_args[0][1]
+        assert "Improve citation correctness" in human_prompt
+        assert "Additional focus for this re-synthesis attempt" in human_prompt
         # Verify focus was cleared
         assert result["quality_remediation_focus"] == ""
 
@@ -771,7 +774,7 @@ class TestSynthesizeRetryFocus:
             summary="Report", key_findings=["f1"],
             query_coverage=90, remaining_gaps=[],
         )
-        mock_client.generate_structured_with_language.return_value = mock_result
+        mock_client.generate_structured_messages_with_language.return_value = mock_result
 
         state = {
             "research_context": {
@@ -795,8 +798,8 @@ class TestSynthesizeRetryFocus:
         with patch("src.agents.nodes.get_ollama_client", return_value=mock_client):
             result = synthesize(state)
 
-        prompt = mock_client.generate_structured_with_language.call_args[0][0]
-        assert "Additional focus" not in prompt
+        human_prompt = mock_client.generate_structured_messages_with_language.call_args[0][1]
+        assert "Additional focus" not in human_prompt
         # No quality_remediation_focus key in return since it was already empty
         assert "quality_remediation_focus" not in result
 

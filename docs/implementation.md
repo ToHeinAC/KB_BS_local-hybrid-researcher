@@ -223,6 +223,29 @@ Two agentic decision points where the LLM autonomously decides control flow:
 
 - [x] **142 Unit Tests**: All pass (18 new agentic tests + 3 prompt/model tests)
 
+### Phase 3.10: Prompt SYSTEM/HUMAN Split & Message-Based Invocation (NEW)
+
+All prompts migrated from single constants to `_SYSTEM` / `_HUMAN` pairs, and all callers migrated from `generate()` / `generate_structured()` to message-based methods:
+
+- [x] **Prompt Split**: All 19 prompt constants in `src/prompts.py` split into `_SYSTEM` + `_HUMAN` pairs
+  - SYSTEM half: `### Role`, `### Goal`, `### Rules`, `### Output format` — authoritative instructions
+  - HUMAN half: `### Input` with actual template variables + task reminder
+  - Section header renamed from `### Task` to `### Goal` (all prompts)
+  - `### Role` section added to prompts where appropriate
+- [x] **OllamaClient Message-Based Methods** (`src/services/ollama_client.py`):
+  - `generate_messages(system_prompt, human_prompt)`: Plain text via `SystemMessage`/`HumanMessage`
+  - `generate_structured_messages(system_prompt, human_prompt, model)`: Structured JSON output
+  - `generate_structured_messages_safe(system_prompt, human_prompt, model)`: With fallback model
+  - `generate_structured_messages_with_language(system_prompt, human_prompt, model, target_language)`: With language enforcement + retry
+  - All methods use `langchain_core.messages.SystemMessage` / `HumanMessage` for proper role separation
+- [x] **Caller Migration** — all LLM invocations updated to message-based API:
+  - `src/agents/nodes.py`: `generate_todo`, `execute_task` (search queries + ref gate), `synthesize` (legacy + enhanced), `quality_check`, `quality_remediation`, `_generate_task_summary`, `_generate_hitl_summary`
+  - `src/agents/tools.py`: `extract_info`, `extract_info_with_quotes`, `extract_references_llm`
+  - `src/services/hitl_service.py`: `_detect_language_llm`, `_generate_follow_up_questions_llm`, `_analyse_user_feedback_llm`, `_generate_knowledge_base_questions_llm`, `generate_alternative_queries_llm`, `analyze_retrieval_context_llm`, `generate_refined_queries_llm`
+- [x] **Quality Check & Remediation Enhanced**: Both now receive `hitl_findings` context for better evaluation
+- [x] **Bug Fix**: Legacy synthesis path: `findings=info_text` → `research_findings=info_text` (KeyError fix)
+- [x] **153 Unit Tests**: All pass
+
 ### Phase 4: Synthesis + Quality (Research Phase 4)
 - [x] `synthesize` node (LLM synthesis from extracted findings)
 - [x] Enhanced `synthesize` with pre-digested task summaries, HITL summary, language enforcement
@@ -358,7 +381,7 @@ Two agentic decision points where the LLM autonomously decides control flow:
 - **Structured JSON output** via `method="json_mode"` for Ollama
 - **LangGraph** for agent orchestration (NOT AgentExecutor)
 - **Docstrings** on public functions (Google style)
-- **Prompt format**: All prompts in `src/prompts.py` use 4-section format (`### Task / ### Input / ### Rules / ### Output format`)
+- **Prompt format**: All prompts in `src/prompts.py` split into `_SYSTEM` / `_HUMAN` pairs; SYSTEM uses 5-section format (`### Role / ### Goal / ### Input / ### Rules / ### Output format`), HUMAN carries `### Input` with actual template variables
 - **Language enforcement**: Every content-bearing prompt includes `{language}` template variable; callers compute `lang_label = "German" if language == "de" else "English"`
 
 ### Example Function

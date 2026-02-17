@@ -11,14 +11,22 @@ from src.models.hitl import (
 )
 from src.models.query import QueryAnalysis, ToDoList
 from src.prompts import (
-    ALTERNATIVE_QUERIES_INITIAL_PROMPT,
-    ALTERNATIVE_QUERIES_REFINED_PROMPT,
-    FOLLOW_UP_QUESTIONS_PROMPT,
-    KNOWLEDGE_BASE_QUESTIONS_PROMPT,
-    LANGUAGE_DETECTION_PROMPT,
-    REFINED_QUERIES_PROMPT,
-    RETRIEVAL_ANALYSIS_PROMPT,
-    USER_FEEDBACK_ANALYSIS_PROMPT,
+    ALTERNATIVE_QUERIES_INITIAL_PROMPT_HUMAN,
+    ALTERNATIVE_QUERIES_INITIAL_PROMPT_SYSTEM,
+    ALTERNATIVE_QUERIES_REFINED_PROMPT_HUMAN,
+    ALTERNATIVE_QUERIES_REFINED_PROMPT_SYSTEM,
+    FOLLOW_UP_QUESTIONS_PROMPT_HUMAN,
+    FOLLOW_UP_QUESTIONS_PROMPT_SYSTEM,
+    KNOWLEDGE_BASE_QUESTIONS_PROMPT_HUMAN,
+    KNOWLEDGE_BASE_QUESTIONS_PROMPT_SYSTEM,
+    LANGUAGE_DETECTION_PROMPT_HUMAN,
+    LANGUAGE_DETECTION_PROMPT_SYSTEM,
+    REFINED_QUERIES_PROMPT_HUMAN,
+    REFINED_QUERIES_PROMPT_SYSTEM,
+    RETRIEVAL_ANALYSIS_PROMPT_HUMAN,
+    RETRIEVAL_ANALYSIS_PROMPT_SYSTEM,
+    USER_FEEDBACK_ANALYSIS_PROMPT_HUMAN,
+    USER_FEEDBACK_ANALYSIS_PROMPT_SYSTEM,
 )
 from src.services.ollama_client import OllamaClient
 
@@ -352,10 +360,11 @@ def _detect_language_llm(user_query: str) -> str:
     """Detect query language using LLM."""
     client = get_ollama_client()
 
-    prompt = LANGUAGE_DETECTION_PROMPT.format(user_query=user_query)
+    system_prompt = LANGUAGE_DETECTION_PROMPT_SYSTEM
+    human_prompt = LANGUAGE_DETECTION_PROMPT_HUMAN.format(user_query=user_query)
 
     try:
-        response = client.generate(prompt)
+        response = client.generate_messages(system_prompt, human_prompt)
         lang = response.strip().lower()[:2]
         if lang in ("de", "en"):
             return lang
@@ -396,13 +405,15 @@ def _generate_follow_up_questions_llm(
         else "No information retrieved yet."
     )
 
-    prompt = FOLLOW_UP_QUESTIONS_PROMPT.format(
+    lang_label = "German" if language == "de" else "English"
+    system_prompt = FOLLOW_UP_QUESTIONS_PROMPT_SYSTEM.format(language=lang_label)
+    human_prompt = FOLLOW_UP_QUESTIONS_PROMPT_HUMAN.format(
         user_query=user_query, context=context, retrieval=retrieval_text,
-        language="German" if language == "de" else "English",
+        language=lang_label,
     )
 
     try:
-        return client.generate(prompt)
+        return client.generate_messages(system_prompt, human_prompt)
     except Exception as e:
         logger.warning(f"Failed to generate follow-up questions: {e}")
         if language == "de":
@@ -429,12 +440,13 @@ def _analyse_user_feedback_llm(state: dict) -> dict:
     language = state.get("detected_language", "de")
     lang_label = "German" if language == "de" else "English"
 
-    prompt = USER_FEEDBACK_ANALYSIS_PROMPT.format(
-        user_query=user_query, context=context, language=lang_label
+    system_prompt = USER_FEEDBACK_ANALYSIS_PROMPT_SYSTEM.format(language=lang_label)
+    human_prompt = USER_FEEDBACK_ANALYSIS_PROMPT_HUMAN.format(
+        user_query=user_query, context=context, language=lang_label,
     )
 
     try:
-        response = client.generate(prompt)
+        response = client.generate_messages(system_prompt, human_prompt)
         start = response.find("{")
         end = response.rfind("}") + 1
         if start >= 0 and end > start:
@@ -470,7 +482,8 @@ def _generate_knowledge_base_questions_llm(state: dict, max_queries: int = 5) ->
     language = state.get("detected_language", "de")
     lang_label = "German" if language == "de" else "English"
 
-    prompt = KNOWLEDGE_BASE_QUESTIONS_PROMPT.format(
+    system_prompt = KNOWLEDGE_BASE_QUESTIONS_PROMPT_SYSTEM.format(language=lang_label)
+    human_prompt = KNOWLEDGE_BASE_QUESTIONS_PROMPT_HUMAN.format(
         max_queries=max_queries,
         user_query=user_query,
         context=context,
@@ -479,7 +492,7 @@ def _generate_knowledge_base_questions_llm(state: dict, max_queries: int = 5) ->
     )
 
     try:
-        response = client.generate(prompt)
+        response = client.generate_messages(system_prompt, human_prompt)
         start = response.find("{")
         end = response.rfind("}") + 1
         if start >= 0 and end > start:
@@ -786,18 +799,24 @@ def generate_alternative_queries_llm(
     lang_label = "German" if language == "de" else "English"
 
     if iteration == 0 or not analysis:
-        prompt = ALTERNATIVE_QUERIES_INITIAL_PROMPT.format(
-            query=query, language=lang_label
+        system_prompt = ALTERNATIVE_QUERIES_INITIAL_PROMPT_SYSTEM.format(
+            language=lang_label,
+        )
+        human_prompt = ALTERNATIVE_QUERIES_INITIAL_PROMPT_HUMAN.format(
+            query=query, language=lang_label,
         )
     else:
         gaps = analysis.get("knowledge_gaps", [])
         entities = analysis.get("entities", [])
-        prompt = ALTERNATIVE_QUERIES_REFINED_PROMPT.format(
-            query=query, entities=entities, gaps=gaps, language=lang_label
+        system_prompt = ALTERNATIVE_QUERIES_REFINED_PROMPT_SYSTEM.format(
+            language=lang_label,
+        )
+        human_prompt = ALTERNATIVE_QUERIES_REFINED_PROMPT_HUMAN.format(
+            query=query, entities=entities, gaps=gaps, language=lang_label,
         )
 
     try:
-        response = client.generate(prompt)
+        response = client.generate_messages(system_prompt, human_prompt)
         start = response.find("{")
         end = response.rfind("}") + 1
         if start >= 0 and end > start:
@@ -836,12 +855,13 @@ def analyze_retrieval_context_llm(
     max_chars = 3000
     truncated = retrieval_text[:max_chars] if len(retrieval_text) > max_chars else retrieval_text
 
-    prompt = RETRIEVAL_ANALYSIS_PROMPT.format(
-        query=query, retrieval=truncated, language=lang_label
+    system_prompt = RETRIEVAL_ANALYSIS_PROMPT_SYSTEM.format(language=lang_label)
+    human_prompt = RETRIEVAL_ANALYSIS_PROMPT_HUMAN.format(
+        query=query, retrieval=truncated, language=lang_label,
     )
 
     try:
-        response = client.generate(prompt)
+        response = client.generate_messages(system_prompt, human_prompt)
         start = response.find("{")
         end = response.rfind("}") + 1
         if start >= 0 and end > start:
@@ -887,12 +907,13 @@ def generate_refined_queries_llm(
     client = get_ollama_client()
     lang_label = "German" if language == "de" else "English"
 
-    prompt = REFINED_QUERIES_PROMPT.format(
-        query=query, user_response=user_response, gaps=gaps, language=lang_label
+    system_prompt = REFINED_QUERIES_PROMPT_SYSTEM.format(language=lang_label)
+    human_prompt = REFINED_QUERIES_PROMPT_HUMAN.format(
+        query=query, user_response=user_response, gaps=gaps, language=lang_label,
     )
 
     try:
-        response = client.generate(prompt)
+        response = client.generate_messages(system_prompt, human_prompt)
         start = response.find("{")
         end = response.rfind("}") + 1
         if start >= 0 and end > start:

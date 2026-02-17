@@ -152,7 +152,7 @@ class TestLLMExtraction:
         """LLM extracts legal section references."""
         mock_client = MagicMock()
         mock_get_client.return_value = mock_client
-        mock_client.generate_structured.return_value = ExtractedReferenceList(
+        mock_client.generate_structured_messages.return_value = ExtractedReferenceList(
             references=[
                 ExtractedReference(
                     reference_mention="§ 133 des Strahlenschutzgesetzes",
@@ -174,7 +174,7 @@ class TestLLMExtraction:
         """LLM extracts academic numbered references."""
         mock_client = MagicMock()
         mock_get_client.return_value = mock_client
-        mock_client.generate_structured.return_value = ExtractedReferenceList(
+        mock_client.generate_structured_messages.return_value = ExtractedReferenceList(
             references=[
                 ExtractedReference(
                     reference_mention="[253]",
@@ -193,7 +193,7 @@ class TestLLMExtraction:
         """LLM extracts author-year citation references."""
         mock_client = MagicMock()
         mock_get_client.return_value = mock_client
-        mock_client.generate_structured.return_value = ExtractedReferenceList(
+        mock_client.generate_structured_messages.return_value = ExtractedReferenceList(
             references=[
                 ExtractedReference(
                     reference_mention="[Townsend79]",
@@ -212,7 +212,7 @@ class TestLLMExtraction:
         """LLM extracts document mention references."""
         mock_client = MagicMock()
         mock_get_client.return_value = mock_client
-        mock_client.generate_structured.return_value = ExtractedReferenceList(
+        mock_client.generate_structured_messages.return_value = ExtractedReferenceList(
             references=[
                 ExtractedReference(
                     reference_mention="KTA 1401",
@@ -233,7 +233,7 @@ class TestLLMExtraction:
         """LLM extraction failure returns empty list."""
         mock_client = MagicMock()
         mock_get_client.return_value = mock_client
-        mock_client.generate_structured.side_effect = Exception("LLM error")
+        mock_client.generate_structured_messages.side_effect = Exception("LLM error")
 
         refs = extract_references_llm("some text")
         assert refs == []
@@ -461,21 +461,33 @@ class TestReferenceDecisionPrompt:
     """Tests for agentic reference following gate."""
 
     def test_reference_decision_prompt_has_required_vars(self):
-        """REFERENCE_DECISION_PROMPT contains all required template variables."""
-        from src.prompts import REFERENCE_DECISION_PROMPT
+        """REFERENCE_DECISION_PROMPT_SYSTEM/_HUMAN contain all required template variables."""
+        from src.prompts import (
+            REFERENCE_DECISION_PROMPT_HUMAN,
+            REFERENCE_DECISION_PROMPT_SYSTEM,
+        )
 
-        assert "{reference_type}" in REFERENCE_DECISION_PROMPT
-        assert "{reference_target}" in REFERENCE_DECISION_PROMPT
-        assert "{document_context}" in REFERENCE_DECISION_PROMPT
-        assert "{query_anchor}" in REFERENCE_DECISION_PROMPT
-        assert "{surrounding_context}" in REFERENCE_DECISION_PROMPT
-        assert "{language}" in REFERENCE_DECISION_PROMPT
+        # System has {language} for rules
+        assert "{language}" in REFERENCE_DECISION_PROMPT_SYSTEM
+        # Human has actual input vars
+        assert "{reference_type}" in REFERENCE_DECISION_PROMPT_HUMAN
+        assert "{reference_target}" in REFERENCE_DECISION_PROMPT_HUMAN
+        assert "{document_context}" in REFERENCE_DECISION_PROMPT_HUMAN
+        assert "{query_anchor}" in REFERENCE_DECISION_PROMPT_HUMAN
+        assert "{surrounding_context}" in REFERENCE_DECISION_PROMPT_HUMAN
+        assert "{language}" in REFERENCE_DECISION_PROMPT_HUMAN
 
     def test_reference_decision_prompt_format(self):
-        """REFERENCE_DECISION_PROMPT can be formatted without error."""
-        from src.prompts import REFERENCE_DECISION_PROMPT
+        """REFERENCE_DECISION_PROMPT_SYSTEM/_HUMAN can be formatted without error."""
+        from src.prompts import (
+            REFERENCE_DECISION_PROMPT_HUMAN,
+            REFERENCE_DECISION_PROMPT_SYSTEM,
+        )
 
-        formatted = REFERENCE_DECISION_PROMPT.format(
+        formatted_system = REFERENCE_DECISION_PROMPT_SYSTEM.format(
+            language="German",
+        )
+        formatted_human = REFERENCE_DECISION_PROMPT_HUMAN.format(
             reference_type="legal_section",
             reference_target="§ 5 StrlSchV",
             document_context="StrlSchG.pdf",
@@ -483,9 +495,10 @@ class TestReferenceDecisionPrompt:
             query_anchor='{"original_query": "Grenzwerte", "key_entities": ["StrlSchV"]}',
             language="German",
         )
-        assert "legal_section" in formatted
-        assert "§ 5 StrlSchV" in formatted
-        assert "gemäß § 5 der Strahlenschutzverordnung" in formatted
+        assert "legal_section" in formatted_human
+        assert "§ 5 StrlSchV" in formatted_human
+        assert "gemäß § 5 der Strahlenschutzverordnung" in formatted_human
+        assert "German" in formatted_system
 
     def test_reference_decision_model_serialization(self):
         """ReferenceDecision round-trips through dict."""

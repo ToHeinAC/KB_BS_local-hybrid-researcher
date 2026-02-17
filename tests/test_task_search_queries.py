@@ -123,7 +123,7 @@ class TestExecuteTaskMultiQuery:
 
         # Mock LLM to return search queries
         client_inst = MagicMock()
-        client_inst.generate_structured.return_value = TaskSearchQueries(
+        client_inst.generate_structured_messages.return_value = TaskSearchQueries(
             query_1="focused query",
             query_2="broad query",
         )
@@ -183,7 +183,7 @@ class TestExecuteTaskMultiQuery:
         from src.agents.nodes import execute_task
 
         client_inst = MagicMock()
-        client_inst.generate_structured.side_effect = Exception("LLM error")
+        client_inst.generate_structured_messages.side_effect = Exception("LLM error")
         mock_client.return_value = client_inst
 
         mock_search.return_value = []

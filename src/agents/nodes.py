@@ -42,16 +42,25 @@ from src.models.results import (
     TaskSummaryOutput,
 )
 from src.prompts import (
-    HITL_SUMMARY_PROMPT,
-    QUALITY_CHECK_PROMPT,
-    QUALITY_REMEDIATION_PROMPT,
-    REFERENCE_DECISION_PROMPT,
-    RELEVANCE_SCORING_PROMPT,
-    SYNTHESIS_PROMPT,
-    SYNTHESIS_PROMPT_ENHANCED,
-    TASK_SEARCH_QUERIES_PROMPT,
-    TASK_SUMMARY_PROMPT,
-    TODO_GENERATION_PROMPT,
+    HITL_SUMMARY_PROMPT_HUMAN,
+    HITL_SUMMARY_PROMPT_SYSTEM,
+    QUALITY_CHECK_PROMPT_HUMAN,
+    QUALITY_CHECK_PROMPT_SYSTEM,
+    QUALITY_REMEDIATION_PROMPT_HUMAN,
+    QUALITY_REMEDIATION_PROMPT_SYSTEM,
+    REFERENCE_DECISION_PROMPT_HUMAN,
+    REFERENCE_DECISION_PROMPT_SYSTEM,
+    RELEVANCE_SCORING_PROMPT_SYSTEM,
+    SYNTHESIS_PROMPT_ENHANCED_HUMAN,
+    SYNTHESIS_PROMPT_ENHANCED_SYSTEM,
+    SYNTHESIS_PROMPT_HUMAN,
+    SYNTHESIS_PROMPT_SYSTEM,
+    TASK_SEARCH_QUERIES_PROMPT_HUMAN,
+    TASK_SEARCH_QUERIES_PROMPT_SYSTEM,
+    TASK_SUMMARY_PROMPT_HUMAN,
+    TASK_SUMMARY_PROMPT_SYSTEM,
+    TODO_GENERATION_PROMPT_HUMAN,
+    TODO_GENERATION_PROMPT_SYSTEM,
 )
 from src.services.hitl_service import HITLService
 from src.services.ollama_client import OllamaClient
@@ -129,7 +138,8 @@ def generate_todo(state: AgentState) -> dict:
         client = get_ollama_client()
 
         lang_label = "German" if analysis.detected_language == "de" else "English"
-        prompt = TODO_GENERATION_PROMPT.format(
+        system_prompt = TODO_GENERATION_PROMPT_SYSTEM.format(language=lang_label)
+        human_prompt = TODO_GENERATION_PROMPT_HUMAN.format(
             original_query=analysis.original_query,
             key_concepts=analysis.key_concepts,
             entities=analysis.entities,
@@ -141,7 +151,9 @@ def generate_todo(state: AgentState) -> dict:
         )
 
         try:
-            result = client.generate_structured(prompt, ToDoListOutput)
+            result = client.generate_structured_messages(
+                system_prompt, human_prompt, ToDoListOutput,
+            )
             items = [
                 ToDoItem(
                     id=item.get("id", i + 1),
@@ -287,7 +299,8 @@ def execute_task(state: AgentState) -> dict:
     key_entities = query_anchor.get("key_entities", [])
     client = get_ollama_client()
 
-    prompt = TASK_SEARCH_QUERIES_PROMPT.format(
+    system_prompt = TASK_SEARCH_QUERIES_PROMPT_SYSTEM.format(language=lang_label)
+    human_prompt = TASK_SEARCH_QUERIES_PROMPT_HUMAN.format(
         task=current_task.task,
         original_query=analysis.original_query,
         hitl_context=hitl_context or "None",
@@ -296,8 +309,8 @@ def execute_task(state: AgentState) -> dict:
     )
 
     try:
-        search_queries_out = client.generate_structured(
-            prompt, TaskSearchQueries
+        search_queries_out = client.generate_structured_messages(
+            system_prompt, human_prompt, TaskSearchQueries,
         )
         generated_queries = [
             search_queries_out.query_1,
@@ -408,16 +421,19 @@ def execute_task(state: AgentState) -> dict:
                             window_size=800
                         ) if chunk.extracted_info else "Context missing"
 
-                        decision = client.generate_structured(
-                            REFERENCE_DECISION_PROMPT.format(
-                                reference_type=ref.type,
-                                reference_target=ref.target,
-                                document_context=chunk.document,
-                                surrounding_context=surrounding_window,
-                                query_anchor=anchor_text,
-                                language=lang_label,
-                            ),
-                            ReferenceDecision,
+                        ref_system = REFERENCE_DECISION_PROMPT_SYSTEM.format(
+                            language=lang_label,
+                        )
+                        ref_human = REFERENCE_DECISION_PROMPT_HUMAN.format(
+                            reference_type=ref.type,
+                            reference_target=ref.target,
+                            document_context=chunk.document,
+                            surrounding_context=surrounding_window,
+                            query_anchor=anchor_text,
+                            language=lang_label,
+                        )
+                        decision = client.generate_structured_messages(
+                            ref_system, ref_human, ReferenceDecision,
                         )
                         if not decision.follow:
                             logger.info(
@@ -764,14 +780,18 @@ def synthesize(state: AgentState) -> dict:
         max_synthesis_docs = settings.max_docs * 4
         info_text = json.dumps(all_info[:max_synthesis_docs], ensure_ascii=False, indent=2)
 
-        prompt = SYNTHESIS_PROMPT.format(
+        synth_system = SYNTHESIS_PROMPT_SYSTEM.format(language=language)
+        synth_human = SYNTHESIS_PROMPT_HUMAN.format(
             original_query=analysis.original_query,
-            findings=info_text,
+            hitl_findings=hitl_smry,
+            research_findings=info_text,
             language=language,
         )
 
         try:
-            result = client.generate_structured(prompt, SynthesisOutput)
+            result = client.generate_structured_messages(
+                synth_system, synth_human, SynthesisOutput,
+            )
             for i, sq in enumerate(context.search_queries):
                 if i == 0:
                     sq.summary = result.summary
@@ -789,17 +809,18 @@ def synthesize(state: AgentState) -> dict:
         }
 
     # Use enhanced synthesis with pre-digested task summaries (Phase E)
-    prompt = SYNTHESIS_PROMPT_ENHANCED.format(
+    synth_enh_system = SYNTHESIS_PROMPT_ENHANCED_SYSTEM.format(language=language)
+    synth_enh_human = SYNTHESIS_PROMPT_ENHANCED_HUMAN.format(
         original_query=query_anchor.get("original_query", analysis.original_query),
         hitl_smry=hitl_smry or "No clarification conversation recorded",
         task_summaries=summaries_text,
         language=language,
     )
 
-    # Append quality remediation focus if retrying synthesis
+    # Append quality remediation focus to human message if retrying synthesis
     remediation_focus = state.get("quality_remediation_focus", "")
     if remediation_focus:
-        prompt += (
+        synth_enh_human += (
             f"\n\n### Additional focus for this re-synthesis attempt\n"
             f"{remediation_focus}\n"
             f"Address the above quality issues specifically."
@@ -807,8 +828,9 @@ def synthesize(state: AgentState) -> dict:
 
     try:
         # Use language-enforced generation (Phase F)
-        result = client.generate_structured_with_language(
-            prompt,
+        result = client.generate_structured_messages_with_language(
+            synth_enh_system,
+            synth_enh_human,
             SynthesisOutputEnhanced,
             target_language=language,
         )
@@ -971,12 +993,16 @@ def quality_check(state: AgentState) -> dict:
 
     language = query_anchor.get("detected_language", "de")
     lang_label = "German" if language == "de" else "English"
-    prompt = QUALITY_CHECK_PROMPT.format(
-        summary=summary, original_query=original_query, language=lang_label
+    hitl_smry = state.get("hitl_smry", "")
+    qc_system = QUALITY_CHECK_PROMPT_SYSTEM.format(language=lang_label)
+    qc_human = QUALITY_CHECK_PROMPT_HUMAN.format(
+        summary=summary, hitl_findings=hitl_smry, original_query=original_query, language=lang_label,
     )
 
     try:
-        result = client.generate_structured(prompt, QualityCheckOutput)
+        result = client.generate_structured_messages(
+            qc_system, qc_human, QualityCheckOutput,
+        )
         overall_score = (
             result.factual_accuracy
             + result.semantic_validity
@@ -1013,22 +1039,26 @@ def quality_check(state: AgentState) -> dict:
     retry_count = state.get("synthesis_retry_count", 0)
     if not assessment.passes_quality and retry_count < 1:
         try:
-            remediation = client.generate_structured(
-                QUALITY_REMEDIATION_PROMPT.format(
-                    quality_scores=json.dumps({
-                        "factual_accuracy": assessment.factual_accuracy,
-                        "semantic_validity": assessment.semantic_validity,
-                        "structural_integrity": assessment.structural_integrity,
-                        "citation_correctness": assessment.citation_correctness,
-                        "query_relevance": assessment.query_relevance,
-                        "total": assessment.overall_score,
-                        "threshold": settings.quality_threshold,
-                    }),
-                    issues_found=json.dumps(assessment.issues_found, ensure_ascii=False),
-                    original_query=original_query,
-                    language=lang_label,
-                ),
-                QualityRemediationDecision,
+            rem_system = QUALITY_REMEDIATION_PROMPT_SYSTEM.format(
+                language=lang_label,
+            )
+            rem_human = QUALITY_REMEDIATION_PROMPT_HUMAN.format(
+                quality_scores=json.dumps({
+                    "factual_accuracy": assessment.factual_accuracy,
+                    "semantic_validity": assessment.semantic_validity,
+                    "structural_integrity": assessment.structural_integrity,
+                    "citation_correctness": assessment.citation_correctness,
+                    "query_relevance": assessment.query_relevance,
+                    "total": assessment.overall_score,
+                    "threshold": settings.quality_threshold,
+                }),
+                issues_found=json.dumps(assessment.issues_found, ensure_ascii=False),
+                original_query=original_query,
+                hitl_findings=hitl_smry,
+                language=lang_label,
+            )
+            remediation = client.generate_structured_messages(
+                rem_system, rem_human, QualityRemediationDecision,
             )
             if remediation.action == "retry":
                 logger.info(
@@ -1537,7 +1567,8 @@ def _generate_task_summary(
     # Format quotes
     quotes_text = json.dumps(preserved_quotes[:5], ensure_ascii=False) if preserved_quotes else "[]"
 
-    prompt = TASK_SUMMARY_PROMPT.format(
+    ts_system = TASK_SUMMARY_PROMPT_SYSTEM.format(language=language)
+    ts_human = TASK_SUMMARY_PROMPT_HUMAN.format(
         task=task.task,
         original_query=original_query,
         primary_findings=primary_text or "No primary findings",
@@ -1549,7 +1580,9 @@ def _generate_task_summary(
     )
 
     try:
-        result = client.generate_structured(prompt, TaskSummaryOutput)
+        result = client.generate_structured_messages(
+            ts_system, ts_human, TaskSummaryOutput,
+        )
         return {
             "task_id": task.id,
             "task_text": task.task,
@@ -1659,16 +1692,18 @@ def _generate_hitl_summary(
     # Truncate retrieval if too long — keep 8000 chars to preserve [doc, p.N] prefixes
     retrieval_truncated = retrieval[:8000] if len(retrieval) > 8000 else retrieval
 
-    prompt = HITL_SUMMARY_PROMPT.format(
+    lang_label = "German" if language == "de" else "English"
+    system_prompt = HITL_SUMMARY_PROMPT_SYSTEM.format(language=lang_label)
+    human_prompt = HITL_SUMMARY_PROMPT_HUMAN.format(
         query=query,
         conversation=conv_text or "No conversation recorded",
         retrieval=retrieval_truncated or "No retrieval performed",
         gaps=gaps_text,
-        language=language,
+        language=lang_label,
     )
 
     try:
-        return client.generate(prompt)
+        return client.generate_messages(system_prompt, human_prompt)
     except Exception as e:
         logger.warning(f"Failed to generate HITL summary: {e}")
         return f"HITL Summary: Query '{query}' with {len(conversation)} conversation turns."

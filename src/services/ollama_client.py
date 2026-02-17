@@ -4,6 +4,7 @@ import json
 import logging
 from typing import TypeVar
 
+from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_ollama import ChatOllama
 from pydantic import BaseModel, ValidationError
 from tenacity import (
@@ -229,6 +230,160 @@ JSON response:"""
             Generated text
         """
         return self.generate(prompt)
+
+    def generate_messages(
+        self,
+        system_prompt: str,
+        human_prompt: str,
+        use_fallback: bool = False,
+    ) -> str:
+        """Generate text response using separate system/human messages.
+
+        Args:
+            system_prompt: System message with rules and constraints
+            human_prompt: Human message with input data
+            use_fallback: Whether to use fallback model
+
+        Returns:
+            Generated text
+
+        Raises:
+            ContextOverflowError: If prompts exceed safe limit
+        """
+        self.check_context_limit(system_prompt + human_prompt)
+
+        llm = self.fallback_llm if use_fallback else self.llm
+        messages = [
+            SystemMessage(content=system_prompt),
+            HumanMessage(content=human_prompt),
+        ]
+        response = llm.invoke(messages)
+        return response.content
+
+    @retry(
+        retry=retry_if_exception_type((json.JSONDecodeError, ValidationError)),
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=1, max=4),
+        reraise=True,
+    )
+    def generate_structured_messages(
+        self,
+        system_prompt: str,
+        human_prompt: str,
+        response_model: type[T],
+        use_fallback: bool = False,
+    ) -> T:
+        """Generate structured output using separate system/human messages.
+
+        Args:
+            system_prompt: System message with rules and constraints
+            human_prompt: Human message with input data
+            response_model: Pydantic model for response
+            use_fallback: Whether to use fallback model
+
+        Returns:
+            Parsed response as Pydantic model instance
+        """
+        self.check_context_limit(system_prompt + human_prompt)
+
+        llm = self.fallback_llm if use_fallback else self.llm
+        structured_llm = llm.with_structured_output(
+            response_model, method="json_mode",
+        )
+
+        schema_hint = response_model.model_json_schema()
+        sys_with_schema = (
+            f"{system_prompt}\n\n"
+            f"Respond with valid JSON matching this schema:\n"
+            f"{json.dumps(schema_hint, indent=2)}"
+        )
+        human_with_cue = f"{human_prompt}\n\nJSON response:"
+
+        messages = [
+            SystemMessage(content=sys_with_schema),
+            HumanMessage(content=human_with_cue),
+        ]
+
+        try:
+            result = structured_llm.invoke(messages)
+            if isinstance(result, response_model):
+                return result
+            return response_model.model_validate(result)
+        except (json.JSONDecodeError, ValidationError) as e:
+            logger.warning(f"Structured messages output failed, retrying: {e}")
+            raise
+
+    def generate_structured_messages_safe(
+        self,
+        system_prompt: str,
+        human_prompt: str,
+        response_model: type[T],
+    ) -> T:
+        """Generate structured output with messages, with fallback on failure.
+
+        Args:
+            system_prompt: System message with rules and constraints
+            human_prompt: Human message with input data
+            response_model: Pydantic model for response
+
+        Returns:
+            Parsed response as Pydantic model instance
+        """
+        try:
+            return self.generate_structured_messages(
+                system_prompt, human_prompt, response_model, use_fallback=False,
+            )
+        except RetryError:
+            logger.warning("Primary model failed (messages), trying fallback")
+            try:
+                return self.generate_structured_messages(
+                    system_prompt, human_prompt, response_model, use_fallback=True,
+                )
+            except RetryError as e:
+                raise StructuredOutputError(
+                    f"Both primary and fallback models failed: {e}"
+                ) from e
+
+    def generate_structured_messages_with_language(
+        self,
+        system_prompt: str,
+        human_prompt: str,
+        response_model: type[T],
+        target_language: str,
+        max_retries: int = 2,
+    ) -> T:
+        """Generate structured output with messages and language enforcement.
+
+        Args:
+            system_prompt: System message with rules and constraints
+            human_prompt: Human message with input data
+            response_model: Pydantic model for response
+            target_language: Target language code ('de' or 'en')
+            max_retries: Number of retries for language validation
+
+        Returns:
+            Parsed response as Pydantic model instance
+        """
+        result = self.generate_structured_messages(
+            system_prompt, human_prompt, response_model,
+        )
+
+        if not self._validate_language(result, target_language):
+            logger.warning(
+                f"Language validation failed for target '{target_language}', retrying"
+            )
+            lang_name = "German" if target_language == "de" else "English"
+            enforced_system = (
+                f"CRITICAL LANGUAGE REQUIREMENT: You MUST respond ONLY in {lang_name}.\n"
+                f"Do NOT use any other language. All text in your response must be in {lang_name}.\n"
+                f"WICHTIG/IMPORTANT: Antworte NUR auf {lang_name}.\n\n"
+                f"{system_prompt}"
+            )
+            result = self.generate_structured_messages(
+                enforced_system, human_prompt, response_model,
+            )
+
+        return result
 
     def is_available(self) -> bool:
         """Check if Ollama is available."""

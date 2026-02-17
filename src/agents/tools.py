@@ -18,9 +18,12 @@ from src.models.research import (
 )
 from src.models.results import VectorResult
 from src.prompts import (
-    INFO_EXTRACTION_PROMPT,
-    INFO_EXTRACTION_WITH_QUOTES_PROMPT,
-    REFERENCE_EXTRACTION_PROMPT,
+    INFO_EXTRACTION_PROMPT_HUMAN,
+    INFO_EXTRACTION_PROMPT_SYSTEM,
+    INFO_EXTRACTION_WITH_QUOTES_PROMPT_HUMAN,
+    INFO_EXTRACTION_WITH_QUOTES_PROMPT_SYSTEM,
+    REFERENCE_EXTRACTION_PROMPT_HUMAN,
+    REFERENCE_EXTRACTION_PROMPT_SYSTEM,
 )
 from src.services.chromadb_client import ChromaDBClient
 from src.services.ollama_client import OllamaClient
@@ -95,10 +98,13 @@ def extract_info(
     client = get_ollama_client()
     lang_label = "German" if language == "de" else "English"
 
-    prompt = INFO_EXTRACTION_PROMPT.format(query=query, chunk_text=chunk_text, language=lang_label)
+    system_prompt = INFO_EXTRACTION_PROMPT_SYSTEM.format(language=lang_label)
+    human_prompt = INFO_EXTRACTION_PROMPT_HUMAN.format(
+        query=query, chunk_text=chunk_text, language=lang_label,
+    )
 
     try:
-        return client.generate(prompt)
+        return client.generate_messages(system_prompt, human_prompt)
     except Exception as e:
         logger.warning(f"Failed to extract info: {e}")
         # Return truncated original if extraction fails
@@ -130,7 +136,8 @@ def extract_info_with_quotes(
     key_entities = query_anchor.get("key_entities", [])
     lang_label = "German" if language == "de" else "English"
 
-    prompt = INFO_EXTRACTION_WITH_QUOTES_PROMPT.format(
+    system_prompt = INFO_EXTRACTION_WITH_QUOTES_PROMPT_SYSTEM.format(language=lang_label)
+    human_prompt = INFO_EXTRACTION_WITH_QUOTES_PROMPT_HUMAN.format(
         query=query,
         key_entities=", ".join(key_entities) if key_entities else "none specified",
         chunk_text=chunk_text[:3000],  # Limit input
@@ -138,7 +145,9 @@ def extract_info_with_quotes(
     )
 
     try:
-        result = client.generate_structured(prompt, InfoExtractionWithQuotes)
+        result = client.generate_structured_messages(
+            system_prompt, human_prompt, InfoExtractionWithQuotes,
+        )
 
         # Add source attribution to quotes
         for quote in result.preserved_quotes:
@@ -667,10 +676,13 @@ def extract_references_llm(text: str) -> list[DetectedReference]:
         List of DetectedReference objects with extraction_method="llm"
     """
     client = get_ollama_client()
-    prompt = REFERENCE_EXTRACTION_PROMPT.format(text=text[:3000])  # Limit input
+    system_prompt = REFERENCE_EXTRACTION_PROMPT_SYSTEM
+    human_prompt = REFERENCE_EXTRACTION_PROMPT_HUMAN.format(text=text[:3000])
 
     try:
-        result = client.generate_structured(prompt, ExtractedReferenceList)
+        result = client.generate_structured_messages(
+            system_prompt, human_prompt, ExtractedReferenceList,
+        )
     except Exception as e:
         logger.warning(f"LLM reference extraction failed: {e}")
         return []

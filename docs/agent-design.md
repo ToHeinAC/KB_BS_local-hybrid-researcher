@@ -87,10 +87,10 @@ def get_query_analysis(state: AgentState) -> QueryAnalysis:
 
 ## Ollama Structured Outputs
 
-For Ollama models <30B parameters, use `method="json_mode"`:
+For Ollama models <30B parameters, use `method="json_mode"` via message-based invocation:
 
 ```python
-from langchain_ollama import ChatOllama
+from src.services.ollama_client import OllamaClient
 from pydantic import BaseModel
 
 class QueryAnalysis(BaseModel):
@@ -99,14 +99,26 @@ class QueryAnalysis(BaseModel):
     scope: str
     clarification_needed: bool
 
-llm = ChatOllama(model="qwen3:14b", temperature=0)
+client = OllamaClient()
 
-# Correct for Ollama
-structured_llm = llm.with_structured_output(QueryAnalysis, method="json_mode")
+# All prompts are split into SYSTEM/HUMAN pairs
+system_prompt = SOME_PROMPT_SYSTEM.format(language="German")
+human_prompt = SOME_PROMPT_HUMAN.format(query="...", language="German")
 
-result = structured_llm.invoke("Analyze this query: ...")
+# Structured output via SystemMessage/HumanMessage
+result = client.generate_structured_messages(system_prompt, human_prompt, QueryAnalysis)
 # result is a QueryAnalysis instance
+
+# With language enforcement + retry on mismatch
+result = client.generate_structured_messages_with_language(
+    system_prompt, human_prompt, QueryAnalysis, target_language="de",
+)
+
+# Plain text output
+text = client.generate_messages(system_prompt, human_prompt)
 ```
+
+Internally, `generate_structured_messages()` wraps prompts as `SystemMessage`/`HumanMessage` from `langchain_core.messages` and uses `llm.with_structured_output(Model, method="json_mode")`.
 
 ## The Rabbithole Magic (Phase 3)
 
@@ -138,7 +150,7 @@ Within `extracted_info`, detect references using configurable method (`reference
 
 **Regex** (`detect_references()`): 7 hardcoded patterns for German/English section, document, and URL references.
 
-**LLM** (`extract_references_llm()`): Uses `REFERENCE_EXTRACTION_PROMPT` with few-shot examples to extract 4 types: `legal_section`, `academic_numbered`, `academic_shortform`, `document_mention`. Returns `ExtractedReferenceList` via `generate_structured()`.
+**LLM** (`extract_references_llm()`): Uses `REFERENCE_EXTRACTION_PROMPT_SYSTEM` / `_HUMAN` with few-shot examples to extract 4 types: `legal_section`, `academic_numbered`, `academic_shortform`, `document_mention`. Returns `ExtractedReferenceList` via `generate_structured_messages()`.
 
 **Hybrid** (`detect_references_hybrid()`): Runs regex first (fast), then LLM (thorough), deduplicates by `type:target` key + substring overlap.
 
@@ -373,15 +385,17 @@ anchor_text = json.dumps({
     "scope": query_anchor.get("scope", ""),
     "current_task": current_task.task,
 }, ensure_ascii=False)
-decision = ollama.generate_structured(
-    REFERENCE_DECISION_PROMPT.format(
-        reference_type=ref.type,
-        reference_target=ref.target,
-        document_context=chunk.document,
-        query_anchor=anchor_text,
-        language=lang_label,
-    ),
-    ReferenceDecision,
+ref_system = REFERENCE_DECISION_PROMPT_SYSTEM.format(language=lang_label)
+ref_human = REFERENCE_DECISION_PROMPT_HUMAN.format(
+    reference_type=ref.type,
+    reference_target=ref.target,
+    document_context=chunk.document,
+    surrounding_context=surrounding_window,
+    query_anchor=anchor_text,
+    language=lang_label,
+)
+decision = ollama.generate_structured_messages(
+    ref_system, ref_human, ReferenceDecision,
 )
 if not decision.follow:
     logger.info(f"Skipped ref: {ref.target} — {decision.reason}")
@@ -397,14 +411,16 @@ After quality scoring, the LLM decides whether to accept or retry synthesis:
 from src.models.research import QualityRemediationDecision
 
 # If quality < threshold and retry_count < 1:
-remediation = ollama.generate_structured(
-    QUALITY_REMEDIATION_PROMPT.format(
-        quality_scores=score_summary,
-        issues_found="\n".join(issues),
-        original_query=query,
-        language=lang_label,
-    ),
-    QualityRemediationDecision,
+rem_system = QUALITY_REMEDIATION_PROMPT_SYSTEM.format(language=lang_label)
+rem_human = QUALITY_REMEDIATION_PROMPT_HUMAN.format(
+    quality_scores=score_summary,
+    issues_found="\n".join(issues),
+    original_query=query,
+    hitl_findings=hitl_smry,
+    language=lang_label,
+)
+remediation = ollama.generate_structured_messages(
+    rem_system, rem_human, QualityRemediationDecision,
 )
 if remediation.action == "retry":
     state["synthesis_retry_count"] += 1

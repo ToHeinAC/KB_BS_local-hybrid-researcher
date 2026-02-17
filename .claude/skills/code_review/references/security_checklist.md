@@ -1,3 +1,8 @@
+---
+name: security-checklist
+description: Security checklist for code reviews
+---
+
 # Security Review Checklist
 
 A comprehensive security checklist for code reviews, based on OWASP guidelines and industry best practices.

@@ -1,3 +1,7 @@
+---
+name: common-antipatterns
+description: Common code antipatterns and code smells
+---
 # Common Code Antipatterns
 
 A comprehensive guide to recognizing, understanding, and fixing common antipatterns and code smells.
