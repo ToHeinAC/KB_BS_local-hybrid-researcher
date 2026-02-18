@@ -40,11 +40,11 @@ REJECTION CONDITIONS — set proceed=false and assign a reason:
 
 PROCEED CONDITIONS — set proceed=true and choose num_tasks:
 - If none of the rejection conditions are met, always set proceed=true.
-- Score query complexity and set num_tasks accordingly:
-  3: simple query, ≤2 entities, clear narrow scope, minimal HITL refinement
-  4: moderate query, 3–4 entities or moderate scope
-  5: complex query, 5+ entities or spans multiple domains
-  6: highly complex, many entities, extensive HITL with multiple distinct sub-topics or contradictions to resolve
+- Score "research complexity", i.e. query together with hitl_smry complexity and set num_tasks accordingly:
+  1-2: simple "research complexity", ≤2 entities, clear narrow scope, minimal HITL refinement
+  3-4: moderate "research complexity", 3–4 entities or moderate scope
+  5-6: complex "research complexity", 5+ entities or spans multiple domains
+  7-8: highly complex "research complexity", many entities, extensive HITL with multiple distinct sub-topics or contradictions to resolve
 
 GENERAL RULES:
 1. Write explanation in {language}; the reason field must stay as the exact enum string (no translation).
