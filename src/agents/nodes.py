@@ -26,6 +26,7 @@ from src.models.query import QueryAnalysis, TaskSearchQueries, ToDoItem, ToDoLis
 from src.models.research import (
     ChunkWithInfo,
     QualityRemediationDecision,
+    QueryAssessmentDecision,
     ReferenceDecision,
     ResearchContext,
     ResearchContextMetadata,
@@ -48,6 +49,8 @@ from src.prompts import (
     QUALITY_CHECK_PROMPT_SYSTEM,
     QUALITY_REMEDIATION_PROMPT_HUMAN,
     QUALITY_REMEDIATION_PROMPT_SYSTEM,
+    QUERY_ASSESSMENT_PROMPT_HUMAN,
+    QUERY_ASSESSMENT_PROMPT_SYSTEM,
     REFERENCE_DECISION_PROMPT_HUMAN,
     REFERENCE_DECISION_PROMPT_SYSTEM,
     RELEVANCE_SCORING_PROMPT_SYSTEM,
@@ -89,6 +92,86 @@ def get_hitl_service() -> HITLService:
     return _hitl_service
 
 
+# --- Phase 2.5: Query Assessment ---
+
+
+def assess_query(state: AgentState) -> dict:
+    """Assess query feasibility and determine research depth.
+
+    Decides whether the query can be answered from the knowledge base and
+    how many todo tasks to generate. Routes to rejection if unanswerable.
+
+    Args:
+        state: Current agent state
+
+    Returns:
+        State update with query_assessment dict (and final_report if rejected)
+    """
+    query_analysis_dict = state.get("query_analysis", {})
+    analysis = QueryAnalysis.model_validate(query_analysis_dict) if query_analysis_dict else None
+
+    original_query = state.get("query", "")
+    scope = analysis.scope if analysis else ""
+    entities = analysis.entities if analysis else []
+    hitl_smry = state.get("hitl_smry", "") or "No HITL summary available"
+    knowledge_gaps = state.get("knowledge_gaps", [])
+    detected_language = state.get("detected_language", "de")
+    lang_label = "German" if detected_language == "de" else "English"
+
+    client = get_ollama_client()
+    system_prompt = QUERY_ASSESSMENT_PROMPT_SYSTEM.format(language=lang_label)
+    human_prompt = QUERY_ASSESSMENT_PROMPT_HUMAN.format(
+        original_query=original_query,
+        scope=scope,
+        entities=entities,
+        hitl_smry=hitl_smry,
+        knowledge_gaps=knowledge_gaps,
+        language=lang_label,
+    )
+
+    try:
+        decision = client.generate_structured_messages(
+            system_prompt, human_prompt, QueryAssessmentDecision,
+        )
+    except Exception as e:
+        logger.warning(f"Query assessment failed, defaulting to proceed=True: {e}")
+        decision = QueryAssessmentDecision(proceed=True, num_tasks=5)
+
+    query_assessment = decision.model_dump()
+    logger.info(
+        f"Query assessment: proceed={decision.proceed}, num_tasks={decision.num_tasks}, "
+        f"reason={decision.reason}"
+    )
+
+    if not decision.proceed:
+        sorry_msg = (
+            f"Sorry, I'm not able to answer your research question appropriately. "
+            f"Reason: {decision.reason} — {decision.explanation}"
+        )
+        final_report = FinalReport(
+            query=original_query,
+            answer=sorry_msg,
+            findings=[],
+            sources=[],
+            quality_score=0,
+            quality_breakdown={},
+            todo_items_completed=0,
+            research_iterations=0,
+            metadata={"rejection_reason": decision.reason},
+        )
+        return {
+            "query_assessment": query_assessment,
+            "final_report": final_report.model_dump(),
+            "phase": "complete",
+            "messages": [f"Query rejected: {decision.reason}"],
+        }
+
+    return {
+        "query_assessment": query_assessment,
+        "messages": [f"Query approved, planning {decision.num_tasks} tasks"],
+    }
+
+
 # --- Phase 2: ToDo List Generation ---
 
 
@@ -101,8 +184,9 @@ class ToDoListOutput(BaseModel):
 def generate_todo(state: AgentState) -> dict:
     """Generate research task list based on query analysis.
 
-    Prioritizes research_queries from HITL if available,
-    otherwise falls back to LLM generation.
+    Primary: LLM generation using rich query analysis and hitl_smry.
+    Fallback 1: research_queries from HITL, capped at num_tasks.
+    Fallback 2: single task from original_query.
 
     Args:
         state: Current agent state
@@ -115,29 +199,18 @@ def generate_todo(state: AgentState) -> dict:
 
     analysis = QueryAnalysis.model_validate(state["query_analysis"])
 
-    # Check for research_queries from HITL first
     research_queries = state.get("research_queries", [])
     additional_context = state.get("additional_context", "")
     hitl_smry = state.get("hitl_smry", "")
 
-    if research_queries:
-        # Convert HITL research queries directly to ToDoItems
-        # Prefer citation-aware hitl_smry over plain additional_context
-        item_context = hitl_smry or additional_context or "From HITL conversation"
-        items = [
-            ToDoItem(
-                id=i + 1,
-                task=query,
-                context=item_context if i == 0 else "From HITL conversation",
-            )
-            for i, query in enumerate(research_queries)
-        ]
-        logger.info(f"Using {len(items)} research queries from HITL")
-    else:
-        # Fallback to LLM generation
-        client = get_ollama_client()
+    assessment = state.get("query_assessment") or {}
+    num_items = max(3, min(6, assessment.get("num_tasks", settings.initial_todo_items)))
 
-        lang_label = "German" if analysis.detected_language == "de" else "English"
+    lang_label = "German" if analysis.detected_language == "de" else "English"
+    client = get_ollama_client()
+
+    try:
+        # PRIMARY: LLM generation using rich query analysis + hitl_smry
         system_prompt = TODO_GENERATION_PROMPT_SYSTEM.format(language=lang_label)
         human_prompt = TODO_GENERATION_PROMPT_HUMAN.format(
             original_query=analysis.original_query,
@@ -146,24 +219,39 @@ def generate_todo(state: AgentState) -> dict:
             scope=analysis.scope,
             assumed_context=analysis.assumed_context,
             hitl_smry=hitl_smry or "No prior findings",
-            num_items=settings.initial_todo_items,
+            num_items=num_items,
             language=lang_label,
         )
-
-        try:
-            result = client.generate_structured_messages(
-                system_prompt, human_prompt, ToDoListOutput,
+        result = client.generate_structured_messages(
+            system_prompt, human_prompt, ToDoListOutput,
+        )
+        items = [
+            ToDoItem(
+                id=item.get("id", i + 1),
+                task=item.get("task", ""),
+                context=item.get("context", ""),
             )
+            for i, item in enumerate(result.items)
+        ]
+        logger.info(f"Generated {len(items)} tasks via LLM (num_tasks={num_items})")
+
+    except Exception as e:
+        logger.warning(f"ToDo LLM generation failed: {e}")
+
+        if research_queries:
+            # FALLBACK 1: use HITL search queries, capped at num_items
+            item_context = hitl_smry or additional_context or "From HITL conversation"
             items = [
                 ToDoItem(
-                    id=item.get("id", i + 1),
-                    task=item.get("task", ""),
-                    context=item.get("context", ""),
+                    id=i + 1,
+                    task=query,
+                    context=item_context if i == 0 else "From HITL conversation",
                 )
-                for i, item in enumerate(result.items)
+                for i, query in enumerate(research_queries[:num_items])
             ]
-        except Exception as e:
-            logger.warning(f"ToDo generation failed: {e}")
+            logger.info(f"Using {len(items)} HITL research queries as fallback")
+        else:
+            # FALLBACK 2: last resort single task
             items = [
                 ToDoItem(
                     id=1,

@@ -26,13 +26,14 @@ streamlit run src/ui/app.py --server.port 8511
 - **Iterative Retrieval-HITL Loop**: Integrated vector search during the clarification phase to provide smarter, context-aware follow-up questions.
 - **Convergence Detection**: Automated loop termination based on information coverage, knowledge gaps, and content deduplication.
 - **Multi-Angle Search**: Generates original, broader, and alternative queries in parallel to ensure maximum document coverage.
+- **Query Assessment Gate**: After HITL, an LLM gate (`assess_query`) decides whether the query is answerable from the knowledge base, sets the number of research tasks (3-6), and routes unanswerable queries to an immediate rejection response — no wasted compute.
 - **Multi-Query Task Execution**: Each research task generates 3 deduplicated search queries (1 base + 2 LLM-targeted) for comprehensive retrieval.
 - **Deep Reference Following**: Hybrid regex+LLM detection with document registry-based scoped resolution, token budget tracking, and convergence detection. Agentic reference gate lets the LLM skip tangential references.
 - **Agentic Quality Remediation**: LLM evaluates synthesis quality and autonomously retries with focused instructions when below threshold.
 - **Graded Context Management**: Tiered classification (primary/secondary/tertiary) prevents query drift and ensures synthesis quality.
 - **Verbatim Quote Preservation**: Critical legal/technical quotes extracted and preserved for precision.
 - **Deep Report Synthesis**: Produces extensive, structured deep reports (not brief summaries) from pre-digested task summaries, with exact figures, verbatim quotes, and section references, anchored to original intent with HITL context.
-- **Optimized Prompt Architecture**: All prompts split into SYSTEM/HUMAN pairs with proper role separation via `SystemMessage`/`HumanMessage`, improving instruction adherence on small local LLMs.
+- **Optimized Prompt Architecture**: All prompts in `src/prompts/` package (split by phase: `hitl.py`, `research.py`, `synthesis.py`), each as SYSTEM/HUMAN pairs with proper role separation via `SystemMessage`/`HumanMessage`, improving instruction adherence on small local LLMs.
 - **Language Enforcement**: All 17 content-bearing prompts enforce `{language}`, with validation and retry on mismatch.
 - **Pre-Synthesis Drift Detection**: Filters irrelevant accumulated context before synthesis.
 - **Full Human-In-The-Loop**: Checkpoints for query refinement, task list approval, and final result verification.

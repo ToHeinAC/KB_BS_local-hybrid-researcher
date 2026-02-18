@@ -21,10 +21,15 @@
 │  ├─ hitl_analyze_retrieval: LLM context analysis & gaps                  │
 │  ├─ hitl_generate_questions: gap-informed follow-ups                     │
 │  ├─ hitl_process_response: analyze user feedback                         │
-│  └─ hitl_finalize: transition to Phase 2                                 │
+│  └─ hitl_finalize: build query_anchor/hitl_smry → assess_query          │
+│                                                                          │
+│  Phase 2.5: Query Assessment (Agentic Gate)                              │
+│  └─ assess_query: LLM decides proceed/reject + num_tasks (3-6)          │
+│     ├─ proceed=False → __end__ with rejection FinalReport                │
+│     └─ proceed=True  → generate_todo (with num_tasks)                    │
 │                                                                          │
 │  Phase 2: Research Planning                                              │
-│  ├─ generate_todo: generate ToDo items                                   │
+│  ├─ generate_todo: LLM generates num_tasks items (fallback: HITL queries)│
 │  └─ hitl_approve_todo: checkpoint (user approves/modifies)               │
 │                                                                          │
 │  Phase 3: Deep Context Extraction (with Graded Classification)           │
@@ -111,7 +116,8 @@ class AgentState(TypedDict):
     additional_context: str       # Summary from HITL analysis
     detected_language: str        # de or en
 
-    # Agentic decision fields (NEW)
+    # Agentic decision fields
+    query_assessment: dict | None # From assess_query: {proceed, num_tasks, reason, explanation}
     synthesis_retry_count: int    # Number of synthesis retries (max 1)
     quality_remediation_focus: str  # Focus instructions for re-synthesis
 
@@ -297,13 +303,22 @@ The growing JSON structure that accumulates all research findings:
          │ no (termination or /end)
          ▼
 ┌───────────────────────────┐
-│ hitl_finalize              │  (generate research_queries)
+│ hitl_finalize              │  (generate research_queries, query_anchor, hitl_smry)
 └────────┬──────────────────┘
          │
          ▼
 ┌───────────────────────────┐
-│ generate_todo              │
+│ assess_query               │  (LLM gate: proceed? + num_tasks)
 └────────┬──────────────────┘
+         │
+    ┌────┴──────────────┐
+    │ proceed?           │
+    └────┬──────────┬───┘
+         │ yes      │ no
+         ▼          ▼
+┌──────────────┐  ┌────────────────────────────────┐
+│ generate_todo │  │ __end__ (rejection FinalReport) │
+└──────────────┘  └────────────────────────────────┘
 ```
 
 ## Data Flow Details
@@ -322,15 +337,29 @@ The growing JSON structure that accumulates all research findings:
    - Max iterations reached → terminate with `max_iterations`
    - Convergence criteria met (coverage ≥ 0.8, dedup ≥ 0.7, gaps ≤ 2) → terminate with `convergence`
    - Otherwise → loop back to `hitl_generate_queries`
-9. **hitl_finalize**: Generate research_queries list, build query_analysis
-10. **Output**: `research_queries[]`, `query_analysis`, `coverage_score`, `query_retrieval` (as context)
+9. **hitl_finalize**: Generate research_queries list, build query_analysis, query_anchor, hitl_smry
+10. **Output**: `research_queries[]`, `query_analysis`, `query_anchor`, `hitl_smry`, `coverage_score`, `query_retrieval`
+
+### Phase 2.5: Query Assessment
+
+1. **Input**: `query_analysis`, `hitl_smry`, `knowledge_gaps`, `detected_language`
+2. **LLM Assessment** via `QUERY_ASSESSMENT_PROMPT` → `QueryAssessmentDecision`:
+   - `proceed: bool` — whether to run deep research
+   - `num_tasks: int` (3-6) — how many ToDo tasks to generate
+   - `reason` — rejection code if `proceed=False`: `no_live_data` | `out_of_context` | `no_clear_conversation_steering`
+   - `explanation` — human-readable explanation
+3. **Rejection path** (`proceed=False`): writes `FinalReport` with apology + reason → `__end__`
+4. **Approval path** (`proceed=True`): passes `query_assessment` (with `num_tasks`) to `generate_todo`
+5. **Fallback** on LLM error: `proceed=True, num_tasks=5`
 
 ### Phase 2: Research Planning
 
-1. **Input**: QueryAnalysis
-2. **ToDoList Generation**:
-   - 3-5 initial items
-   - Each item: specific, measurable task
+1. **Input**: `QueryAnalysis`, `query_assessment` (with `num_tasks`), `hitl_smry`
+2. **ToDoList Generation** (LLM primary):
+   - Generates exactly `num_tasks` items (clamped 3-6) using rich query analysis + hitl_smry
+   - Fallback 1: `research_queries[:num_tasks]` from HITL if LLM fails
+   - Fallback 2: single task from `original_query` as last resort
+   - Each item: specific, measurable task anchored to query entities
    - Constraints: max TODO_MAX_ITEMS (15)
 3. **HITL Checkpoint**: User approves/modifies tasks
 4. **Output**: Approved ToDoList
@@ -459,17 +488,17 @@ This prevents re-loading the embedding model and reconnecting to services on eve
 The `route_entry_point()` function in `graph.py` handles multiple entry scenarios:
 
 ```python
-def route_entry_point(state) -> Literal["hitl_init", "hitl_process_response", "generate_todo", "process_hitl_todo"]:
+def route_entry_point(state) -> Literal["hitl_init", "hitl_process_response", "assess_query", "process_hitl_todo"]:
     # 1. hitl_decision + !hitl_active → process_hitl_todo (post-approval resume)
     # 2. hitl_decision + hitl_active → hitl_process_response (iterative HITL resume)
-    # 3. research_queries present → generate_todo (skip HITL)
-    # 4. phase == "generate_todo" → generate_todo
+    # 3. research_queries present → assess_query (skip HITL, go straight to assessment)
+    # 4. phase == "generate_todo" → assess_query
     # 5. else → hitl_init (start new)
 ```
 
 This enables:
 - **Resume after todo approval**: When user approves/modifies tasks (`hitl_decision` present, `hitl_active=False`)
-- **Skip HITL**: When UI chat-based HITL has already produced research_queries
+- **Skip HITL**: When UI chat-based HITL has already produced research_queries → goes to `assess_query`
 - **Resume HITL**: When user responds to an interrupted iterative HITL session
 - **New HITL**: Default behavior when starting fresh
 

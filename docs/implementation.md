@@ -46,7 +46,7 @@
 - **Not currently used in Phase 2+** (Phase 3 does independent vector searches into `research_context`)
 - [x] **Graph Entry Routing**: Conditional entry point (`route_entry_point`)
 - [x] **UI Support**: Live display of retrieval stats and coverage during HITL phase
-- [x] **Centralized Prompts**: All LLM prompts in `src/prompts.py`
+- [x] **Centralized Prompts**: All LLM prompts in `src/prompts/` package (`hitl.py`, `research.py`, `synthesis.py`)
 
 
 ### Phase 3: LangGraph Agent (Research Phase 3)
@@ -86,7 +86,7 @@ Prevents query drift and ensures synthesis quality through tiered context classi
 - [x] **Query Anchor & HITL Context Preservation** (Phase A):
   - `query_anchor`: Immutable reference to original intent created in `hitl_finalize`
   - `hitl_smry`: Citation-aware HITL summary with `[Source_filename]` annotations
-  - `HITL_SUMMARY_PROMPT` in `src/prompts.py`
+  - `HITL_SUMMARY_PROMPT` in `src/prompts/hitl.py`
   - `_generate_hitl_summary()` helper in `nodes.py` (retrieval truncation: 8K chars)
 
 - [x] **Strict Language Enforcement** (Phase F):
@@ -123,7 +123,7 @@ Prevents query drift and ensures synthesis quality through tiered context classi
   - `_score_and_filter_context()`: Scores against query_anchor entities
   - Threshold: 0.5 primary, 0.4 secondary, 0.3 tertiary
   - Logs warning when >30% of accumulated context is filtered
-  - `RELEVANCE_SCORING_PROMPT` in `src/prompts.py`
+  - `RELEVANCE_SCORING_PROMPT` in `src/prompts/research.py`
 
 - [x] **Deep Report Synthesis** (Phase E):
   - `SYNTHESIS_PROMPT_ENHANCED`: Expert report writer producing extensive markdown-formatted deep reports
@@ -198,7 +198,7 @@ Universal language enforcement and improved search quality:
 Two agentic decision points where the LLM autonomously decides control flow:
 
 - [x] **Agentic Reference Following Gate** (in `execute_task()`):
-  - `REFERENCE_DECISION_PROMPT` in `src/prompts.py` (4-section format with `{language}`)
+  - `REFERENCE_DECISION_PROMPT` in `src/prompts/research.py` (4-section format with `{language}`)
   - `ReferenceDecision` model in `src/models/research.py`: `{follow: bool, reason: str}`
   - Gate receives full context: `original_query`, `key_entities`, `scope`, `current_task`
   - Biased toward following when uncertain (skipping relevant refs is costlier)
@@ -206,7 +206,7 @@ Two agentic decision points where the LLM autonomously decides control flow:
   - Falls back to following on LLM error (safe default)
 
 - [x] **Quality-Gated Re-Synthesis Loop** (in `quality_check()` + `synthesize()`):
-  - `QUALITY_REMEDIATION_PROMPT` in `src/prompts.py` (4-section format with `{language}`)
+  - `QUALITY_REMEDIATION_PROMPT` in `src/prompts/synthesis.py` (4-section format with `{language}`)
   - `QualityRemediationDecision` model: `{action: "accept"|"retry", focus_instructions: str}`
   - Triggered when `total_score < quality_threshold` (375) and `synthesis_retry_count < 1`
   - If `action == "retry"`: increments retry count, stores focus instructions, sets `phase="retry_synthesis"`
@@ -227,7 +227,7 @@ Two agentic decision points where the LLM autonomously decides control flow:
 
 All prompts migrated from single constants to `_SYSTEM` / `_HUMAN` pairs, and all callers migrated from `generate()` / `generate_structured()` to message-based methods:
 
-- [x] **Prompt Split**: All 19 prompt constants in `src/prompts.py` split into `_SYSTEM` + `_HUMAN` pairs
+- [x] **Prompt Split**: All 19 prompt constants (now in `src/prompts/` package) split into `_SYSTEM` + `_HUMAN` pairs
   - SYSTEM half: `### Role`, `### Goal`, `### Rules`, `### Output format` — authoritative instructions
   - HUMAN half: `### Input` with actual template variables + task reminder
   - Section header renamed from `### Task` to `### Goal` (all prompts)
@@ -264,6 +264,40 @@ Fixes for tier classification and chat-based HITL context propagation:
   - Previously only the `continue` (non-termination) path synced it, causing `hitl_finalize` to receive stale conversation
 - [x] **Retrieval Truncation**: `_generate_hitl_summary()` truncation increased from 8K to 12K chars to preserve more `[doc, p.N]` citation prefixes
 - [x] **164 Unit Tests**: All pass (7 L2 conversion + 4 termination path tests added)
+
+### Phase 3.12: Query Assessment Gate + generate_todo Priority Flip
+
+Two related improvements to Phase 2: a new agentic gate before todo generation, and a priority inversion in task generation:
+
+- [x] **`assess_query` Node** (`src/agents/nodes.py`, `src/agents/graph.py`):
+  - New Phase 2.5 node inserted between `hitl_finalize` and `generate_todo`
+  - `route_entry_point` now routes to `assess_query` (not `generate_todo`) when `research_queries` present or `phase == "generate_todo"`
+  - `route_after_hitl_finalize` → `assess_query` (was `generate_todo`)
+  - `route_after_assess_query`: `proceed=False` → `__end__`, `proceed=True` → `generate_todo`
+
+- [x] **`QueryAssessmentDecision` Model** (`src/models/research.py`):
+  - `proceed: bool` — whether the query is answerable from the knowledge base
+  - `num_tasks: int` (3-6, default 5) — task count passed to `generate_todo`
+  - `reason: Literal["no_live_data", "out_of_context", "no_clear_conversation_steering"] | None`
+  - `explanation: str` — human-readable reason
+
+- [x] **`QUERY_ASSESSMENT_PROMPT_{SYSTEM,HUMAN}`** (`src/prompts/synthesis.py`):
+  - Receives `original_query`, `scope`, `entities`, `hitl_smry`, `knowledge_gaps`
+  - Returns `QueryAssessmentDecision`; fallback on error: `proceed=True, num_tasks=5`
+
+- [x] **`query_assessment` State Field** (`src/agents/state.py`):
+  - `query_assessment: dict | None` (default `None`) added to `AgentState` and `create_initial_state()`
+
+- [x] **`generate_todo` Priority Flip** (`src/agents/nodes.py`):
+  - **Old**: `research_queries` (from HITL) used directly as tasks; LLM generation only as fallback
+  - **New**: LLM generation is **primary** (informed by `query_analysis` + `hitl_smry` + `num_tasks`); `research_queries[:num_items]` is **Fallback 1** (only when LLM throws); single-task last resort is **Fallback 2**
+  - Bug fix: `query_assessment.num_tasks` is now always respected; previously ignored when HITL queries were present (e.g. 5 HITL queries overrode `num_tasks=4`)
+
+- [x] **Prompts package restructure** (`src/prompts/` replaces `src/prompts.py`):
+  - Split into `hitl.py`, `research.py`, `synthesis.py` by phase
+  - `src/prompts/__init__.py` re-exports all constants; import paths unchanged for all callers
+
+- [x] **176 Unit Tests**: All pass (1 new `TestAdaptiveTodoCount::test_research_queries_fallback_respects_num_tasks`, 2 rewritten tests in `TestGenerateTodoHitlSmry`)
 
 ### Phase 4: Synthesis + Quality (Research Phase 4)
 - [x] `synthesize` node (LLM synthesis from extracted findings)
@@ -400,7 +434,7 @@ Fixes for tier classification and chat-based HITL context propagation:
 - **Structured JSON output** via `method="json_mode"` for Ollama
 - **LangGraph** for agent orchestration (NOT AgentExecutor)
 - **Docstrings** on public functions (Google style)
-- **Prompt format**: All prompts in `src/prompts.py` split into `_SYSTEM` / `_HUMAN` pairs; SYSTEM uses 5-section format (`### Role / ### Goal / ### Input / ### Rules / ### Output format`), HUMAN carries `### Input` with actual template variables
+- **Prompt format**: All prompts in `src/prompts/` package (`hitl.py`, `research.py`, `synthesis.py`) split into `_SYSTEM` / `_HUMAN` pairs; SYSTEM uses 5-section format (`### Role / ### Goal / ### Input / ### Rules / ### Output format`), HUMAN carries `### Input` with actual template variables
 - **Language enforcement**: Every content-bearing prompt includes `{language}` template variable; callers compute `lang_label = "German" if language == "de" else "English"`
 
 ### Example Function
@@ -552,14 +586,20 @@ src/
 ├── models/                    # Pydantic data models
 │   ├── __init__.py
 │   ├── query.py              # QueryAnalysis, ToDoList
-│   ├── research.py           # ResearchContext, ResearchTask
+│   ├── research.py           # ResearchContext, ResearchTask, QueryAssessmentDecision
 │   ├── results.py            # VectorResult, DocumentFinding
 │   └── report.py             # FinalReport, QualityAssessment
+│
+├── prompts/                   # LLM prompt constants (SYSTEM/HUMAN pairs)
+│   ├── __init__.py           # Re-exports all constants
+│   ├── hitl.py               # Phase 1 HITL prompts
+│   ├── research.py           # Phase 3 research prompts
+│   └── synthesis.py          # Phase 2.5/4 assessment + synthesis prompts
 │
 ├── agents/                    # LangGraph agents
 │   ├── __init__.py
 │   ├── graph.py              # StateGraph definition
-│   ├── nodes.py              # Node functions
+│   ├── nodes.py              # Node functions (incl. assess_query)
 │   └── tools.py              # Tool definitions
 │
 ├── services/                  # Core services

@@ -124,7 +124,7 @@ r"(https?://[^\s<>\"]+)"
 
 ### 4b. LLM Detection (`extract_references_llm()`)
 
-Uses `REFERENCE_EXTRACTION_PROMPT` (in `src/prompts.py`) with 4 few-shot examples to classify references into 4 types:
+Uses `REFERENCE_EXTRACTION_PROMPT` (in `src/prompts/research.py`) with 4 few-shot examples to classify references into 4 types:
 - `legal_section`: German/English legal paragraph references (e.g., `§ 133 des Strahlenschutzgesetzes`)
 - `academic_numbered`: Numbered citations (e.g., `[253]`)
 - `academic_shortform`: Author-year citations (e.g., `[Townsend79]`)
@@ -353,7 +353,8 @@ return {
 | `src/agents/graph.py` | LangGraph StateGraph definition, routing |
 | `src/models/research.py` | ResearchContext, ChunkWithInfo, DetectedReference, ExtractedReference, ExtractedReferenceList, ReferenceDecision, QualityRemediationDecision |
 | `src/models/query.py` | ToDoList, ToDoItem |
-| `src/prompts.py` | REFERENCE_EXTRACTION_PROMPT, REFERENCE_DECISION_PROMPT, QUALITY_REMEDIATION_PROMPT |
+| `src/prompts/research.py` | REFERENCE_EXTRACTION_PROMPT, REFERENCE_DECISION_PROMPT |
+| `src/prompts/synthesis.py` | QUALITY_REMEDIATION_PROMPT, QUERY_ASSESSMENT_PROMPT |
 | `src/config.py` | All threshold/limit settings (incl. enhanced reference following) |
 | `kb/document_registry.json` | Document-to-synonym mapping across 4 collections |
 | `tests/test_reference_extraction.py` | 42 tests for reference extraction, resolution, and agentic gate logic |

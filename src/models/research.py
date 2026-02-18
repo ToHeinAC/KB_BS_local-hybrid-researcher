@@ -33,6 +33,27 @@ class QualityRemediationDecision(BaseModel):
     )
 
 
+class QueryAssessmentDecision(BaseModel):
+    """LLM decision on query feasibility and research depth."""
+
+    proceed: bool = Field(description="Whether to proceed with deep research")
+    num_tasks: int = Field(
+        default=5,
+        ge=3,
+        le=6,
+        description="Number of todo tasks to generate (3-6), only used if proceed=True",
+    )
+    reason: Literal[
+        "no_clear_conversation_steering",
+        "no_live_data",
+        "out_of_context",
+    ] | None = Field(default=None, description="Rejection reason if proceed=False")
+    explanation: str = Field(
+        default="",
+        description="Human-readable explanation for the decision",
+    )
+
+
 class NestedChunk(BaseModel):
     """Chunk retrieved from following a reference."""
 

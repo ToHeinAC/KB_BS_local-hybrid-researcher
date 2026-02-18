@@ -1,6 +1,6 @@
 # Coding Standards for prompts
 
-- **All LLM prompts MUST be defined in `src/prompts.py`**
+- **All LLM prompts MUST be defined in `src/prompts/` package** (split by phase: `hitl.py`, `research.py`, `synthesis.py`; `__init__.py` re-exports all)
 - **All LLM prompts MUST be divided into SYSTEM and HUMAN**, i.e. `SOME_NICE_PROMPT_SYSTEM` and `SOME_NICE_PROMPT_HUMAN` following the Attention Priority Hierarchy:
   - SYSTEM: Role, Goal, Rules, Output format — authoritative instructions. Input section describes field names/descriptions (not actual values).
   - HUMAN: Input with actual template variables + one-line task reminder.

@@ -7,6 +7,7 @@ from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, StateGraph
 
 from src.agents.nodes import (
+    assess_query,
     attribute_sources,
     execute_task,
     generate_todo,
@@ -32,12 +33,12 @@ logger = logging.getLogger(__name__)
 
 def route_entry_point(
     state: AgentState,
-) -> Literal["hitl_init", "hitl_process_response", "generate_todo", "process_hitl_todo"]:
-    """Route at entry point: iterative HITL, todo processing, or skip to todo.
+) -> Literal["hitl_init", "hitl_process_response", "assess_query", "process_hitl_todo"]:
+    """Route at entry point: iterative HITL, todo processing, or skip to assessment.
 
     Routes to:
     - process_hitl_todo: if resuming from todo approval (hitl_decision present, HITL not active)
-    - generate_todo: if research_queries already populated (from UI chat-based HITL)
+    - assess_query: if research_queries already populated (from UI chat-based HITL)
     - hitl_process_response: if resuming HITL with a decision (user responded)
     - hitl_init: if starting new iterative HITL (default)
     """
@@ -51,12 +52,12 @@ def route_entry_point(
 
     # Check if HITL results are already available (from UI chat-based HITL)
     if state.get("research_queries"):
-        return "generate_todo"
+        return "assess_query"
 
     # Check if phase is explicitly set to skip to todo
     phase = state.get("phase", "")
     if phase == "generate_todo":
-        return "generate_todo"
+        return "assess_query"
 
     # Default: start iterative HITL
     return "hitl_init"
@@ -128,8 +129,23 @@ def route_after_hitl_process_response(
     return "hitl_generate_queries"
 
 
-def route_after_hitl_finalize(state: AgentState) -> Literal["generate_todo"]:
+def route_after_hitl_finalize(state: AgentState) -> Literal["assess_query"]:
     """Route after HITL finalization."""
+    return "assess_query"
+
+
+def route_after_assess_query(
+    state: AgentState,
+) -> Literal["generate_todo", "__end__"]:
+    """Route after query assessment.
+
+    Routes to:
+    - __end__: if query was rejected (proceed=False in assessment)
+    - generate_todo: if query is approved to proceed
+    """
+    assessment = state.get("query_assessment") or {}
+    if not assessment.get("proceed", True):
+        return "__end__"
     return "generate_todo"
 
 
@@ -214,6 +230,9 @@ def create_research_graph() -> StateGraph:
     graph.add_node("hitl_process_response", hitl_process_response)
     graph.add_node("hitl_finalize", hitl_finalize)
 
+    # Add nodes - Phase 2.5: Query Assessment
+    graph.add_node("assess_query", assess_query)
+
     # Add nodes - Phase 2 onwards
     graph.add_node("generate_todo", generate_todo)
     graph.add_node("hitl_approve_todo", hitl_approve_todo)
@@ -234,7 +253,7 @@ def create_research_graph() -> StateGraph:
         {
             "hitl_init": "hitl_init",
             "hitl_process_response": "hitl_process_response",
-            "generate_todo": "generate_todo",
+            "assess_query": "assess_query",
             "process_hitl_todo": "process_hitl_todo",
         },
     )
@@ -299,12 +318,22 @@ def create_research_graph() -> StateGraph:
         },
     )
 
-    # hitl_finalize → generate_todo
+    # hitl_finalize → assess_query
     graph.add_conditional_edges(
         "hitl_finalize",
         route_after_hitl_finalize,
         {
+            "assess_query": "assess_query",
+        },
+    )
+
+    # Phase 2.5: Query Assessment → generate_todo or __end__ (rejection)
+    graph.add_conditional_edges(
+        "assess_query",
+        route_after_assess_query,
+        {
             "generate_todo": "generate_todo",
+            "__end__": END,
         },
     )
 

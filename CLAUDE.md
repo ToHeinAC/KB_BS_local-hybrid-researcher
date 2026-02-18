@@ -16,10 +16,15 @@ Classical RAG lacks deep contextual understanding and cannot follow inter-docume
 │  │  hitl_init → hitl_generate_questions ↔ hitl_process_response │  │
 │  │  → hitl_finalize (on /end, max_iterations, or convergence)   │  │
 │  └──────────────────────────────────────────────────────────────┘  │
-│  Output: research_queries[], query_anchor, hitl_smry     │
+│  Output: research_queries[], query_anchor, hitl_smry                │
+├────────────────────────────────────────────────────────────────────┤
+│  Phase 2.5: Query Assessment (Agentic Gate)                         │
+│  assess_query: LLM decides proceed/reject + num_tasks (3-6)         │
+│  → Rejected queries → __end__ with explanation (no research run)    │
 ├────────────────────────────────────────────────────────────────────┤
 │  Phase 2: Research Planning                                         │
-│  QueryAnalysis → ToDoList (3-5 tasks, max 15)                       │
+│  LLM generates ToDoList (num_tasks items) anchored on hitl_smry     │
+│  Fallback: research_queries[:num_tasks] if LLM fails               │
 ├────────────────────────────────────────────────────────────────────┤
 │  Phase 3: Deep Context Extraction (with Graded Classification)      │
 │  For each task:                                                      │
@@ -71,9 +76,17 @@ The system now uses **tiered context classification** to prevent query drift and
 - **Drift Detection**: Pre-synthesis filtering warns when >30% of context is irrelevant
 - **Language Enforcement**: Strict single-language output with retry on mismatch
 
-### Agentic Decision Points (NEW)
+### Agentic Decision Points
 
-Two LLM-driven decision points where the orchestrator is no longer deterministic:
+Three LLM-driven decision points where the orchestrator is no longer deterministic:
+
+0. **Query Assessment Gate** (Phase 2.5, `assess_query`):
+   - After HITL finalization, LLM evaluates: "Is this query answerable from the knowledge base?"
+   - Uses `QUERY_ASSESSMENT_PROMPT` → `QueryAssessmentDecision(proceed, num_tasks, reason, explanation)`
+   - Rejection reasons: `no_live_data`, `out_of_context`, `no_clear_conversation_steering`
+   - If `proceed=False` → writes rejection `FinalReport` and routes to `__end__` (no research run)
+   - If `proceed=True` → sets `num_tasks` (3-6) used by `generate_todo` for task sizing
+   - Fallback on LLM error: `proceed=True, num_tasks=5`
 
 1. **Reference Following Gate** (Phase 3, `execute_task`):
    - Before following each detected reference, LLM evaluates: "Is this reference worth following given the query?"
@@ -91,6 +104,7 @@ Two LLM-driven decision points where the orchestrator is no longer deterministic
    - `route_after_quality` routes to `synthesize` (retry) or `attribute_sources` (accept)
 
 **Agentic State Fields:**
+- `query_assessment`: dict | None — `{proceed, num_tasks, reason, explanation}` from `assess_query`
 - `synthesis_retry_count`: int (default 0, max 1)
 - `quality_remediation_focus`: str (cleared after use)
 
@@ -121,7 +135,7 @@ The enhanced iterative HITL system provides intelligent query refinement through
    - Now informed by retrieval analysis and identified gaps
    - **Uses `query_retrieval` from state** to provide retrieval context to LLM
 6. **hitl_process_response**: Analyze user response, check termination conditions
-7. **hitl_finalize**: Generate research_queries and hand off to Phase 2
+7. **hitl_finalize**: Generate research_queries, build query_anchor/hitl_smry → routes to `assess_query`
 
 **Termination Conditions** (all paths sync `hitl_conversation_history` to agent state):
 - User types `/end` → `user_end`
@@ -215,6 +229,7 @@ KB_BS_local-hybrid-researcher/
 ├── src/                   # Source code
 │   ├── agents/            # LangGraph agents + tools
 │   ├── models/            # Pydantic data models
+│   ├── prompts/           # LLM prompt constants (hitl.py, research.py, synthesis.py)
 │   ├── services/          # ChromaDB, Ollama, PDF
 │   └── ui/                # Streamlit app
 ├── tests/                 # Pytest tests
@@ -238,7 +253,7 @@ KB_BS_local-hybrid-researcher/
 
 
 ## Prompt Management
-**All LLM prompts MUST be defined in `src/prompts.py` @src/prompts.py**.
+**All LLM prompts MUST be defined in `src/prompts/` package** (split by phase: `hitl.py`, `research.py`, `synthesis.py`).
 Every prompt is split into a `_SYSTEM` / `_HUMAN` pair (e.g. `TODO_GENERATION_PROMPT_SYSTEM` + `TODO_GENERATION_PROMPT_HUMAN`).
 All callers use `OllamaClient.generate_structured_messages()` or `generate_messages()` with separate system/human arguments.
 For specific prompt rules, see @docs/prompts-design.md [docs/prompts-design.md](docs/prompts-design.md).

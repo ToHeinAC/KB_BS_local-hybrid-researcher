@@ -84,6 +84,7 @@ class AgentState(TypedDict, total=False):
     # Agentic decision fields
     synthesis_retry_count: int  # Number of synthesis retries (max 1)
     quality_remediation_focus: str  # Focus instructions for re-synthesis
+    query_assessment: dict | None  # From assess_query node: proceed, num_tasks, reason, explanation
 
     # Graded Context Management (Phase A-E improvements)
     query_anchor: dict  # Immutable reference to original intent
@@ -168,6 +169,7 @@ def create_initial_state(query: str) -> AgentState:
         # Agentic decision fields
         synthesis_retry_count=0,
         quality_remediation_focus="",
+        query_assessment=None,
         # Graded Context Management
         query_anchor={},
         hitl_smry="",

@@ -196,21 +196,21 @@ class TestRouteEntryPoint:
         result = route_entry_point(state)
         assert result == "hitl_process_response"
 
-    def test_route_to_generate_todo_with_research_queries(self):
-        """Test routing to generate_todo when research_queries present."""
+    def test_route_to_assess_query_with_research_queries(self):
+        """Test routing to assess_query when research_queries present."""
         from src.agents.graph import route_entry_point
 
         state = {"research_queries": ["query1", "query2"]}
         result = route_entry_point(state)
-        assert result == "generate_todo"
+        assert result == "assess_query"
 
-    def test_route_to_generate_todo_with_phase(self):
-        """Test routing to generate_todo when phase explicitly set."""
+    def test_route_to_assess_query_with_phase(self):
+        """Test routing to assess_query when phase explicitly set to generate_todo."""
         from src.agents.graph import route_entry_point
 
         state = {"phase": "generate_todo"}
         result = route_entry_point(state)
-        assert result == "generate_todo"
+        assert result == "assess_query"
 
     def test_default_route_to_hitl_init(self):
         """Test default routing to hitl_init when no special conditions."""
@@ -386,9 +386,14 @@ class TestGenerateTodoHitlSmry:
         human_prompt = mock_client.generate_structured_messages.call_args[0][1]
         assert "No prior findings" in human_prompt
 
-    def test_research_queries_path_uses_hitl_smry_as_context(self):
-        """research_queries path prefers hitl_smry over additional_context."""
+    def test_research_queries_fallback_uses_hitl_smry_as_context(self):
+        """When LLM fails, research_queries fallback prefers hitl_smry over additional_context."""
+        from unittest.mock import MagicMock, patch
+
         from src.agents.nodes import generate_todo
+
+        mock_client = MagicMock()
+        mock_client.generate_structured_messages.side_effect = Exception("LLM error")
 
         state = {
             "query_analysis": {
@@ -405,15 +410,21 @@ class TestGenerateTodoHitlSmry:
             "additional_context": "Plain summary",
         }
 
-        result = generate_todo(state)
+        with patch("src.agents.nodes.get_ollama_client", return_value=mock_client):
+            result = generate_todo(state)
         items = result["todo_list"]
         # Task 0 is prepended original query; task at index 1 is first research_query
         first_rq_item = items[1]
         assert first_rq_item["context"] == "Citation-aware summary [doc.pdf]"
 
-    def test_research_queries_path_falls_back_to_additional_context(self):
-        """research_queries path falls back to additional_context when no hitl_smry."""
+    def test_research_queries_fallback_uses_additional_context(self):
+        """When LLM fails, research_queries fallback uses additional_context when no hitl_smry."""
+        from unittest.mock import MagicMock, patch
+
         from src.agents.nodes import generate_todo
+
+        mock_client = MagicMock()
+        mock_client.generate_structured_messages.side_effect = Exception("LLM error")
 
         state = {
             "query_analysis": {
@@ -429,7 +440,8 @@ class TestGenerateTodoHitlSmry:
             "additional_context": "Plain fallback",
         }
 
-        result = generate_todo(state)
+        with patch("src.agents.nodes.get_ollama_client", return_value=mock_client):
+            result = generate_todo(state)
         items = result["todo_list"]
         first_rq_item = items[1]
         assert first_rq_item["context"] == "Plain fallback"
