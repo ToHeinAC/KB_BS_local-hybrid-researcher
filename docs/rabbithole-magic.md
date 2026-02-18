@@ -201,6 +201,7 @@ Routes by reference type with scoped search when document is known:
 - **Token budget**: `token_count >= reference_token_budget` (default 50K) -> stop following
 - **Depth limit**: unchanged (`reference_follow_depth`, default 2)
 - **Visited set**: unchanged (`ref_key` in `visited`)
+- **Database scoping**: `selected_database` param propagated from `execute_task()` → `resolve_reference_enhanced()` → all broad fallback searches. Scoped registry searches (`_vector_search_scoped()`) target a specific collection by design and are unaffected. Ensures reference following respects the user's database selection throughout.
 
 ---
 

@@ -249,7 +249,7 @@ KB_BS_local-hybrid-researcher/
 3. **Structured JSON Outputs**: All LLM responses via Pydantic + `json_mode`
 4. **Fully Local**: Ollama-only, no external API calls
 5. **Safe Exit**: Streamlit button to cleanly terminate (port-aware)
-6. **Reference Following**: Deep rabbithole traversal with hybrid detection (regex+LLM), document registry scoping, and relevance filtering
+6. **Reference Following**: Deep rabbithole traversal with hybrid detection (regex+LLM), document registry scoping, relevance filtering, and database-selection propagation (broad fallback searches respect `selected_database` from the UI)
 
 
 ## Prompt Management

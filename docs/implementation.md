@@ -397,6 +397,28 @@ Two related improvements to Phase 2: a new agentic gate before todo generation, 
   - `_render_task_result_expander()` accepts optional `tiered_context` tuple
   - `_run_graph_with_live_updates()` extracts tiered context per task during streaming
 
+### Phase 3.13: selected_database Propagation in Reference Resolution + HITL Summary Panel
+
+Two targeted fixes restoring database-scoped reference following and improving the HITL summary panel:
+
+- [x] **`selected_database` propagation through reference resolution chain** (`tools.py`, `nodes.py`):
+  - `resolve_reference_enhanced()` accepts new `selected_database: str | None = None` param
+  - Propagated to all internal resolvers:
+    - `_resolve_legal_ref_enhanced()` → fallback `_resolve_section_ref()` → `vector_search(selected_database=...)`
+    - `_resolve_document_ref_enhanced()` → fallback `_resolve_document_ref()` → `vector_search(selected_database=...)`
+    - `_resolve_academic_ref()` → `vector_search(selected_database=...)`
+    - `_resolve_section_ref()` → `vector_search(selected_database=...)`
+    - `_resolve_document_ref()` → `vector_search(selected_database=...)`
+  - Scoped searches (registry-resolved via `_vector_search_scoped()`) are unaffected — they already target a specific collection by design
+  - `execute_task()` in `nodes.py` now passes `selected_database=selected_database` to `resolve_reference_enhanced()`
+  - **Fix**: previously, broad fallback searches during reference following always queried all collections, ignoring the user's database selection from the UI
+
+- [x] **HITL Summary Panel: replace search queries with `hitl_smry`** (`hitl_panel.py`):
+  - `render_hitl_summary()`: Removed "Forschungsabfragen" (numbered list of raw vector search queries)
+  - Replaced with "Zusammenfassung HITL" showing `hitl_smry` from `session.agent_state`
+  - `hitl_smry` is always available by the time the research phase starts (created in `_start_research_from_hitl()` for chat-based HITL or in `hitl_finalize` for graph-based HITL)
+  - Users now see the LLM-generated citation-aware summary instead of internal search query strings
+
 ### Phase 7: Polish
 - [x] Multi-collection search
 - [ ] Query history and caching
@@ -572,6 +594,7 @@ def test_graph_execution():
 | **Report bloat** | Including everything | Strict extractive summarization |
 | **Long execution times** | Deep recursion | Default N=3, M=4, depth=2 |
 | **Ollama structured output failures** | Wrong method | Use `method="json_mode"` for <30B models |
+| **Reference following ignored DB selection** | `resolve_reference_enhanced()` and sub-resolvers called `vector_search()` without `selected_database` | All broad fallback searches now receive `selected_database` from `execute_task()` state |
 
 ---
 

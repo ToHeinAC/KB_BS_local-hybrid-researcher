@@ -315,10 +315,13 @@ def resolve_reference_enhanced(
     visited: set[str] | None = None,
     depth: int = 0,
     token_count: int = 0,
+    selected_database: str | None = None,
 ) -> list[NestedChunk]:
     """Resolve with scoped search when document is known.
     Routes by ref type, uses document registry for scoping.
-    Respects token budget and depth limits."""
+    Respects token budget and depth limits.
+    selected_database is propagated to all broad fallback searches so
+    reference following respects the user's DB selection from the UI."""
 
 def resolve_document_name(
     doc_ref: str,

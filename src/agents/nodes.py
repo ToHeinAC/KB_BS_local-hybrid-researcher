@@ -539,6 +539,7 @@ def execute_task(state: AgentState) -> dict:
                         visited=set(context.metadata.visited_refs),
                         depth=current_depth + 1,
                         token_count=token_count,
+                        selected_database=selected_database,
                     )
                     ref.nested_chunks = nested
                     ref.found = len(nested) > 0
