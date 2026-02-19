@@ -196,6 +196,12 @@ Routes by reference type with scoped search when document is known:
 - Calls `chromadb_client.search(query, collection_key, top_k=5)`
 - Post-filters results where `doc_name` contains the target filename
 - Applies `reference_relevance_threshold` (0.6)
+- Registry-driven path — **not affected** by `selected_database`
+
+**Fallback broad search** (`_resolve_section_ref`, `_resolve_document_ref`, `_resolve_academic_ref`):
+- Each accepts `selected_database: str | None` and passes it to `vector_search()`
+- `resolve_reference_enhanced()` receives `selected_database` from `execute_task()` and threads it down
+- Ensures user DB selection from the UI sidebar is respected even during recursive reference following
 
 **Additional guards:**
 - **Token budget**: `token_count >= reference_token_budget` (default 50K) -> stop following
@@ -391,10 +397,10 @@ RABBITHOLE MAGIC (Phase 3)
 │   └── 3-stage resolution (exact > fuzzy > substring)
 │
 ├── ENHANCED RESOLUTION (resolve_reference_enhanced)
-│   ├── legal_section → registry → scoped search
-│   ├── document_mention → registry → scoped search
-│   ├── academic_* → broad vector search
-│   └── Fallback: original broad search
+│   ├── legal_section → registry → scoped search (_vector_search_scoped, unaffected by selected_database)
+│   ├── document_mention → registry → scoped search (same)
+│   ├── academic_* → broad vector search (selected_database propagated)
+│   └── Fallback: broad search with selected_database (user DB selection respected)
 │
 ├── EXECUTION LOOP
 │   ├── Vector Search (ChromaDB)

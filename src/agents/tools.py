@@ -298,11 +298,12 @@ def resolve_reference(
 def _resolve_section_ref(
     ref: DetectedReference,
     current_doc: str,
+    selected_database: str | None = None,
 ) -> list[NestedChunk]:
     """Resolve a section reference within documents."""
     # Search for the section number across all collections
     query = f"§ {ref.target}"
-    results = vector_search(query, top_k=3)
+    results = vector_search(query, top_k=3, selected_database=selected_database)
 
     chunks = []
     for result in results:
@@ -318,11 +319,14 @@ def _resolve_section_ref(
     return chunks
 
 
-def _resolve_document_ref(ref: DetectedReference) -> list[NestedChunk]:
+def _resolve_document_ref(
+    ref: DetectedReference,
+    selected_database: str | None = None,
+) -> list[NestedChunk]:
     """Resolve a document reference."""
     # Search for the document name
     query = ref.target
-    results = vector_search(query, top_k=3)
+    results = vector_search(query, top_k=3, selected_database=selected_database)
 
     chunks = []
     for result in results:
@@ -765,6 +769,7 @@ def resolve_reference_enhanced(
     visited: set[str] | None = None,
     depth: int = 0,
     token_count: int = 0,
+    selected_database: str | None = None,
 ) -> list[NestedChunk]:
     """Resolve a reference with scoped search when document is known.
 
@@ -780,6 +785,7 @@ def resolve_reference_enhanced(
         visited: Set of visited reference keys
         depth: Current recursion depth
         token_count: Running token budget usage
+        selected_database: Optional database name to restrict fallback searches
 
     Returns:
         List of chunks from resolved reference
@@ -799,11 +805,11 @@ def resolve_reference_enhanced(
     visited.add(ref_key)
 
     if ref.type in ("legal_section", "section"):
-        return _resolve_legal_ref_enhanced(ref, current_doc)
+        return _resolve_legal_ref_enhanced(ref, current_doc, selected_database=selected_database)
     elif ref.type in ("document", "document_mention"):
-        return _resolve_document_ref_enhanced(ref)
+        return _resolve_document_ref_enhanced(ref, selected_database=selected_database)
     elif ref.type in ("academic_numbered", "academic_shortform"):
-        return _resolve_academic_ref(ref)
+        return _resolve_academic_ref(ref, selected_database=selected_database)
     else:
         return []
 
@@ -811,6 +817,7 @@ def resolve_reference_enhanced(
 def _resolve_legal_ref_enhanced(
     ref: DetectedReference,
     current_doc: str,
+    selected_database: str | None = None,
 ) -> list[NestedChunk]:
     """Resolve a legal section reference with scoped search."""
     # Try to resolve the target document from hint or text
@@ -827,39 +834,45 @@ def _resolve_legal_ref_enhanced(
         filename, collection_key = resolve_document_name(doc_hint)
         if filename and collection_key:
             return _vector_search_scoped(
-                f"§ {ref.target}", 
-                filename, 
+                f"§ {ref.target}",
+                filename,
                 collection_key,
                 center_mention=ref.original_text,
                 window_size=5000
             )
 
     # Fallback to broad search
-    return _resolve_section_ref(ref, current_doc)
+    return _resolve_section_ref(ref, current_doc, selected_database=selected_database)
 
 
-def _resolve_document_ref_enhanced(ref: DetectedReference) -> list[NestedChunk]:
+def _resolve_document_ref_enhanced(
+    ref: DetectedReference,
+    selected_database: str | None = None,
+) -> list[NestedChunk]:
     """Resolve a document mention with registry-based scoping."""
     doc_hint = ref.document_context or ref.target
     filename, collection_key = resolve_document_name(doc_hint)
 
     if filename and collection_key:
         return _vector_search_scoped(
-            ref.target, 
-            filename, 
+            ref.target,
+            filename,
             collection_key,
             center_mention=ref.original_text,
             window_size=5000
         )
 
     # Fallback to broad search
-    return _resolve_document_ref(ref)
+    return _resolve_document_ref(ref, selected_database=selected_database)
 
 
-def _resolve_academic_ref(ref: DetectedReference) -> list[NestedChunk]:
+def _resolve_academic_ref(
+    ref: DetectedReference,
+    selected_database: str | None = None,
+) -> list[NestedChunk]:
     """Resolve academic citation via broad vector search."""
     query = ref.target
-    results = vector_search(query, top_k=3)
+    results = vector_search(query, top_k=3, selected_database=selected_database)
 
     chunks = []
     for result in results:

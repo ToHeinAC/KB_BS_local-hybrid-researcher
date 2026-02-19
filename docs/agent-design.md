@@ -315,10 +315,14 @@ def resolve_reference_enhanced(
     visited: set[str] | None = None,
     depth: int = 0,
     token_count: int = 0,
+    selected_database: str | None = None,  # restricts fallback broad searches
 ) -> list[NestedChunk]:
     """Resolve with scoped search when document is known.
     Routes by ref type, uses document registry for scoping.
-    Respects token budget and depth limits."""
+    Respects token budget and depth limits.
+    selected_database is threaded to all fallback vector_search() calls so
+    user DB selection is respected even during recursive reference following.
+    Note: _vector_search_scoped() (registry-driven) is intentionally unaffected."""
 
 def resolve_document_name(
     doc_ref: str,

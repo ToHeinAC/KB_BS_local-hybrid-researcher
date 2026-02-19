@@ -592,3 +592,50 @@ class TestGetContextWindow:
 
         assert get_context_window(None, "mention") == ""
 
+
+# =============================================================================
+# selected_database propagation tests
+# =============================================================================
+
+
+class TestSelectedDatabasePropagation:
+    """Verify selected_database is passed through reference resolution fallbacks."""
+
+    def test_selected_database_passed_to_section_ref(self):
+        """_resolve_section_ref passes selected_database to vector_search."""
+        from src.agents.tools import _resolve_section_ref
+
+        ref = DetectedReference(type="section", target="123", original_text="§ 123")
+        with patch("src.agents.tools.vector_search") as mock_vs:
+            mock_vs.return_value = []
+            _resolve_section_ref(ref, "some_doc.pdf", selected_database="StrlSch__db")
+            mock_vs.assert_called_once()
+            _, kwargs = mock_vs.call_args
+            assert kwargs.get("selected_database") == "StrlSch__db"
+
+    def test_selected_database_passed_to_document_ref(self):
+        """_resolve_document_ref passes selected_database to vector_search."""
+        from src.agents.tools import _resolve_document_ref
+
+        ref = DetectedReference(type="document", target="SomeDoc.pdf", original_text="SomeDoc")
+        with patch("src.agents.tools.vector_search") as mock_vs:
+            mock_vs.return_value = []
+            _resolve_document_ref(ref, selected_database="NORM__db")
+            mock_vs.assert_called_once()
+            _, kwargs = mock_vs.call_args
+            assert kwargs.get("selected_database") == "NORM__db"
+
+    def test_selected_database_passed_to_academic_ref(self):
+        """_resolve_academic_ref passes selected_database to vector_search."""
+        from src.agents.tools import _resolve_academic_ref
+
+        ref = DetectedReference(
+            type="academic_numbered", target="[42]", original_text="[42]"
+        )
+        with patch("src.agents.tools.vector_search") as mock_vs:
+            mock_vs.return_value = []
+            _resolve_academic_ref(ref, selected_database="GLageKon__db")
+            mock_vs.assert_called_once()
+            _, kwargs = mock_vs.call_args
+            assert kwargs.get("selected_database") == "GLageKon__db"
+

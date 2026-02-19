@@ -299,6 +299,26 @@ Two related improvements to Phase 2: a new agentic gate before todo generation, 
 
 - [x] **176 Unit Tests**: All pass (1 new `TestAdaptiveTodoCount::test_research_queries_fallback_respects_num_tasks`, 2 rewritten tests in `TestGenerateTodoHitlSmry`)
 
+### Phase 3.13: Database Selection Propagation Fix
+
+Bug fix: the user-selected database was respected for initial vector searches but bypassed in all three reference-resolution fallback paths.
+
+- [x] **Root cause**: `execute_task()` extracted `selected_database` from state and passed it to the main `vector_search()` call, but did **not** pass it to `resolve_reference_enhanced()`. Inside that function, three fallback helpers (`_resolve_section_ref`, `_resolve_document_ref`, `_resolve_academic_ref`) called `vector_search()` without `selected_database`, causing them to search all databases.
+
+- [x] **Fix** (`src/agents/tools.py`):
+  - `_resolve_section_ref(ref, current_doc, selected_database=None)`: passes `selected_database` to `vector_search()`
+  - `_resolve_document_ref(ref, selected_database=None)`: passes `selected_database` to `vector_search()`
+  - `_resolve_academic_ref(ref, selected_database=None)`: passes `selected_database` to `vector_search()`
+  - `_resolve_legal_ref_enhanced(ref, current_doc, selected_database=None)`: passes to `_resolve_section_ref()` fallback
+  - `_resolve_document_ref_enhanced(ref, selected_database=None)`: passes to `_resolve_document_ref()` fallback
+  - `resolve_reference_enhanced(..., selected_database=None)`: accepts and threads `selected_database` to all three sub-resolvers
+
+- [x] **Caller update** (`src/agents/nodes.py`): `resolve_reference_enhanced()` call now includes `selected_database=selected_database`
+
+- [x] **Note**: `_vector_search_scoped()` is **intentionally unchanged** — it uses a registry-resolved `collection_key` (e.g. `"StrlSch"`) which is a targeted cross-document search within the KB. That scoped path does not override user intent; only the broad fallback searches do.
+
+- [x] **179 Unit Tests**: All pass (3 new in `TestSelectedDatabasePropagation`: section ref, document ref, academic ref)
+
 ### Phase 4: Synthesis + Quality (Research Phase 4)
 - [x] `synthesize` node (LLM synthesis from extracted findings)
 - [x] Enhanced `synthesize` with pre-digested task summaries, HITL summary, language enforcement
@@ -569,6 +589,7 @@ def test_graph_execution():
 | **Mixed language output** | LLM ignores language instruction | `generate_structured_with_language()` with validation and retry |
 | **Lost legal/technical precision** | Summarization paraphrases quotes | `preserved_quotes` extracted verbatim during info extraction |
 | **Low-quality synthesis passed through** | No remediation | Agentic quality remediation loop (LLM decides accept/retry, max 1 retry with focused instructions) |
+| **Database selection bypassed in ref-following** | `selected_database` not passed to fallback resolution helpers | `resolve_reference_enhanced()` now accepts and threads `selected_database` to all three sub-resolvers |
 | **Report bloat** | Including everything | Strict extractive summarization |
 | **Long execution times** | Deep recursion | Default N=3, M=4, depth=2 |
 | **Ollama structured output failures** | Wrong method | Use `method="json_mode"` for <30B models |
