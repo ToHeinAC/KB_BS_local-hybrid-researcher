@@ -395,10 +395,10 @@ Produce a citation-aware summary that preserves source attribution.
 Must include:
 - primary information: Factual statements with exact values [source_document.pdf]. Key definition: "verbatim quote" [source_document.pdf]. Reference to §3 Abs. 2 specifies threshold of 6 mSv/a [another_doc.pdf].
 - further information: Supporting context with citation [background_doc.pdf]. Additional background detail [other_doc.pdf].
-- rules:Identified recommended practices and things to avoid or pitfalls, e. g.
+- rules: Identified recommended practices and things to avoid or pitfalls, e. g.
   - recommended practices: Follow the best practices 1, follow the best practices 2, find relevant passages 1, etc.
   - things to avoid or pitfalls: Avoid 1, avoid 2, leave out 1, exclude unintented information 1, etc.
-- gaps: Remaining gap 1, Remaining gap 2
+- gaps: e. g. Remaining gap 1, Remaining gap 2
 """
 
 HITL_SUMMARY_PROMPT_HUMAN = """### Input
