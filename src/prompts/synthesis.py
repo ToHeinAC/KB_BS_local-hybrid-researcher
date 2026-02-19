@@ -209,6 +209,7 @@ CONTENT RULES
   - Treat all DONTs in hitl_findings as hard constraints.
   - Do not include any content that matches a DONT in your report item.
   - If a DONT conflicts with other information, obey the DONT.
+  - Example: In the case the original_query is about climate and hitl_findings put "current weather" in DONT, then do not include current weather in your report.
 - Use research_findings as your primary source.
 - Preserve original wording from source material when possible.
 - Include exact levels, figures, numbers, statistics, thresholds, and limits as they appear in the sources.
@@ -268,9 +269,10 @@ REPORT STRUCTURE — the summary field must be a markdown-formatted deep report:
 
 CONTENT RULES
 - Your highest priority is to follow original_query and hitl_findings.
-  - Treat all DONTs in hitl_findings as hard constraints.
+  - Treat all DONTs in hitl_findings as hard constraints. 
   - Do not include any content that matches a DONT in your report item.
   - If a DONT conflicts with other information, obey the DONT.
+  - Example: In the case the original_query is about climate and hitl_findings put "current weather" in DONT, then do not include current weather in your report.
 - Preserve original wording from source material when possible.
 - Include exact levels, figures, numbers, statistics, thresholds, and limits as they appear in the sources.
 - Reference specific sections, paragraphs, articles (e.g., "§ 80 StrlSchV", "Anlage 4 Teil B").

@@ -400,6 +400,9 @@ Supporting context with citation [background_doc.pdf]. Additional background det
 
 RULES:
 Identified DOs (recommended practices) and DONTs (things to avoid, risks, pitfalls).
+Example:
+- DO: Follow the recommended practices, find relevant passages, etc.
+- DONT: Avoid the things to avoid, exclude unintented information, etc.
 
 GAPS:
 - Remaining gap 1
