@@ -33,6 +33,7 @@ from src.models.research import (
     SearchQueryResult,
 )
 from src.models.results import (
+    ChunkRankingOutput,
     FinalReport,
     Finding,
     LinkedSource,
@@ -43,6 +44,8 @@ from src.models.results import (
     TaskSummaryOutput,
 )
 from src.prompts import (
+    CHUNK_RERANKER_PROMPT_HUMAN,
+    CHUNK_RERANKER_PROMPT_SYSTEM,
     HITL_SUMMARY_PROMPT_HUMAN,
     HITL_SUMMARY_PROMPT_SYSTEM,
     QUALITY_CHECK_PROMPT_HUMAN,
@@ -1618,6 +1621,88 @@ def hitl_finalize(state: AgentState) -> dict:
 # --- Phase D Helpers: Per-Task Structured Summary ---
 
 
+def _rerank_task_chunks(
+    task_primary: list[dict],
+    task_secondary: list[dict],
+    task_tertiary: list[dict],
+    original_query: str,
+    hitl_smry: str,
+    language: str,
+    max_chunks: int = 20,
+) -> list[dict]:
+    """Score and sort task chunks by LLM relevance to query + HITL context.
+
+    One LLM call per chunk. Fallback: chunk["relevance_score"] * 100 on error.
+    Primary chunks fill the cap first, then secondary, then tertiary.
+    Returns chunks sorted descending by _llm_score, each augmented with
+    _llm_score (int 0-100) and _llm_reasoning (str).
+    """
+    client = get_ollama_client()
+    lang_label = "German" if language == "de" else "English"
+    hitl_ctx = hitl_smry or "No prior HITL context"
+
+    candidates: list[dict] = []
+    for chunk in (*task_primary, *task_secondary, *task_tertiary):
+        if len(candidates) >= max_chunks:
+            break
+        candidates.append(chunk)
+
+    if not candidates:
+        return []
+
+    sys_prompt = CHUNK_RERANKER_PROMPT_SYSTEM.format(language=lang_label)
+    scored: list[dict] = []
+
+    for chunk in candidates:
+        text = (chunk.get("extracted_info") or chunk.get("chunk", ""))[:800]
+        try:
+            human_prompt = CHUNK_RERANKER_PROMPT_HUMAN.format(
+                query=original_query,
+                hitl_context=hitl_ctx,
+                text=text,
+                language=lang_label,
+            )
+            result = client.generate_structured_messages(
+                sys_prompt, human_prompt, ChunkRankingOutput,
+            )
+            score, reasoning = result.relevance_score, result.reasoning
+        except Exception:
+            score = int(chunk.get("relevance_score", 0.5) * 100)
+            reasoning = ""
+        scored.append({**chunk, "_llm_score": score, "_llm_reasoning": reasoning})
+
+    scored.sort(key=lambda c: c["_llm_score"], reverse=True)
+    return scored
+
+
+def _format_ranked_findings(ranked_chunks: list[dict], max_chars: int = 12000) -> str:
+    """Format reranked chunks into a numbered string for the summarizer.
+
+    Header per entry: [Rank N | Score N/100 | Doc.pdf, Page P]  // reasoning
+    Body: extracted_info (up to 1500 chars).
+    """
+    if not ranked_chunks:
+        return ""
+    lines: list[str] = []
+    total = 0
+    for rank, chunk in enumerate(ranked_chunks, start=1):
+        score = chunk.get("_llm_score", 0)
+        reasoning = chunk.get("_llm_reasoning", "")
+        header = (
+            f"[Rank {rank} | Score {score}/100 | "
+            f"{chunk.get('document', 'Unknown')}, Page {chunk.get('page', '?')}]"
+        )
+        if reasoning:
+            header += f"  // {reasoning}"
+        text = (chunk.get("extracted_info") or chunk.get("chunk", ""))[:1500]
+        entry = f"{header}\n{text}"
+        if total + len(entry) > max_chars:
+            break
+        lines.append(entry)
+        total += len(entry)
+    return "\n\n".join(lines)
+
+
 def _generate_task_summary(
     task: ToDoItem,
     task_primary: list[dict],
@@ -1641,14 +1726,17 @@ def _generate_task_summary(
     Returns:
         Task summary dict
     """
-    client = get_ollama_client()
     language = query_anchor.get("detected_language", "de")
     original_query = query_anchor.get("original_query", "")
 
-    # Format tiered findings using existing helper
-    primary_text = _format_tiered_findings(task_primary[:15])
-    secondary_text = _format_tiered_findings(task_secondary[:10])
-    tertiary_text = _format_tiered_findings(task_tertiary[:5])
+    # Rerank all tier chunks by LLM relevance, then format for summarizer
+    ranked_chunks = _rerank_task_chunks(
+        task_primary, task_secondary, task_tertiary,
+        original_query=original_query,
+        hitl_smry=hitl_smry,
+        language=language,
+    )
+    ranked_text = _format_ranked_findings(ranked_chunks)
 
     # Collect sources from all tiers
     sources = []
@@ -1664,14 +1752,13 @@ def _generate_task_summary(
     ts_human = TASK_SUMMARY_PROMPT_HUMAN.format(
         task=task.task,
         original_query=original_query,
-        primary_findings=primary_text or "No primary findings",
-        secondary_findings=secondary_text or "No secondary findings",
-        tertiary_findings=tertiary_text or "No tertiary findings",
+        ranked_findings=ranked_text or "No findings available",
         preserved_quotes=quotes_text,
         hitl_smry=hitl_smry or "No prior findings",
         language=language,
     )
 
+    client = get_ollama_client()
     try:
         result = client.generate_structured_messages(
             ts_system, ts_human, TaskSummaryOutput,

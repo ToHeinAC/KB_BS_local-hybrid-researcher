@@ -308,6 +308,20 @@ class RelevanceScoreOutput(BaseModel):
     )
 
 
+class ChunkRankingOutput(BaseModel):
+    """LLM output for scoring one chunk against the query + HITL context."""
+
+    relevance_score: int = Field(
+        ge=0,
+        le=100,
+        description="Relevance score 0-100 (100=directly answers, 0=irrelevant)",
+    )
+    reasoning: str = Field(
+        default="",
+        description="One-sentence explanation of the score in the target language",
+    )
+
+
 class PDFMetadata(BaseModel):
     """PDF document metadata."""
 

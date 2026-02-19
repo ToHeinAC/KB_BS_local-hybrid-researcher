@@ -564,6 +564,119 @@ class TestTaskSummaryHitlSmry:
         assert result["summary"].startswith("Completed task:")
 
 
+    def test_task_summary_system_prompt_has_no_markdown_fences(self):
+        """TASK_SUMMARY_PROMPT_SYSTEM must instruct output raw JSON only."""
+        from src.prompts.research import TASK_SUMMARY_PROMPT_SYSTEM
+
+        # IMPORTANT section must contain the no-fence instruction
+        assert "output raw JSON only" in TASK_SUMMARY_PROMPT_SYSTEM
+        # ranked_findings replaces the three tier variables
+        assert "ranked_findings" in TASK_SUMMARY_PROMPT_SYSTEM
+        assert "primary_findings" not in TASK_SUMMARY_PROMPT_SYSTEM
+
+
+# =============================================================================
+# Chunk Reranker Tests
+# =============================================================================
+
+
+class TestChunkReranker:
+    """Tests for _rerank_task_chunks() helper."""
+
+    def test_reranker_returns_empty_on_empty_input(self):
+        """Empty tier lists return [] without any LLM call."""
+        from unittest.mock import MagicMock, patch
+
+        from src.agents.nodes import _rerank_task_chunks
+
+        mock_client = MagicMock()
+        with patch("src.agents.nodes.get_ollama_client", return_value=mock_client):
+            result = _rerank_task_chunks(
+                task_primary=[], task_secondary=[], task_tertiary=[],
+                original_query="Q", hitl_smry="", language="de",
+            )
+
+        assert result == []
+        mock_client.generate_structured_messages.assert_not_called()
+
+    def test_reranker_sorted_descending_by_llm_score(self):
+        """Chunks are returned sorted best-first by _llm_score."""
+        from unittest.mock import MagicMock, patch
+
+        from src.agents.nodes import _rerank_task_chunks
+        from src.models.results import ChunkRankingOutput
+
+        chunk_a = {"extracted_info": "low relevance text", "document": "A.pdf", "page": 1, "relevance_score": 0.5}
+        chunk_b = {"extracted_info": "high relevance text", "document": "B.pdf", "page": 2, "relevance_score": 0.9}
+
+        call_count = 0
+
+        def side_effect(sys_p, hum_p, model):
+            nonlocal call_count
+            call_count += 1
+            # chunk_a is first in primary → first call → score 30
+            # chunk_b is second → second call → score 90
+            score = 30 if call_count == 1 else 90
+            return ChunkRankingOutput(relevance_score=score, reasoning="reason")
+
+        mock_client = MagicMock()
+        mock_client.generate_structured_messages.side_effect = side_effect
+
+        with patch("src.agents.nodes.get_ollama_client", return_value=mock_client):
+            result = _rerank_task_chunks(
+                task_primary=[chunk_a, chunk_b], task_secondary=[], task_tertiary=[],
+                original_query="Q", hitl_smry="", language="en",
+            )
+
+        assert len(result) == 2
+        assert result[0]["document"] == "B.pdf"
+        assert result[0]["_llm_score"] == 90
+        assert result[1]["document"] == "A.pdf"
+        assert result[1]["_llm_score"] == 30
+
+    def test_reranker_fallback_on_llm_error(self):
+        """On LLM error, _llm_score = int(relevance_score * 100)."""
+        from unittest.mock import MagicMock, patch
+
+        from src.agents.nodes import _rerank_task_chunks
+
+        chunk = {"extracted_info": "text", "document": "X.pdf", "page": 1, "relevance_score": 0.75}
+
+        mock_client = MagicMock()
+        mock_client.generate_structured_messages.side_effect = Exception("LLM down")
+
+        with patch("src.agents.nodes.get_ollama_client", return_value=mock_client):
+            result = _rerank_task_chunks(
+                task_primary=[chunk], task_secondary=[], task_tertiary=[],
+                original_query="Q", hitl_smry="", language="de",
+            )
+
+        assert len(result) == 1
+        assert result[0]["_llm_score"] == int(0.75 * 100)
+
+    def test_reranker_respects_max_chunks_cap(self):
+        """Only max_chunks candidates are scored (LLM call count matches)."""
+        from unittest.mock import MagicMock, patch
+
+        from src.agents.nodes import _rerank_task_chunks
+        from src.models.results import ChunkRankingOutput
+
+        primary = [{"extracted_info": f"p{i}", "document": f"P{i}.pdf", "page": i, "relevance_score": 0.8} for i in range(3)]
+        secondary = [{"extracted_info": f"s{i}", "document": f"S{i}.pdf", "page": i, "relevance_score": 0.6} for i in range(10)]
+
+        mock_client = MagicMock()
+        mock_client.generate_structured_messages.return_value = ChunkRankingOutput(relevance_score=50, reasoning="ok")
+
+        with patch("src.agents.nodes.get_ollama_client", return_value=mock_client):
+            result = _rerank_task_chunks(
+                task_primary=primary, task_secondary=secondary, task_tertiary=[],
+                original_query="Q", hitl_smry="", language="en", max_chunks=5,
+            )
+
+        assert len(result) == 5
+        assert mock_client.generate_structured_messages.call_count == 5
+
+
 # =============================================================================
 # Agentic Decision Tests
 # =============================================================================

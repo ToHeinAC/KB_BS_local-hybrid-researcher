@@ -255,30 +255,29 @@ Synthesize findings for ONE completed research task and assess relevance to the 
 ### Input
 - task: current To-do list task
 - original_query: the original users query
-- hitl_findings: summary of the hitl phase
-- primary_findings (Tier 1 — highest confidence): highest level key findings
-- secondary_findings (Tier 2 — supporting): Secondary findings
-- tertiary_findings (Tier 3 — background): Tertiary findings
+- hitl_findings: summary of the hitl phase (may include DONTs — topics explicitly excluded by the user)
+- ranked_findings: passages ranked best-first by LLM relevance score
+  (each entry shows: Rank, Score/100, source citation, one-line reason, and text)
 - preserved_quotes: quotes in the findings
 
 ### Rules
 STEP-BY-STEP INSTRUCTIONS
-1. Read the task description.
+1. Read the task description. Scan hitl_findings for any DONTs (excluded topics); passages that primarily address a DONT topic must be moved to irrelevant_findings regardless of score.
 2. Re-read the original_query — every output must serve answering it.
 3. Use hitl_findings as established context to understand how this task connects to the original_query.
-4. Process findings by tier priority: primary_findings first, then secondary_findings, then tertiary_findings.
-   For each finding, decide: does it directly help answer the original_query for this task?
-   - YES → include in summary with source citations and exact terminology. Keep relevant passages from the original text.
-   - PARTIALLY → include only the directly relevant part with citation. Keep relevant passages from the original text.
-   - NO (shares keywords but addresses a different topic) → move to irrelevant_findings.
+4. Process ranked_findings in order (Rank 1 = most relevant).
+   For each passage decide:
+   - YES or PARTIALLY (Score ≥ 50) → include in key_findings with citation [Filename.pdf, Page N]. Preserve exact numbers, percentages, measurements, and §-references as they appear in the source.
+   - NO (Score < 25, or keyword overlap but different topic) → move to irrelevant_findings.
+   Contradictions: prefer the higher-ranked passage and note the conflict in gaps.
+   If NO passages address the query at all, set key_findings to [] and explain in gaps.
+   Embed any verbatim text from preserved_quotes inside the relevant key_finding as "quote" [Source.pdf, Page N] — do not list quotes separately.
 5. Work out the key findings for this task. Maintain precise numerical values, ranges, percentages, or measurements. Do not invent information.
 6. Format each citation as [Filename.pdf, Page N] using the source and page from the finding.
-7. If tiers conflict, primary > secondary > tertiary. Note conflicts in gaps.
-8. Embed verbatim quotes from preserved_quotes directly inside key_findings using "quote" [Source.pdf, Page N] format. Do not list them separately.
-9. Identify gaps: what information is still missing to fully answer the original_query for this task?
-10. Write a comprehensive synthesis in {language} that makes use of all information and especially on NEW information from this task. Include literal references to documents, article numbers, section references (e.g., §3 Abs. 2, Anlage 4) exactly as they appear in the source. Reference hitl_findings only when essential context is needed.
-11. Write a one-sentence relevance_assessment.
-12. Score relevance_score (0-100): how well do the findings answer the original_query?
+7. Identify gaps: what information is still missing to fully answer the original_query for this task?
+8. Write a comprehensive synthesis in {language} that makes use of all information and especially on NEW information from this task. Include literal references to documents, article numbers, section references (e.g., §3 Abs. 2, Anlage 4) exactly as they appear in the source. Reference hitl_findings only when essential context is needed.
+9. Write a one-sentence relevance_assessment.
+10. Score relevance_score (0-100): how well do the findings answer the original_query?
     - 80-100: findings directly and substantially answer the query
     - 50-79: findings are partially relevant or cover only a subset
     - 20-49: findings are tangentially related
@@ -306,10 +305,53 @@ TASK_SUMMARY_PROMPT_HUMAN = """
 - task: "{task}"
 - original_query: "{original_query}"
 - hitl_findings: {hitl_smry}
-- primary_findings (Tier 1 — highest confidence): {primary_findings}
-- secondary_findings (Tier 2 — supporting): {secondary_findings}
-- tertiary_findings (Tier 3 — background): {tertiary_findings}
+- ranked_findings (best-first by LLM relevance): {ranked_findings}
 - preserved_quotes: {preserved_quotes}
 
 Synthesize findings for the To-do list task and assess relevance to the original query. Respond in {language} language.
 """
+
+# =============================================================================
+# Phase 3 — Deep Context Extraction: Chunk Reranker
+# =============================================================================
+
+# ─────────────────────────────────────────────────────────────────────────────
+# CHUNK_RERANKER_PROMPT
+# ─────────────────────────────────────────────────────────────────────────────
+# Phase: Phase 3 — Deep Context Extraction (pre-summary reranking)
+# Graph node: execute_task (internal helper)
+# Called by: src/agents/nodes.py :: _rerank_task_chunks()
+# ─────────────────────────────────────────────────────────────────────────────
+CHUNK_RERANKER_PROMPT_SYSTEM = """
+### Role
+You are a relevance judge inside a deep-research agent. Your sole job is to score one text passage against a research query and prior HITL context.
+
+### Goal
+Score how relevant the given passage is for answering the research query, taking into account what has already been established in hitl_context.
+
+### Input
+- query: the user's original research question
+- hitl_context: summary of the HITL clarification phase (may be empty; may include DONTs — topics the user explicitly excluded)
+- text: the passage to score (extracted text from a retrieved document chunk)
+
+### Rules
+1. Use query as your north star; hitl_context tells you the scope and key entities in focus. Especially consider any DONTs in hitl_context — passages that primarily address a DONT topic should receive a severe score penalty (treat as irrelevant).
+2. Score an integer from 0 to 100:
+   - 90-100: directly and precisely answers the query
+   - 70-89: strongly supporting — key figures, thresholds, or definitions the query depends on
+   - 50-69: relevant context — useful background or partial answer
+   - 25-49: tangentially related — topic overlap but does not advance the query
+   - 0-24: irrelevant — different topic, administrative boilerplate, or off-scope
+3. Write reasoning as exactly one sentence in {language}. Preserve exact and precise terminology.
+4. Return ONLY raw JSON, no markdown fences, no preamble.
+
+### Output format
+{{"relevance_score": <0-100>, "reasoning": "<one sentence in {language}>"}}
+"""
+
+CHUNK_RERANKER_PROMPT_HUMAN = """### Input
+- query: "{query}"
+- hitl_context: {hitl_context}
+- text: "{text}"
+
+Score the relevance of this passage to the query. Respond in {language}."""
