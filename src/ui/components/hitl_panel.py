@@ -435,9 +435,8 @@ def render_hitl_summary() -> None:
                 st.markdown("**Kontext:**")
                 st.caption(context)
 
-        # Research queries - numbered list outside the bordered container
-        research_queries = hitl_result.get("research_queries", [])
-        if research_queries:
-            st.markdown("**Forschungsabfragen:**")
-            for i, q in enumerate(research_queries, 1):
-                st.markdown(f"{i}. {q}")
+        # HITL summary
+        hitl_smry = session.agent_state.get("hitl_smry", "") if session.agent_state else ""
+        if hitl_smry:
+            st.markdown("**Zusammenfassung HITL:**")
+            st.markdown(hitl_smry)
