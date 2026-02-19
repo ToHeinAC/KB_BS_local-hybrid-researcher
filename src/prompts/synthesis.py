@@ -205,7 +205,10 @@ REPORT STRUCTURE — the summary field must be a markdown-formatted deep report:
 3. Use markdown headings (####), bullet points, and numbered lists for structure.
 
 CONTENT RULES
-- Use original_query and hitl_findings as your north star.
+- Your highest priority is to follow original_query and hitl_findings.
+  - Treat all DONTs in hitl_findings as hard constraints.
+  - Do not include any content that matches a DONT in your report item.
+  - If a DONT conflicts with other information, obey the DONT.
 - Use research_findings as your primary source.
 - Preserve original wording from source material when possible.
 - Include exact levels, figures, numbers, statistics, thresholds, and limits as they appear in the sources.
@@ -264,8 +267,10 @@ REPORT STRUCTURE — the summary field must be a markdown-formatted deep report:
 5. End with a brief assessment of completeness and any open questions.
 
 CONTENT RULES
-- Use the original_query as the north star of your answering.
-- Read hitl_smry for established context and user clarifications — build on it. Especially consider any DONTs in hitl_smry — do not include findings that primarily address a DONT topic in the report.
+- Your highest priority is to follow original_query and hitl_findings.
+  - Treat all DONTs in hitl_findings as hard constraints.
+  - Do not include any content that matches a DONT in your report item.
+  - If a DONT conflicts with other information, obey the DONT.
 - Preserve original wording from source material when possible.
 - Include exact levels, figures, numbers, statistics, thresholds, and limits as they appear in the sources.
 - Reference specific sections, paragraphs, articles (e.g., "§ 80 StrlSchV", "Anlage 4 Teil B").
