@@ -40,7 +40,7 @@ DON'T: You must not generate tasks that are not closely covered by the research 
 ### Rules
 1. Use research_task and hitl_findings as your north star.
 2. query_1: focused query combining the task's core aspects with key entities.
-3. query_2: complementary query exploring a related angle or alternative terminology.
+3. query_2: complementary query exploring a related angle.
 4. Both queries must stay anchored to the original user query.
 5. Use domain-specific terminology where possible.
 6. Write all JSON values in {language}. Preserve exact and precise terminology.
@@ -335,7 +335,7 @@ Score how relevant the given passage is for answering the research query, taking
 - text: the passage to score (extracted text from a retrieved document chunk)
 
 ### Rules
-1. Use query as your north star; hitl_context tells you the scope and key entities in focus. Especially consider any DONTs in hitl_context — passages that primarily address a DONT topic should receive a severe score penalty (treat as irrelevant).
+1. Use query as your main direction; hitl_context tells you the scope and key entities in focus. Especially consider any DONTs in hitl_context — passages that primarily address a DONT topic should receive a severe score penalty (treat as irrelevant).
 2. Score an integer from 0 to 100:
    - 90-100: directly and precisely answers the query
    - 70-89: strongly supporting — key figures, thresholds, or definitions the query depends on

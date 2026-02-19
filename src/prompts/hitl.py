@@ -388,25 +388,18 @@ Produce a citation-aware summary that preserves source attribution.
 6. Structure the output into two sections:
    - **PRIMARY**: Findings directly relevant to the original query.
    - **SECONDARY**: Tangential or supporting findings that provide useful background.
-7. Cover: user's refined intent, key clarifications, most relevant retrieval findings, DOs (recommended practices) and DONTs (things to avoid, risks, pitfalls), remaining gaps.
+7. Cover: user's refined intent, key clarifications, most relevant retrieval findings, recommended practices and things to avoid or pitfalls, and remaining gaps.
 8. No prefix, suffix, or meta-commentary. Output the summary directly as plain text, no JSON.
 
-### Output format
-PRIMARY:
-Factual statement with exact values [source_document.pdf]. Key definition: "verbatim quote" [source_document.pdf]. Reference to §3 Abs. 2 specifies threshold of 6 mSv/a [another_doc.pdf].
-
-SECONDARY:
-Supporting context with citation [background_doc.pdf]. Additional background detail [other_doc.pdf].
-
-RULES:
-Identified DOs (recommended practices) and DONTs (things to avoid, risks, pitfalls).
-Example:
-- DO: Follow the recommended practices, find relevant passages, etc.
-- DONT: Avoid the things to avoid, exclude unintented information, etc.
-
-GAPS:
-- Remaining gap 1
-- Remaining gap 2"""
+### Output information
+Must include:
+- primary information: Factual statements with exact values [source_document.pdf]. Key definition: "verbatim quote" [source_document.pdf]. Reference to §3 Abs. 2 specifies threshold of 6 mSv/a [another_doc.pdf].
+- further information: Supporting context with citation [background_doc.pdf]. Additional background detail [other_doc.pdf].
+- rules:Identified recommended practices and things to avoid or pitfalls, e. g.
+  - recommended practices: Follow the best practices 1, follow the best practices 2, find relevant passages 1, etc.
+  - things to avoid or pitfalls: Avoid 1, avoid 2, leave out 1, exclude unintented information 1, etc.
+- gaps: Remaining gap 1, Remaining gap 2
+"""
 
 HITL_SUMMARY_PROMPT_HUMAN = """### Input
 - original_query: "{query}"

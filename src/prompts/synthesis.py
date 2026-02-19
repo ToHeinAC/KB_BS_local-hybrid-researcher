@@ -105,7 +105,7 @@ or that have been excluded, e.g. if a term is excluded by the user, you must not
 - language: target language label
 
 ### Rules
-1. Use original_query and hitl_findings as your north star for research generation.
+1. Use original_query and hitl_findings as your main direction for research generation.
 2. Each research question must be specific, measurable, and focused on finding concrete information. Preserve exact and precise terminology.
 3. Each research question must relate to the query concepts and entities.
 4. Assign sequential integer IDs starting from 1.
@@ -206,10 +206,10 @@ REPORT STRUCTURE — the summary field must be a markdown-formatted deep report:
 
 CONTENT RULES
 - Your highest priority is to follow original_query and hitl_findings.
-  - Treat all DONTs in hitl_findings as hard constraints.
-  - Do not include any content that matches a DONT in your report item.
-  - If a DONT conflicts with other information, obey the DONT.
-  - Example: In the case the original_query is about climate and hitl_findings put "current weather" in DONT, then do not include current weather in your report.
+  - Treat all things to avoid or pitfalls in hitl_findings as hard constraints.
+  - Do not include any content that matches an item under things to avoid or pitfalls in your report item.
+  - If things to avoid or pitfalls conflicts with other information, obey the things to avoid or pitfalls.
+  - Example: In the case the original_query is about climate and hitl_findings put "current weather" in the things to avoid or pitfalls, then do not include current weather in your report.
 - Use research_findings as your primary source.
 - Preserve original wording from source material when possible.
 - Include exact levels, figures, numbers, statistics, thresholds, and limits as they appear in the sources.
@@ -269,10 +269,10 @@ REPORT STRUCTURE — the summary field must be a markdown-formatted deep report:
 
 CONTENT RULES
 - Your highest priority is to follow original_query and hitl_findings.
-  - Treat all DONTs in hitl_findings as hard constraints. 
-  - Do not include any content that matches a DONT in your report item.
-  - If a DONT conflicts with other information, obey the DONT.
-  - Example: In the case the original_query is about climate and hitl_findings put "current weather" in DONT, then do not include current weather in your report.
+  - Treat all things to avoid or pitfalls in hitl_findings as hard constraints. 
+  - Do not include any content that matches a things to avoid or pitfalls in your report item.
+  - If things to avoid or pitfalls conflicts with other information, obey the things to avoid or pitfalls.
+  - Example: In the case the original_query is about climate and hitl_findings put "current weather" in things to avoid or pitfalls, then do not include current weather in your report.
 - Preserve original wording from source material when possible.
 - Include exact levels, figures, numbers, statistics, thresholds, and limits as they appear in the sources.
 - Reference specific sections, paragraphs, articles (e.g., "§ 80 StrlSchV", "Anlage 4 Teil B").
