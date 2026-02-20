@@ -681,19 +681,27 @@ def validate_relevance(state: AgentState) -> dict:
     original_query = query_anchor.get("original_query", state.get("query", ""))
     key_entities = query_anchor.get("key_entities", [])
 
-    # Score and filter primary context
+    # Score and filter primary context (GUARANTEE minimum results)
     primary_context = state.get("primary_context", [])
     scored_primary = _score_and_filter_context(
-        primary_context, original_query, key_entities, threshold=0.5
+        primary_context,
+        original_query,
+        key_entities,
+        threshold=0.5,
+        min_results=settings.primary_min_chunks,  # Keep at least 3 primary chunks
     )
 
-    # Score and filter secondary context (slightly lower threshold)
+    # Score and filter secondary context (GUARANTEE minimum results)
     secondary_context = state.get("secondary_context", [])
     scored_secondary = _score_and_filter_context(
-        secondary_context, original_query, key_entities, threshold=0.4
+        secondary_context,
+        original_query,
+        key_entities,
+        threshold=0.4,
+        min_results=settings.secondary_min_chunks,  # Keep at least 2 secondary chunks
     )
 
-    # Tertiary context: light filtering (keep most of it)
+    # Tertiary context: light filtering (no minimum, keep most of it)
     tertiary_context = state.get("tertiary_context", [])
     scored_tertiary = _score_and_filter_context(
         tertiary_context, original_query, key_entities, threshold=0.3
@@ -774,6 +782,7 @@ def _score_and_filter_context(
     query: str,
     key_entities: list[str],
     threshold: float = 0.5,
+    min_results: int = 0,
 ) -> list[dict]:
     """Score context items against query and filter by threshold.
 
@@ -785,6 +794,8 @@ def _score_and_filter_context(
         query: Original query
         key_entities: Key entities from query
         threshold: Minimum relevance score to keep (0.0-1.0)
+        min_results: Minimum number of items to return. If threshold
+            filtering yields fewer, backfill with top-scoring rejected items.
 
     Returns:
         Filtered and sorted list of context items
@@ -793,6 +804,8 @@ def _score_and_filter_context(
     query_words = set(query_lower.split())
 
     scored_items = []
+    all_scored = []  # Track all items with their scores for backfill
+
     for item in context_items:
         # Get text to score
         text = item.get("extracted_info") or item.get("chunk", "") or item.get("text", "")
@@ -818,12 +831,42 @@ def _score_and_filter_context(
         existing_weight = item.get("context_weight", 0.5)
         final_relevance = 0.7 * relevance + 0.3 * existing_weight
 
+        # Store score in item
+        item["final_relevance"] = final_relevance
+        all_scored.append(item)
+
         if final_relevance >= threshold:
-            item["final_relevance"] = final_relevance
             scored_items.append(item)
 
     # Sort by final relevance (highest first)
     scored_items.sort(key=lambda x: x.get("final_relevance", 0), reverse=True)
+
+    # Backfill logic (mirror filter_by_relevance pattern)
+    if len(scored_items) < min_results and len(all_scored) > 0:
+        # Get rejected items
+        rejected_items = [item for item in all_scored if item not in scored_items]
+        rejected_items.sort(
+            key=lambda x: x.get("final_relevance", x.get("context_weight", 0)),
+            reverse=True
+        )
+
+        needed = min(min_results - len(scored_items), len(rejected_items))
+        backfilled = rejected_items[:needed]
+
+        # Mark as backfilled for UI transparency
+        for item in backfilled:
+            item["backfilled"] = True
+            item["backfill_reason"] = (
+                f"Below threshold {threshold:.2f} (score: {item.get('final_relevance', 0):.2f}), "
+                f"kept for visibility"
+            )
+
+        scored_items.extend(backfilled)
+
+        logger.info(
+            f"Backfilled {len(backfilled)} items to meet min_results={min_results} "
+            f"(threshold={threshold:.2f}, passed={len(scored_items) - len(backfilled)})"
+        )
 
     return scored_items
 

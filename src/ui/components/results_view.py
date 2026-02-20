@@ -154,6 +154,17 @@ def _render_task_expanders(session) -> None:
                     primary_ctx, secondary_ctx, tertiary_ctx, task_id,
                 )
                 render_tiered_chunks(t_primary, t_secondary, t_tertiary)
+
+                # Show backfill statistics if any chunks were backfilled
+                backfilled_count = sum(
+                    1 for c in t_primary + t_secondary + t_tertiary
+                    if c.get("backfilled", False)
+                )
+                if backfilled_count > 0:
+                    st.caption(
+                        f"ℹ️ {backfilled_count} Chunk(s) mit geringer Konfidenz "
+                        f"(unter Relevanzschwelle, für Transparenz beibehalten)"
+                    )
             elif idx < len(search_queries):
                 sq = search_queries[idx]
                 chunks = []

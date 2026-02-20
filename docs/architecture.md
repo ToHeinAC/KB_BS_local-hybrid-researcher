@@ -170,10 +170,15 @@ Each entry in `primary_context`, `secondary_context`, `tertiary_context`:
     "depth": int,                 # Recursion depth when found
     "source_type": str,           # "vector_search", "reference", "hitl"
     "task_id": int | None,        # Task ID for per-task UI filtering (optional)
+    "backfilled": bool,           # True if kept despite low relevance (Phase 3.5)
+    "backfill_reason": str,       # Explanation for backfill (when backfilled=True)
+    "final_relevance": float,     # Computed relevance score from validate_relevance
 }
 ```
 
-**Note:** `task_id` is included when entries are created during `execute_task()`, enabling per-task grouping in the UI. Entries without `task_id` (backward compat) trigger flat chunk rendering instead of tiered display.
+**Notes:**
+- `task_id` is included when entries are created during `execute_task()`, enabling per-task grouping in the UI. Entries without `task_id` (backward compat) trigger flat chunk rendering instead of tiered display.
+- `backfilled` and `backfill_reason` are added by `validate_relevance` when chunk doesn't meet threshold but is kept to ensure minimum chunks per task (transparency feature).
 
 ### Preserved Quote Structure (NEW)
 
@@ -384,13 +389,18 @@ For each ToDoList item (starting from Task 0 = original query):
 
 Output: Fully populated ResearchContext + tiered context (primary/secondary/tertiary) + task_summaries (with per-task tiered evidence) + preserved_quotes
 
-### Phase 3.5: Pre-Synthesis Relevance Validation
+### Phase 3.5: Pre-Synthesis Relevance Validation + Backfill
 
 1. **validate_relevance node**: Scores accumulated context against query_anchor
 2. **Drift Detection**: Filters items below relevance threshold (0.5 for primary, 0.4 secondary, 0.3 tertiary)
-3. **Warning Log**: Logs when >30% of accumulated context is filtered as drift
+3. **Chunk Backfill** (NEW): Guarantees minimum chunks per task even if below threshold:
+   - Primary context: minimum 3 chunks (configurable via `PRIMARY_MIN_CHUNKS`)
+   - Secondary context: minimum 2 chunks (configurable via `SECONDARY_MIN_CHUNKS`)
+   - Backfilled chunks marked with `backfilled=True` flag + reason for transparency
+   - Top-scoring rejected chunks selected when backfill needed
+4. **Warning Log**: Logs when >30% of accumulated context is filtered as drift
 
-Output: Filtered tiered context ready for reranking
+Output: Filtered tiered context with guaranteed minimums, ready for reranking
 
 ### Phase 3.6: Task Summary Reranking (NEW)
 

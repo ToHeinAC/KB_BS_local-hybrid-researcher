@@ -60,6 +60,14 @@ MAX_DOCS=5                       # Documents to analyze per task
 DOC_WORD_LIMIT=5000              # Max words per document
 
 # =============================================================================
+# PHASE 3.5: CHUNK FILTERING
+# =============================================================================
+# Minimum chunks to keep per task (even if below relevance threshold)
+# This ensures primary retrieval results remain visible for transparency
+PRIMARY_MIN_CHUNKS=3      # Keep at least 3 primary chunks per task
+SECONDARY_MIN_CHUNKS=2    # Keep at least 2 secondary chunks per task
+
+# =============================================================================
 # PHASE 4: QUALITY ASSURANCE
 # =============================================================================
 ENABLE_QUALITY_CHECKER=true
@@ -199,6 +207,10 @@ class Settings(BaseSettings):
     reference_extraction_method: str = "hybrid"  # "regex", "llm", "hybrid"
     reference_token_budget: int = 50000
     convergence_same_doc_threshold: int = 3
+
+    # Chunk Filtering (Phase 3.5)
+    primary_min_chunks: int = 3  # Minimum primary chunks to keep per task
+    secondary_min_chunks: int = 2  # Minimum secondary chunks to keep per task
 
     # Phase 4
     enable_quality_checker: bool = True

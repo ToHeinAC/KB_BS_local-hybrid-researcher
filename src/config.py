@@ -58,6 +58,10 @@ class Settings(BaseSettings):
     reference_token_budget: int = 50000
     convergence_same_doc_threshold: int = 3
 
+    # Chunk Filtering (Phase 3.5)
+    primary_min_chunks: int = 3  # Minimum primary chunks to keep per task
+    secondary_min_chunks: int = 2  # Minimum secondary chunks to keep per task
+
     # Phase 4: Quality Assurance
     enable_quality_checker: bool = True
     quality_threshold: int = 375

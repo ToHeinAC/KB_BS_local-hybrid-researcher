@@ -35,8 +35,9 @@ Classical RAG lacks deep contextual understanding and cannot follow inter-docume
 │    Token Budget → Convergence Check → Generate Task Summary →       │
 │    Accumulate by Tier (primary/secondary/tertiary) → Next Task      │
 ├────────────────────────────────────────────────────────────────────┤
-│  Phase 3.5: Pre-Synthesis Relevance Validation                      │
+│  Phase 3.5: Pre-Synthesis Relevance Validation + Backfill           │
 │  validate_relevance: Filter drift against query_anchor              │
+│  Guarantee min chunks (3 primary, 2 secondary) for transparency     │
 ├────────────────────────────────────────────────────────────────────┤
 │  Phase 3.6: Task Summary Reranking (NEW)                            │
 │  rerank_task_summaries: Sort summaries by relevance_to_query desc   │
@@ -78,6 +79,7 @@ The system now uses **tiered context classification** to prevent query drift and
 - **Preserved Quotes**: Verbatim extraction of legal/technical language
 - **Task Summaries**: Per-task structured summaries with relevance scoring
 - **Drift Detection**: Pre-synthesis filtering warns when >30% of context is irrelevant
+- **Chunk Backfill**: Guarantees minimum chunks per task (3 primary, 2 secondary) even if below relevance threshold; backfilled chunks marked with ⚠️ badge for transparency
 - **Task Summary Reranking**: Deterministic sort by `relevance_to_query` before synthesis; `[Rank: N/total]` / `[Relevance: N/100]` headers visible in formatted summaries
 - **Language Enforcement**: Strict single-language output with retry on mismatch
 
@@ -215,6 +217,8 @@ Edit `.env` for your setup:
 - `REFERENCE_EXTRACTION_METHOD=hybrid`: Reference detection method (`regex`, `llm`, `hybrid`)
 - `REFERENCE_TOKEN_BUDGET=50000`: Max tokens for reference following per task
 - `CONVERGENCE_SAME_DOC_THRESHOLD=3`: Stop following when same doc appears N times
+- `PRIMARY_MIN_CHUNKS=3`: Minimum primary chunks to keep per task (ensures transparency)
+- `SECONDARY_MIN_CHUNKS=2`: Minimum secondary chunks to keep per task
 
 ## Directory Structure
 

@@ -48,6 +48,8 @@ def render_task_summary_markdown(task_summary) -> None:
 def render_chunk_expander(chunk, index: int) -> None:
     """Render a single chunk as its own expander with full text.
 
+    Shows backfilled status if chunk was kept despite low relevance.
+
     Args:
         chunk: Dict or object with document, page, relevance_score,
                extracted_info, and chunk fields.
@@ -56,15 +58,27 @@ def render_chunk_expander(chunk, index: int) -> None:
     doc = _get(chunk, "document", "Unbekannt")
     page = _get(chunk, "page", "?")
     score = _get(chunk, "relevance_score", 0) or 0
+    backfilled = _get(chunk, "backfilled", False)
     extracted = _get(chunk, "extracted_info", "")
     original = _get(chunk, "chunk", "")
 
+    # Build header with backfill indicator
     header = f"Chunk {index + 1}: {doc}"
     if page and page != "?":
         header += f" (S. {page})"
     header += f" | Relevanz: {score:.2f}"
 
+    # Add low confidence badge for backfilled chunks
+    if backfilled:
+        header += " ⚠️ Geringe Konfidenz"
+
     with st.expander(header, expanded=False):
+        # Show backfill explanation if applicable
+        if backfilled:
+            reason = _get(chunk, "backfill_reason", "Unter Relevanzschwelle, für Transparenz beibehalten")
+            st.info(f"ℹ️ {reason}")
+            st.divider()
+
         if extracted:
             st.markdown(f"**Extraktion:**\n\n{extracted}")
         if extracted and original:

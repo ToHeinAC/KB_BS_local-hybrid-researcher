@@ -37,6 +37,7 @@ streamlit run src/ui/app.py --server.port 8511
 - **Optimized Prompt Architecture**: All prompts in `src/prompts/` package (split by phase: `hitl.py`, `research.py`, `synthesis.py`), each as SYSTEM/HUMAN pairs. The 5 key synthesis/summary prompts use an XML-tag format (`<role>`, `<output_format>`, `<constraints>`, `<content_rules>`, `<example>`) optimized for Qwen3:14b — output schema placed before rules so the LLM anchors on structure first, HARD CONSTRAINTS separated from writing rules, realistic domain examples replacing placeholders.
 - **Language Enforcement**: All 17 content-bearing prompts enforce `{language}`, with validation and retry on mismatch.
 - **Pre-Synthesis Drift Detection**: Filters irrelevant accumulated context before synthesis.
+- **Transparent Chunk Filtering**: Guarantees minimum chunks per task (3 primary, 2 secondary) even if below relevance threshold; backfilled chunks marked with ⚠️ badge to maintain transparency while preventing silent suppression of retrieval results.
 - **Full Human-In-The-Loop**: Checkpoints for query refinement, task list approval, and final result verification.
 - **Privacy-First & Local**: Powered by Ollama and local ChromaDB, ensuring all research data stays on your machine.
 - **Source Attribution**: Detailed citations with clickable PDF links and page numbers.

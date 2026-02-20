@@ -133,10 +133,31 @@ Bug fix: the user-selected database was respected for initial vector searches bu
 
 - [x] **Prompt Optimization for Local LLMs**: 5 SYSTEM prompts → XML tag format (see docs/prompt-opt-guide.md for principles); output format placed 2nd, HARD CONSTRAINTS separated, realistic domain examples
 
-### Phase 3.6: Pre-Synthesis Task Summary Reranker (NEW)
+### Phase 3.6: Pre-Synthesis Task Summary Reranker
 - [x] `rerank_task_summaries()` node: sort by relevance_to_query desc, stamp rank int; warnings for relevance < 0.3
 - [x] Graph wiring: `validate_relevance` → `rerank_task_summaries` → `synthesize`
 - [x] Synthesis weighting: `[Relevance ≥70/100]` = primary evidence, `≤30/100` = supplementary only
+
+### Phase 3.7: Chunk Filtering with Minimum Guarantees (NEW)
+- [x] **Configuration**: Added `primary_min_chunks` (default: 3) and `secondary_min_chunks` (default: 2) settings
+- [x] **Core Logic** (`src/agents/nodes.py`):
+  - Enhanced `_score_and_filter_context()` with `min_results` parameter
+  - Implemented backfill logic: if fewer than `min_results` pass threshold, backfill with top-scoring rejected chunks
+  - Updated `validate_relevance()` to use guaranteed minimums for primary/secondary context
+  - Added logging for backfill events
+- [x] **Transparency Markers**:
+  - Backfilled chunks marked with `backfilled=True` flag
+  - `backfill_reason` field explains why chunk was kept
+- [x] **UI Enhancements** (`src/ui/components/`):
+  - `render_chunk_expander()`: displays ⚠️ badge for backfilled chunks
+  - Info box shows backfill reason (e.g., "Below threshold 0.50, kept for visibility")
+  - `results_view.py`: per-task backfill statistics display
+- [x] **Test Coverage** (`tests/test_chunk_filtering.py`):
+  - 11 comprehensive tests for backfill logic
+  - All tests passing (11/11 new + 65/65 existing)
+- [x] **Documentation**: Updated `.env.example`, `CLAUDE.md`, `docs/architecture.md`, `docs/configuration.md`
+
+**Rationale**: Ensures primary retrieval results remain visible even if they don't meet strict relevance thresholds, preventing silent suppression while maintaining transparency through visual indicators.
 
 ### Phase 7: Polish
 - [x] Multi-collection search
