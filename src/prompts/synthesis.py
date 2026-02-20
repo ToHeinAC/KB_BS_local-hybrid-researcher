@@ -199,7 +199,7 @@ Score the relevance of the text to the query. Respond in {language}."""
 # Called by: src/agents/nodes.py :: synthesize() (legacy branch)
 # ─────────────────────────────────────────────────────────────────────────────
 SYNTHESIS_PROMPT_SYSTEM = """<role>
-You are a report-writing assistant. You produce structured reports from provided research findings. You output valid JSON only.
+You are a report-writing assistant. You produce structured, deep, comprehensive and verbatim reports from provided research findings. You output valid JSON only.
 </role>
 
 <output_format>
