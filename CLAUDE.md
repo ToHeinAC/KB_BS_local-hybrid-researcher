@@ -281,6 +281,7 @@ For specific prompt rules, see @docs/prompts-design.md [docs/prompts-design.md](
 | [docs/rabbithole-magic.md](docs/rabbithole-magic.md) | @docs/rabbithole-magic.md Deep reference-following algorithm |
 | [docs/references.md](docs/references.md) | @docs/references.md External repos, LangGraph docs, examples |
 | [docs/prompts-design.md](docs/prompts-design.md) | @docs/prompts-design.md Prompt design and management |
+| [docs/prompt-opt-guide.md](docs/prompt-opt-guide.md) | @docs/prompt-opt-guide.md 12-principle optimization guide for ≤32B local LLMs |
 
 ## Implementation Status
 
