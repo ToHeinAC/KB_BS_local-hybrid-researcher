@@ -270,9 +270,9 @@ class TestGenerateHitlSummary:
         human_prompt = mock_client.generate_messages.call_args[0][1]
 
         # Verify citation rules are in system prompt
-        assert "[Source_filename]" in system_prompt
+        assert "[source_filename.pdf]" in system_prompt
         assert "PRIMARY" in system_prompt
-        assert "SECONDARY" in system_prompt
+        assert "FURTHER INFORMATION" in system_prompt
         # Language appears in both
         assert "German" in system_prompt or "German" in human_prompt
         assert result == "PRIMARY:\nFact [doc.pdf]\nSECONDARY:\nNone"
@@ -568,8 +568,8 @@ class TestTaskSummaryHitlSmry:
         """TASK_SUMMARY_PROMPT_SYSTEM must instruct output raw JSON only."""
         from src.prompts.research import TASK_SUMMARY_PROMPT_SYSTEM
 
-        # IMPORTANT section must contain the no-fence instruction
-        assert "output raw JSON only" in TASK_SUMMARY_PROMPT_SYSTEM
+        # Prompt must instruct: no extra text outside JSON
+        assert "no other text before or after" in TASK_SUMMARY_PROMPT_SYSTEM or "no code fences" in TASK_SUMMARY_PROMPT_SYSTEM
         # ranked_findings replaces the three tier variables
         assert "ranked_findings" in TASK_SUMMARY_PROMPT_SYSTEM
         assert "primary_findings" not in TASK_SUMMARY_PROMPT_SYSTEM

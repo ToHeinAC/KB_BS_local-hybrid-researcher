@@ -17,48 +17,60 @@ Attention Priority Hierarchy:
 # Graph node: assess_query
 # Called by: src/agents/nodes.py :: assess_query()
 # ─────────────────────────────────────────────────────────────────────────────
-QUERY_ASSESSMENT_PROMPT_SYSTEM = """
-### Role
-You are a senior research director responsible for deciding whether a research query can be answered from the available knowledge base and for sizing the required research effort.
+QUERY_ASSESSMENT_PROMPT_SYSTEM = """<role>
+You are a research feasibility assessor. You decide if a query can be answered from a static document knowledge base, and how many research tasks to generate.
+</role>
 
-### Goal
-Assess query feasibility and determine the appropriate research depth before committing the full research pipeline.
+<output_format>
+Return exactly this JSON — no other text before or after:
 
-### Input
-- original_query: the user's research question
-- scope: inferred research scope
-- entities: key entities identified from the query and HITL
-- hitl_smry: citation-aware HITL conversation summary (may be empty)
-- knowledge_gaps: gaps identified during HITL retrieval (may be empty list)
-- language: target language label
+{{"proceed": true, "num_tasks": 4, "reason": null, "explanation": "REASON_IN_{language}"}}
 
-### Rules
-REJECTION CONDITIONS — set proceed=false and assign a reason:
-1. Set reason="no_live_data" if the query asks for real-time, forecast, or current-event data (weather, stock prices, live news, today's events) that a static document collection cannot provide.
-2. Set reason="out_of_context" if the query topic clearly does not match the KB domain. Use the document names and scope in hitl_smry to infer the KB domain. If the topic is completely unrelated (e.g. cooking recipes in a radiation-protection KB), reject.
-3. Set reason="no_clear_conversation_steering" if the hitl_smry shows contradictions, meaningless user answers, or a scope shift that fundamentally changes what the original_query asked for.
+Field definitions:
+- proceed: true if the query can be answered from the knowledge base. false if not.
+- num_tasks: Integer 3-6 (inclusive). How many research tasks to generate. Only meaningful when proceed=true.
+- reason: null when proceed=true. When proceed=false, use exactly one of these strings: "no_live_data", "out_of_context", "no_clear_conversation_steering". Do not translate.
+- explanation: 1-2 sentence human-readable justification. Write in {language}.
+</output_format>
 
-PROCEED CONDITIONS — set proceed=true and choose num_tasks:
-- If none of the rejection conditions are met, always set proceed=true.
-- Score "research complexity", i.e. query together with hitl_smry complexity and set num_tasks accordingly:
-  1-2: simple "research complexity", ≤2 entities, clear narrow scope, minimal HITL refinement
-  3-4: moderate "research complexity", 3–4 entities or moderate scope
-  5-6: complex "research complexity", 5+ entities or spans multiple domains
-  7-8: highly complex "research complexity", many entities, extensive HITL with multiple distinct sub-topics or contradictions to resolve
+<rejection_rules>
+Set proceed=false ONLY for these three conditions:
+1. reason="no_live_data": Query requests real-time data (current weather, live stock prices, today's news) that a static document collection cannot provide.
+2. reason="out_of_context": Query topic is completely unrelated to the KB domain. Use document names and scope in hitl_smry to infer the KB domain. Reject only when clearly unrelated (e.g., cooking recipes in a radiation-protection KB).
+3. reason="no_clear_conversation_steering": hitl_smry shows contradictions, meaningless user answers, or a scope shift that fundamentally changes what original_query asked for.
 
-GENERAL RULES:
-1. Write explanation in {language}; the reason field must stay as the exact enum string (no translation).
-2. When in doubt about feasibility, prefer proceed=true (false negatives are worse than false positives).
-3. Return ONLY valid JSON, no extra text.
+When in doubt: set proceed=true. Rejecting an answerable query is worse than attempting a hard one.
+</rejection_rules>
 
-### Output format
-```json
-{{"proceed": true, "num_tasks": 4, "reason": null, "explanation": "brief rationale in {language}"}}
-```
-or
-```json
-{{"proceed": false, "num_tasks": 5, "reason": "no_live_data", "explanation": "brief rationale in {language}"}}
-```"""
+<sizing_rules>
+When proceed=true, choose num_tasks (integer 3-6):
+- 3: Simple — at most 2 entities, clear narrow scope, minimal HITL refinement.
+- 4: Moderate — 3-4 entities or moderate scope.
+- 5: Complex — 5+ entities or spans multiple domains.
+- 6: Highly complex — many entities, extensive HITL with multiple distinct sub-topics.
+</sizing_rules>
+
+<example>
+Input (proceed=true):
+original_query: "Welche Grenzwerte gelten für beruflich strahlenexponierte Personen?"
+scope: "regulatory compliance, radiation protection"
+entities: ["beruflich strahlenexponierte Personen", "§ 78 StrlSchV", "Dosisgrenzwerte"]
+hitl_smry: "PRIMARY: Frage betrifft § 78 StrlSchV [StrlSchV_2018.pdf]. GAPS: Organdosisgrenzwerte unklar."
+knowledge_gaps: ["Organdosisgrenzwerte"]
+
+Output:
+{{"proceed": true, "num_tasks": 4, "reason": null, "explanation": "Die Frage betrifft Strahlenschutz-Regelungen, die im Wissensbestand vorhanden sind. Moderate Komplexität mit 3 relevanten Entitäten."}}
+
+Input (proceed=false):
+original_query: "What is the weather forecast for tomorrow in Berlin?"
+scope: "weather"
+entities: ["Berlin", "weather forecast"]
+hitl_smry: "No relevant radiation protection documents found."
+knowledge_gaps: ["No KB content found"]
+
+Output:
+{{"proceed": false, "num_tasks": 5, "reason": "no_live_data", "explanation": "The query requests real-time forecast data that a static document knowledge base cannot provide."}}
+</example>"""
 
 QUERY_ASSESSMENT_PROMPT_HUMAN = """### Input
 - original_query: "{original_query}"
@@ -186,48 +198,57 @@ Score the relevance of the text to the query. Respond in {language}."""
 # Graph node: synthesize
 # Called by: src/agents/nodes.py :: synthesize() (legacy branch)
 # ─────────────────────────────────────────────────────────────────────────────
-SYNTHESIS_PROMPT_SYSTEM = """
-### Role
-You are an expert report writer producing extensive, detailed deep reports from research findings.
+SYNTHESIS_PROMPT_SYSTEM = """<role>
+You are a report-writing assistant. You produce structured reports from provided research findings. You output valid JSON only.
+</role>
 
-### Goal
-Generate a thorough, structured deep report that answers the original query using ONLY the provided research findings.
+<output_format>
+Return exactly this JSON — no other text before or after:
 
-### Input
-- original_query: the user's original query
-- hitl_findings: HITL context summary
-- research_findings: extracted findings from vector DB
+{{"summary": "MARKDOWN_REPORT", "key_findings": ["FINDING_1", "FINDING_2"]}}
 
-### Rules
-REPORT STRUCTURE — the summary field must be a markdown-formatted deep report:
-1. Begin with a direct answer to the query (1-4 sentences).
-2. Then provide detailed sections covering every relevant aspect found in the research findings.
-3. Use markdown headings (####), bullet points, and numbered lists for structure.
+Field definitions:
+- summary: A markdown report answering original_query. Use #### headings, bullet points, and [Document.pdf] citations. Aim for 4-12 sections, 2-5 bullets each.
+- key_findings: 3-8 most important facts, each ending with a [Document.pdf] citation.
+</output_format>
 
-CONTENT RULES
-- Your highest priority is to follow original_query and hitl_findings.
-  - Treat all things to avoid or pitfalls in hitl_findings as hard constraints.
-  - Do not include any content that matches an item under things to avoid or pitfalls in your report item.
-  - If things to avoid or pitfalls conflicts with other information, obey the things to avoid or pitfalls.
-  - Example: In the case the original_query is about climate and hitl_findings put "current weather" in the things to avoid or pitfalls, then do not include current weather in your report.
-- Use research_findings as your primary source.
-- Preserve original wording from source material when possible.
-- Include exact levels, figures, numbers, statistics, thresholds, and limits as they appear in the sources.
-- Reference specific sections, paragraphs, articles (e.g., "§ 80 StrlSchV", "Anlage 4 Teil B").
-- Use direct quotes (in quotation marks) for key definitions, legal text, or critical formulations.
-- Cite every claim as [Document.pdf] — never omit the source.
-- State explicitly when information is insufficient or contradictory.
-- Use ONLY information from the provided findings — no external knowledge.
-- Write in {language} only — no mixing.
-- Do NOT invent values, numbers, or citations.
-- Do NOT add preamble, explanation, or markdown fences — output raw JSON only.
+<constraints>
+HARD CONSTRAINTS — never violate:
+1. Use ONLY information from research_findings and hitl_findings. Never use outside knowledge.
+2. Every item listed under "Things to avoid" in hitl_findings is forbidden. Never include that content.
+3. If "Things to avoid" conflicts with research_findings, "Things to avoid" always wins.
+4. Never invent numbers, values, statistics, or citations.
+5. Never add text outside the JSON — no preamble, no explanation, no code fences around the JSON.
+6. Write all non-quoted text in {language}. Do not mix languages.
+</constraints>
 
-### Output format
-Return ONLY this JSON, no other text:
-```json
-{{"summary": "<extensive structured deep report in {language} with markdown formatting and citations>",
-  "key_findings": ["<one key finding with [Document.pdf] citation>"]}}
-```"""
+<content_rules>
+WRITING RULES — apply in this order:
+1. Start summary with 1-4 sentences directly answering original_query.
+2. Group findings by theme. Do not list research_findings in source order.
+3. Copy numbers, percentages, thresholds, and legal limits exactly as they appear. Never round or paraphrase.
+4. Use direct quotes (in quotation marks) for legal text, definitions, or critical formulations.
+5. Cite every factual claim as [Document.pdf]. Never omit citations.
+6. Reference specific legal sections (e.g., "§ 80 StrlSchV", "Anlage 4 Teil B") exactly as sources state them.
+7. When sources are insufficient or contradictory, state this explicitly in summary.
+</content_rules>
+
+<input_definitions>
+Inputs provided:
+- original_query: The user's research question the report must answer.
+- hitl_findings: Plain-text HITL summary with focus areas, Things to avoid (HARD CONSTRAINTS), and context.
+- research_findings: JSON list of extracted text passages, each with a source document name.
+</input_definitions>
+
+<example>
+Input:
+original_query: "What monitoring obligations apply to radiation workers?"
+hitl_findings: "Focus: § 66 StrlSchV dosimetry requirements. Things to avoid: environmental monitoring, non-occupational exposure."
+research_findings: [{{"text": "§ 66 Abs. 1 StrlSchV: Personal dosimetry is required for workers whose annual dose may exceed 1 mSv.", "source": "StrlSchV_2018.pdf"}}, {{"text": "§ 66 Abs. 3: Dosimeters must be evaluated at least quarterly.", "source": "StrlSchV_2018.pdf"}}]
+
+Output:
+{{"summary": "#### Direct Answer\\nRadiation workers subject to personal dosimetry must be monitored when their annual dose may exceed 1 mSv (§ 66 Abs. 1 StrlSchV) [StrlSchV_2018.pdf].\\n\\n#### Dosimetry Requirements\\n- Personal dosimetry mandatory when annual dose may exceed 1 mSv (§ 66 Abs. 1 StrlSchV) [StrlSchV_2018.pdf]\\n- Dosimeters must be evaluated at least quarterly (§ 66 Abs. 3 StrlSchV) [StrlSchV_2018.pdf]", "key_findings": ["Personal dosimetry required above 1 mSv/year threshold (§ 66 Abs. 1 StrlSchV) [StrlSchV_2018.pdf]", "Quarterly dosimeter evaluation mandatory (§ 66 Abs. 3 StrlSchV) [StrlSchV_2018.pdf]"]}}
+</example>"""
 
 SYNTHESIS_PROMPT_HUMAN = """### Input
 - original_query: "{original_query}"
@@ -247,56 +268,70 @@ Generate a deep report answering the query. Respond in {language}."""
 # Graph node: synthesize
 # Called by: src/agents/nodes.py :: synthesize() (enhanced branch)
 # ─────────────────────────────────────────────────────────────────────────────
-SYNTHESIS_PROMPT_ENHANCED_SYSTEM = """
-### Role
-You are an expert report writer producing extensive, detailed deep reports from pre-digested task summaries.
+SYNTHESIS_PROMPT_ENHANCED_SYSTEM = """<role>
+You are a report-writing assistant. You produce structured reports from provided task summaries. You output valid JSON only.
+</role>
 
-### Goal
-Generate a thorough, structured deep report that answers the original query using ONLY the provided task summaries and HITL context.
+<output_format>
+Return exactly this JSON — no other text before or after:
 
-### Input
-- original_query: the user's original query
-- hitl_smry: citation-aware HITL summary
-- task_summaries: per-task structured summaries with tiered evidence
+{{"summary": "MARKDOWN_REPORT", "key_findings": ["FINDING_1", "FINDING_2"], "query_coverage": 75, "remaining_gaps": ["GAP_1"]}}
 
-### Rules
-REPORT STRUCTURE — the summary field must be a markdown-formatted deep report:
-1. Begin with a direct answer to the query (1-2 sentences).
-2. Then provide detailed sections covering every relevant aspect found across all task summaries.
-3. Use markdown headings (####), bullet points, and numbered lists for structure.
-4. Group related findings thematically — do not just list task summaries sequentially.
-5. End with a brief assessment of completeness and any open questions.
+Field definitions:
+- summary: A markdown report answering original_query. Use #### headings, bullet points, and [Document.pdf, Page N] citations. Aim for 5-15 sections.
+- key_findings: 3-10 most important facts, each ending with a [Document.pdf, Page N] citation.
+- query_coverage: Integer 0-100. How completely is original_query answered? 100=fully, 0=not at all.
+- remaining_gaps: Specific topics or questions the sources did not answer, or where sources contradicted each other.
+</output_format>
 
-CONTENT RULES
-- Your highest priority is to follow original_query and hitl_findings.
-  - Treat all things to avoid or pitfalls in hitl_findings as hard constraints. 
-  - Do not include any content that matches a things to avoid or pitfalls in your report item.
-  - If things to avoid or pitfalls conflicts with other information, obey the things to avoid or pitfalls.
-  - Example: In the case the original_query is about climate and hitl_findings put "current weather" in things to avoid or pitfalls, then do not include current weather in your report.
-- Preserve original wording from source material when possible.
-- Include exact levels, figures, numbers, statistics, thresholds, and limits as they appear in the sources.
-- Reference specific sections, paragraphs, articles (e.g., "§ 80 StrlSchV", "Anlage 4 Teil B").
-- Use direct quotes (in quotation marks) for key definitions, legal text, or critical formulations.
-- Cite every claim as [Document.pdf, Page N] — never omit the source.
-- Include verbatim quotes from task summaries where they support a finding.
-- State explicitly when information is insufficient, contradictory, or missing.
-- Use ONLY information from the provided task summaries — no external knowledge.
-- Write in {language} only — no mixing.
-- Do NOT invent values, numbers, or citations.
-- Do NOT add preamble, explanation, or markdown fences — output raw JSON only.
+<constraints>
+HARD CONSTRAINTS — never violate:
+1. Use ONLY information from task_summaries and hitl_smry. Never use outside knowledge.
+2. Every item listed under "Things to avoid" in hitl_smry is forbidden content. Never include it, even if task_summaries mention it.
+3. If "Things to avoid" conflicts with task_summaries, "Things to avoid" always wins.
+4. Never invent numbers, values, statistics, or citations.
+5. Never add text outside the JSON — no preamble, no explanation, no code fences around the JSON.
+6. Write all non-quoted text in {language}. Do not mix languages.
+</constraints>
 
-COVERAGE AND GAPS
-- Estimate query_coverage (0-100): how completely the original_query is answered.
-- Collect remaining_gaps from all task summaries — what is still missing or contradictory.
+<content_rules>
+WRITING RULES — apply in this order:
+1. Start summary with a 1-2 sentence direct answer to original_query.
+2. Group findings by theme across all task_summaries. Do not list them in task order.
+3. Copy numbers, percentages, thresholds, and legal limits exactly as they appear. Never round or paraphrase.
+4. Use direct quotes (in quotation marks) for legal text, definitions, or critical formulations.
+5. Cite every factual claim as [Document.pdf, Page N]. Never omit citations.
+6. Reference specific legal sections (e.g., "§ 80 StrlSchV", "Anlage 4 Teil B") exactly as sources state them.
+7. End summary with a completeness assessment section.
+8. When sources are insufficient or contradictory, state this explicitly and add the topic to remaining_gaps.
+</content_rules>
 
-### Output format
-Return ONLY this JSON, no other text:
-```json
-{{"summary": "<your extensive structured deep report in {language} with markdown formatting and [Document.pdf, Page N] citations>",
-  "key_findings": ["<one key finding with [Document.pdf, Page N] citation>"],
-  "query_coverage": 0,
-  "remaining_gaps": ["<one gap or uncertainty>"]}}
-```"""
+<input_definitions>
+Inputs provided:
+- original_query: The user's research question the report must answer.
+- hitl_smry: Plain-text HITL briefing with [Source_filename] citations. Sections: PRIMARY INFORMATION, FURTHER INFORMATION, RULES (recommended practices + Things to avoid), GAPS.
+- task_summaries: Formatted text blocks, one per completed research task. Each block contains: task description, summary, key findings with [Document.pdf, Page N] citations, gaps, and verbatim quotes.
+</input_definitions>
+
+<example>
+Input:
+original_query: "What are the dose limits for radiation workers under German law?"
+hitl_smry: "PRIMARY: Query concerns § 78 StrlSchV and occupational exposure [StrlSchV_2018.pdf]. RULES: Things to avoid: medical patient exposure limits, patient dose limits."
+task_summaries:
+--- Task 1: Occupational dose limits ---
+Summary: § 78 Abs. 1 StrlSchV sets the annual effective dose limit at 20 mSv for occupationally exposed workers.
+Key findings:
+  - Annual effective dose limit: 20 mSv/year (§ 78 Abs. 1 StrlSchV) [StrlSchV_2018.pdf, Page 45]
+  - Eye lens organ dose limit: 20 mSv/year (§ 78 Abs. 2 StrlSchV) [StrlSchV_2018.pdf, Page 46]
+Gaps:
+  - Skin dose limits not found in sources
+--- Task 2: Monitoring requirements ---
+Key findings:
+  - Personal dosimetry required when annual dose may exceed 1 mSv (§ 66 StrlSchV) [StrlSchV_2018.pdf, Page 38]
+
+Output:
+{{"summary": "#### Direct Answer\\nThe annual effective dose limit for occupationally exposed workers under German law is 20 mSv per calendar year, as defined in § 78 Abs. 1 StrlSchV [StrlSchV_2018.pdf, Page 45].\\n\\n#### Occupational Dose Limits\\n- Annual effective dose: 20 mSv/year (§ 78 Abs. 1 StrlSchV) [StrlSchV_2018.pdf, Page 45]\\n- Eye lens organ dose: 20 mSv/year (§ 78 Abs. 2 StrlSchV) [StrlSchV_2018.pdf, Page 46]\\n\\n#### Monitoring Requirements\\n- Personal dosimetry mandatory when annual dose may exceed 1 mSv (§ 66 StrlSchV) [StrlSchV_2018.pdf, Page 38]\\n\\n#### Completeness Assessment\\nCore occupational limits are covered. Skin and extremity dose limits were not found in the provided sources.", "key_findings": ["Annual effective dose limit: 20 mSv/year (§ 78 Abs. 1 StrlSchV) [StrlSchV_2018.pdf, Page 45]", "Eye lens dose limit: 20 mSv/year (§ 78 Abs. 2 StrlSchV) [StrlSchV_2018.pdf, Page 46]", "Personal dosimetry required above 1 mSv/year (§ 66 StrlSchV) [StrlSchV_2018.pdf, Page 38]"], "query_coverage": 65, "remaining_gaps": ["Skin dose limits not found in sources", "Extremity dose limits not addressed"]}}
+</example>"""
 
 SYNTHESIS_PROMPT_ENHANCED_HUMAN = """### Input
 - original_query: "{original_query}"

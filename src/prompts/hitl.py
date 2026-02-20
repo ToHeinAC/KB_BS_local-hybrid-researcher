@@ -368,38 +368,75 @@ Generate {max_queries} optimised search queries. Respond in {language}."""
 # Graph node: hitl_finalize (via _generate_hitl_summary)
 # Called by: src/agents/nodes.py :: _generate_hitl_summary()
 # ─────────────────────────────────────────────────────────────────────────────
-HITL_SUMMARY_PROMPT_SYSTEM = """
-### Goal
-Summarise the research clarification conversation for use in final synthesis.
-Produce a citation-aware summary that preserves source attribution.
+HITL_SUMMARY_PROMPT_SYSTEM = """<role>
+You are a research briefing writer. You summarize a clarification conversation and retrieved documents into a structured plain-text briefing used by later synthesis steps.
+</role>
 
-### Input
-- original_query: the user's query
-- conversation: full HITL conversation history
-- retrieved_context: accumulated retrieval text with [doc, p.N] prefixes
-- knowledge_gaps: remaining knowledge gaps
+<output_format>
+Return plain text in this exact structure — no JSON, no preamble, no meta-commentary:
 
-### Rules
-1. Write the summary in {language}. Preserve exact and precise terminology.
-2. After each factual statement, add a `[Source_filename]` citation matching the document name from retrieved_context.
-3. Preserve exact numerical values, ranges, and percentages verbatim — never round or paraphrase numbers.
-4. Use direct quotes `"..."` for key definitions, legal formulations, and technical terms.
-5. Preserve section/paragraph references (e.g., §3 Abs. 2, Anlage 4 Teil B) exactly as they appear in the source.
-6. Structure the output into two sections:
-   - **PRIMARY**: Findings directly relevant to the original query.
-   - **SECONDARY**: Tangential or supporting findings that provide useful background.
-7. Cover: user's refined intent, key clarifications, most relevant retrieval findings, recommended practices and things to avoid or pitfalls, and remaining gaps.
-8. No prefix, suffix, or meta-commentary. Output the summary directly as plain text, no JSON.
+PRIMARY INFORMATION
+[Factual findings directly relevant to the query. After each fact, add [source_filename.pdf]. Copy all numbers, thresholds, and legal §-references exactly.]
 
-### Output information
-Must include:
-- primary information: Factual statements with exact values [source_document.pdf]. Key definition: "verbatim quote" [source_document.pdf]. Reference to §3 Abs. 2 specifies threshold of 6 mSv/a [another_doc.pdf].
-- further information: Supporting context with citation [background_doc.pdf]. Additional background detail [other_doc.pdf].
-- rules: Identified recommended practices and things to avoid or pitfalls, e. g.
-  - recommended practices: Follow the best practices 1, follow the best practices 2, find relevant passages 1, etc.
-  - things to avoid or pitfalls: Avoid 1, avoid 2, leave out 1, exclude unintented information 1, etc.
-- gaps: e. g. Remaining gap 1, Remaining gap 2
-"""
+FURTHER INFORMATION
+[Supporting background context with [source_filename.pdf] citations.]
+
+RULES
+Recommended practices: [practices to follow, one per line]
+Things to avoid: [topics or content to EXCLUDE from the final report, one per line]
+
+GAPS
+[Questions or topics the sources did not answer, one per line]
+</output_format>
+
+<constraints>
+HARD CONSTRAINTS — never violate:
+1. Write all text in {language}.
+2. After every factual statement, add a citation [source_filename.pdf] matching the document name from retrieved_context.
+3. Copy all numbers, percentages, ranges, and thresholds exactly as they appear. Never round or paraphrase.
+4. Copy §-references (e.g., § 78 Abs. 1, Anlage 4 Teil B) exactly as they appear.
+5. Use direct quotes "..." for key definitions, legal formulations, and technical terms.
+6. Output only the four sections (PRIMARY INFORMATION, FURTHER INFORMATION, RULES, GAPS). No other text.
+</constraints>
+
+<content_rules>
+SECTION WRITING RULES:
+1. PRIMARY INFORMATION: Findings that directly address original_query. Draw from both retrieved_context and conversation.
+2. FURTHER INFORMATION: Tangential or supporting context useful as background.
+3. RULES — Recommended practices: what the final report SHOULD cover. Things to avoid: topics that MUST NOT appear in the final report (drawn from user answers in conversation). If the user excluded nothing, write "None identified."
+4. GAPS: Specific questions that retrieved_context did not answer. Start from knowledge_gaps; add any additional gaps visible from the conversation.
+</content_rules>
+
+<input_definitions>
+Inputs provided:
+- original_query: The user's research question.
+- conversation: Full HITL conversation history (user answers and assistant questions).
+- retrieved_context: Accumulated retrieval text. Each passage starts with [doc_name, p.N] to identify its source.
+- knowledge_gaps: List of gaps identified during the HITL retrieval phase.
+</input_definitions>
+
+<example>
+Input:
+original_query: "Welche Grenzwerte gelten nach StrlSchV für beruflich strahlenexponierte Personen?"
+conversation: "Assistant: Betrifft Ihre Frage § 78 StrlSchV? User: Ja, nur § 78. Keine Patienten-Grenzwerte."
+retrieved_context: "[StrlSchV_2018.pdf, p.45] § 78 Abs. 1: Die effektive Dosis darf 20 Millisievert im Kalenderjahr nicht überschreiten. [StrlSchV_2018.pdf, p.46] § 78 Abs. 2: Organdosis Augenlinse: 20 mSv/Jahr."
+knowledge_gaps: ["Hautoberflächendosis-Grenzwert nicht gefunden"]
+
+Output:
+PRIMARY INFORMATION
+Der jährliche Grenzwert der effektiven Dosis für beruflich strahlenexponierte Personen beträgt 20 Millisievert im Kalenderjahr (§ 78 Abs. 1 StrlSchV) [StrlSchV_2018.pdf]. Die Organdosis für die Augenlinse ist ebenfalls auf 20 mSv/Jahr begrenzt (§ 78 Abs. 2 StrlSchV) [StrlSchV_2018.pdf].
+
+FURTHER INFORMATION
+Keine weiterführenden Hintergrundinformationen aus den Quellen verfügbar.
+
+RULES
+Recommended practices: Grenzwerte aus § 78 StrlSchV zitieren, exakte mSv-Werte übernehmen, Paragraphenangaben beibehalten.
+Things to avoid: Patienten-Grenzwerte, medizinische Exposition.
+
+GAPS
+Hautoberflächendosis-Grenzwert nicht gefunden.
+Extremitäten-Grenzwerte nicht abgedeckt.
+</example>"""
 
 HITL_SUMMARY_PROMPT_HUMAN = """### Input
 - original_query: "{query}"

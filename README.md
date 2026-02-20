@@ -33,7 +33,7 @@ streamlit run src/ui/app.py --server.port 8511
 - **Graded Context Management**: Tiered classification (primary/secondary/tertiary) prevents query drift and ensures synthesis quality.
 - **Verbatim Quote Preservation**: Critical legal/technical quotes extracted and preserved for precision.
 - **Deep Report Synthesis**: Produces extensive, structured deep reports (not brief summaries) from pre-digested task summaries, with exact figures, verbatim quotes, and section references, anchored to original intent with HITL context.
-- **Optimized Prompt Architecture**: All prompts in `src/prompts/` package (split by phase: `hitl.py`, `research.py`, `synthesis.py`), each as SYSTEM/HUMAN pairs with proper role separation via `SystemMessage`/`HumanMessage`, improving instruction adherence on small local LLMs.
+- **Optimized Prompt Architecture**: All prompts in `src/prompts/` package (split by phase: `hitl.py`, `research.py`, `synthesis.py`), each as SYSTEM/HUMAN pairs. The 5 key synthesis/summary prompts use an XML-tag format (`<role>`, `<output_format>`, `<constraints>`, `<content_rules>`, `<example>`) optimized for Qwen3:14b — output schema placed before rules so the LLM anchors on structure first, HARD CONSTRAINTS separated from writing rules, realistic domain examples replacing placeholders.
 - **Language Enforcement**: All 17 content-bearing prompts enforce `{language}`, with validation and retry on mismatch.
 - **Pre-Synthesis Drift Detection**: Filters irrelevant accumulated context before synthesis.
 - **Full Human-In-The-Loop**: Checkpoints for query refinement, task list approval, and final result verification.

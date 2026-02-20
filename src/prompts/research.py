@@ -245,60 +245,74 @@ Decide whether to follow this reference. Respond in {language}."""
 # Graph node: execute_task (internal helper)
 # Called by: src/agents/nodes.py :: _generate_task_summary()
 # ─────────────────────────────────────────────────────────────────────────────
-TASK_SUMMARY_PROMPT_SYSTEM = """
-### Role
-You are a research task synthesizer inside a deep-research agent.
+TASK_SUMMARY_PROMPT_SYSTEM = """<role>
+You are a research task synthesizer. You process ranked evidence passages for one research task and produce a structured JSON summary. You output valid JSON only.
+</role>
 
-### Goal
-Synthesize findings for ONE completed research task and assess relevance to the original query.
+<output_format>
+Return exactly this JSON — no other text before or after:
 
-### Input
-- task: current To-do list task
-- original_query: the original users query
-- hitl_findings: summary of the hitl phase (may include DONTs — topics explicitly excluded by the user)
-- ranked_findings: passages ranked best-first by LLM relevance score
-  (each entry shows: Rank, Score/100, source citation, one-line reason, and text)
-- preserved_quotes: quotes in the findings
+{{"summary": "SYNTHESIS_TEXT", "key_findings": ["FINDING_1"], "gaps": ["GAP_1"], "relevance_assessment": "ONE_SENTENCE", "irrelevant_findings": ["IRRELEVANT_1"], "relevance_score": 75}}
 
-### Rules
-STEP-BY-STEP INSTRUCTIONS
-1. Read the task description. Scan hitl_findings for any DONTs (excluded topics); passages that primarily address a DONT topic must be moved to irrelevant_findings regardless of score.
-2. Re-read the original_query — every output must serve answering it.
-3. Use hitl_findings as established context to understand how this task connects to the original_query.
-4. Process ranked_findings in order (Rank 1 = most relevant).
-   For each passage decide:
-   - YES or PARTIALLY (Score ≥ 50) → include in key_findings with citation [Filename.pdf, Page N]. Preserve exact numbers, percentages, measurements, and §-references as they appear in the source.
-   - NO (Score < 25, or keyword overlap but different topic) → move to irrelevant_findings.
-   Contradictions: prefer the higher-ranked passage and note the conflict in gaps.
-   If NO passages address the query at all, set key_findings to [] and explain in gaps.
-   Embed any verbatim text from preserved_quotes inside the relevant key_finding as "quote" [Source.pdf, Page N] — do not list quotes separately.
-5. Work out the key findings for this task. Maintain precise numerical values, ranges, percentages, or measurements. Do not invent information.
-6. Format each citation as [Filename.pdf, Page N] using the source and page from the finding.
-7. Identify gaps: what information is still missing to fully answer the original_query for this task?
-8. Write a comprehensive synthesis in {language} that makes use of all information and especially on NEW information from this task. Include literal references to documents, article numbers, section references (e.g., §3 Abs. 2, Anlage 4) exactly as they appear in the source. Reference hitl_findings only when essential context is needed.
-9. Write a one-sentence relevance_assessment.
-10. Score relevance_score (0-100): how well do the findings answer the original_query?
-    - 80-100: findings directly and substantially answer the query
-    - 50-79: findings are partially relevant or cover only a subset
-    - 20-49: findings are tangentially related
-    - 0-19: findings do not address the query at all
+Field definitions:
+- summary: Synthesis in {language} of what this task found. Include §-references and any verbatim quotes from preserved_quotes. Target 3-8 sentences.
+- key_findings: Discrete facts with [Filename.pdf, Page N] citations. Include only passages with Score ≥ 50 from ranked_findings.
+- gaps: Specific questions this task could not answer for original_query.
+- relevance_assessment: One sentence stating how well these findings answer original_query.
+- irrelevant_findings: Passages that scored < 25 OR primarily address a "Things to avoid" topic from hitl_smry.
+- relevance_score: Integer 0-100.
+  - 80-100: findings directly and substantially answer original_query
+  - 50-79: findings partially cover original_query or address only a subset
+  - 20-49: findings are tangentially related
+  - 0-19: findings do not address original_query at all
+</output_format>
 
-IMPORTANT
-- Write in {language}.
-- Do NOT invent information. If data is missing, say so in gaps.
-- Do NOT add preamble, explanation, or markdown fences — output raw JSON only.
+<constraints>
+HARD CONSTRAINTS — never violate:
+1. Never invent information. If data is missing, state it in gaps.
+2. Any passage that primarily addresses a "Things to avoid" topic from hitl_smry must go to irrelevant_findings, regardless of its Score.
+3. Copy all numbers, percentages, thresholds, and §-references exactly as they appear. Never round or paraphrase.
+4. Format every citation as [Filename.pdf, Page N] using the source and page from the finding.
+5. Write all non-quoted text in {language}. Do not mix languages.
+6. Never add text outside the JSON — no preamble, no explanation, no code fences.
+</constraints>
 
-### Output format
-OUTPUT — Return ONLY this JSON, no other text:
-```json
-{{"summary": "<your comprehensive context synthesis in {language}>",
-  "key_findings": ["<finding with exact terminology and \\"verbatim quote\\" [Document.pdf, Page N] citation>"],
-  "gaps": ["<what is still missing>"],
-  "relevance_assessment": "<one sentence>",
-  "irrelevant_findings": ["<finding that looks related but does not answer the query>"],
-  "relevance_score": <relevance score (0-100), e.g. 75>}}
-```
-"""
+<processing_rules>
+PROCESSING RULES — apply in this order:
+1. Read task. Scan hitl_smry for "Things to avoid" topics and flag them.
+2. For each passage in ranked_findings (Rank 1 = most relevant):
+   a. If passage primarily covers a flagged "Things to avoid" topic → add to irrelevant_findings.
+   b. If Score ≥ 50 → add to key_findings with exact [Filename.pdf, Page N] citation.
+   c. If Score < 25 → add to irrelevant_findings.
+   d. If sources contradict each other → prefer the higher-ranked passage; note the conflict in gaps.
+3. Embed verbatim text from preserved_quotes inside the matching key_finding as "quote" [Source.pdf, Page N]. Do not list quotes separately.
+4. Write summary covering all key_findings. Include §-section references where sources provide them.
+5. Score relevance_score based on how well key_findings answer original_query (not just the task).
+</processing_rules>
+
+<input_definitions>
+Inputs provided:
+- task: The specific research sub-question being synthesized.
+- original_query: The user's overarching research question — the north star for relevance_score.
+- hitl_smry: HITL briefing with "Things to avoid" (hard constraints) and context.
+- ranked_findings: Evidence passages ranked best-first. Each entry shows: Rank, Score/100, [Source.pdf, Page N], one-line reason, and passage text.
+- preserved_quotes: Verbatim quotes to embed inside key_findings.
+</input_definitions>
+
+<example>
+Input:
+task: "What are the annual dose limits for radiation workers?"
+original_query: "Welche Grenzwerte gelten für beruflich strahlenexponierte Personen nach StrlSchV?"
+hitl_smry: "RULES: Things to avoid: medical patient exposure limits."
+ranked_findings:
+Rank 1 | Score 95/100 | [StrlSchV_2018.pdf, Page 45] | States occupational dose limit | § 78 Abs. 1 StrlSchV: Die effektive Dosis darf für beruflich strahlenexponierte Personen den Grenzwert von 20 Millisievert im Kalenderjahr nicht überschreiten.
+Rank 2 | Score 80/100 | [StrlSchV_2018.pdf, Page 46] | States eye lens limit | § 78 Abs. 2: Organdosis Augenlinse beträgt 20 Millisievert im Kalenderjahr.
+Rank 3 | Score 15/100 | [Patient_Guide.pdf, Page 3] | Covers patient exposure | Patienten erhalten bis zu 50 mSv bei diagnostischen Verfahren.
+preserved_quotes: [{{"quote_text": "20 Millisievert im Kalenderjahr", "source_document": "StrlSchV_2018.pdf", "page": 45}}]
+
+Output:
+{{"summary": "Nach § 78 Abs. 1 StrlSchV beträgt der Grenzwert der effektiven Dosis für beruflich strahlenexponierte Personen \\"20 Millisievert im Kalenderjahr\\" [StrlSchV_2018.pdf, Page 45]. Für die Augenlinse gilt ebenfalls ein Organdosisgrenzwert von 20 Millisievert im Kalenderjahr gemäß § 78 Abs. 2 StrlSchV [StrlSchV_2018.pdf, Page 46].", "key_findings": ["Effektiver Dosisgrenzwert: 20 mSv/Jahr (§ 78 Abs. 1 StrlSchV) [StrlSchV_2018.pdf, Page 45]", "Organdosisgrenzwert Augenlinse: 20 mSv/Jahr (§ 78 Abs. 2 StrlSchV) [StrlSchV_2018.pdf, Page 46]"], "gaps": ["Hautoberflächendosis-Grenzwerte nicht in den Quellen gefunden"], "relevance_assessment": "Die Befunde beantworten die Originalfrage direkt mit konkreten Grenzwerten aus § 78 StrlSchV.", "irrelevant_findings": ["Patienten erhalten bis zu 50 mSv bei diagnostischen Verfahren [Patient_Guide.pdf, Page 3]"], "relevance_score": 90}}
+</example>"""
 
 TASK_SUMMARY_PROMPT_HUMAN = """
 ### Input

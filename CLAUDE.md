@@ -256,6 +256,11 @@ KB_BS_local-hybrid-researcher/
 **All LLM prompts MUST be defined in `src/prompts/` package** (split by phase: `hitl.py`, `research.py`, `synthesis.py`).
 Every prompt is split into a `_SYSTEM` / `_HUMAN` pair (e.g. `TODO_GENERATION_PROMPT_SYSTEM` + `TODO_GENERATION_PROMPT_HUMAN`).
 All callers use `OllamaClient.generate_structured_messages()` or `generate_messages()` with separate system/human arguments.
+
+Two SYSTEM prompt formats co-exist (see `docs/prompts-design.md` for full rules):
+- **XML tag format** (`<role>`, `<output_format>`, `<constraints>`, `<content_rules>`, `<input_definitions>`, `<example>`): used by the 5 synthesis/summary prompts (`SYNTHESIS_PROMPT_ENHANCED_SYSTEM`, `SYNTHESIS_PROMPT_SYSTEM`, `QUERY_ASSESSMENT_PROMPT_SYSTEM`, `HITL_SUMMARY_PROMPT_SYSTEM`, `TASK_SUMMARY_PROMPT_SYSTEM`). Output format is placed 2nd so the LLM sees the schema before the rules.
+- **Markdown section format** (`### Role / ### Goal / ### Rules / ### Output format`): used by all other prompts.
+
 For specific prompt rules, see @docs/prompts-design.md [docs/prompts-design.md](docs/prompts-design.md).
 
 ## Documentation

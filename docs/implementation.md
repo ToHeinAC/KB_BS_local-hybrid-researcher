@@ -439,6 +439,48 @@ Two targeted fixes restoring database-scoped reference following and improving t
   - `hitl_smry` is always available by the time the research phase starts (created in `_start_research_from_hitl()` for chat-based HITL or in `hitl_finalize` for graph-based HITL)
   - Users now see the LLM-generated citation-aware summary instead of internal search query strings
 
+### Phase 3.14: Prompt Optimization for Local LLMs
+
+Five `_SYSTEM` prompts rewritten for better instruction adherence on Qwen3:14b and similar small local models.
+No changes to `_HUMAN` counterparts, graph logic, Pydantic models, or callers.
+
+- [x] **XML tag format** introduced for synthesis/summary SYSTEM prompts (`src/prompts/synthesis.py`, `src/prompts/hitl.py`, `src/prompts/research.py`):
+  - Replaced `### Role / ### Goal / ### Rules / ### Output format` markdown headers with semantic XML tags: `<role>`, `<output_format>`, `<constraints>`, `<content_rules>`, `<input_definitions>`, `<example>`
+  - Output format placed **2nd** (immediately after role) so the LLM anchors on the schema before reading rules
+  - HARD CONSTRAINTS (grounding, no invention, language) separated from WRITING RULES (style, ordering, citation format)
+  - Realistic domain examples added (German radiation-protection domain, not placeholder text)
+
+- [x] **`SYNTHESIS_PROMPT_ENHANCED_SYSTEM`** (`src/prompts/synthesis.py`):
+  - Bug fix: referenced `hitl_findings` but variable is `hitl_smry` — corrected throughout
+  - Operationalized output target: "5-15 sections" instead of "thorough/extensive"
+  - `<input_definitions>` section explicitly describes `hitl_smry` structure (PRIMARY INFORMATION / FURTHER INFORMATION / RULES / GAPS)
+
+- [x] **`SYNTHESIS_PROMPT_SYSTEM`** (legacy branch, `src/prompts/synthesis.py`):
+  - Same XML/structure improvements as enhanced variant
+  - Compact realistic example added
+
+- [x] **`QUERY_ASSESSMENT_PROMPT_SYSTEM`** (`src/prompts/synthesis.py`):
+  - Bug fix: `num_tasks` sizing table included 7-8 range, but the model is clamped to 3-6 — removed 7-8 row
+  - Two realistic examples (approve + reject) replace the placeholder JSON snippets
+  - `<sizing_rules>` block: one line per complexity tier (3/4/5/6)
+
+- [x] **`HITL_SUMMARY_PROMPT_SYSTEM`** (`src/prompts/hitl.py`):
+  - Added `<role>` section (previously only had `### Goal`)
+  - Output sections: PRIMARY/SECONDARY → **PRIMARY INFORMATION / FURTHER INFORMATION / RULES / GAPS**
+  - `<output_format>` block shows the exact four-section plain-text template
+  - `Things to avoid` section made explicit: downstream synthesis prompts read it as HARD CONSTRAINTS
+  - German-language domain example added
+
+- [x] **`TASK_SUMMARY_PROMPT_SYSTEM`** (`src/prompts/research.py`):
+  - Flattened nested 3-level bullet lists into numbered `<processing_rules>` (one action per step)
+  - `<input_definitions>` defines `ranked_findings` format (Rank | Score/100 | [Source, Page] | reason | text)
+  - German-language example with flagged irrelevant patient-exposure passage
+
+- [x] **2 test assertions updated** (`tests/test_agents.py`):
+  - `TestGenerateHitlSummary::test_prompt_contains_citation_instructions`: `"SECONDARY"` → `"FURTHER INFORMATION"`, `"[Source_filename]"` → `"[source_filename.pdf]"`
+  - `TestTaskSummaryHitlSmry::test_task_summary_system_prompt_has_no_markdown_fences`: `"output raw JSON only"` → checks for `"no other text before or after"` or `"no code fences"`
+- [x] **184 tests pass** (no regressions)
+
 ### Phase 7: Polish
 - [x] Multi-collection search
 - [ ] Query history and caching
