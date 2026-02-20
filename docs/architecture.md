@@ -39,8 +39,12 @@
 │  ├─ Accumulate by tier (primary/secondary/tertiary)                      │
 │  └─ Loop until all tasks completed                                       │
 │                                                                          │
-│  Phase 3.5: Pre-Synthesis Relevance Validation (NEW)                     │
+│  Phase 3.5: Pre-Synthesis Relevance Validation                           │
 │  └─ validate_relevance: filter drift against query_anchor                │
+│                                                                          │
+│  Phase 3.6: Task Summary Reranking (NEW)                                 │
+│  └─ rerank_task_summaries: sort by relevance_to_query desc, stamp rank   │
+│     → synthesis prompt weights high-relevance findings over low ones     │
 │                                                                          │
 │  Phase 4: Query-Anchored Synthesis & Quality Assurance                   │
 │  ├─ synthesize: pre-digested task summaries + HITL summary               │
@@ -380,13 +384,24 @@ For each ToDoList item (starting from Task 0 = original query):
 
 Output: Fully populated ResearchContext + tiered context (primary/secondary/tertiary) + task_summaries (with per-task tiered evidence) + preserved_quotes
 
-### Phase 3.5: Pre-Synthesis Relevance Validation (NEW)
+### Phase 3.5: Pre-Synthesis Relevance Validation
 
 1. **validate_relevance node**: Scores accumulated context against query_anchor
 2. **Drift Detection**: Filters items below relevance threshold (0.5 for primary, 0.4 secondary, 0.3 tertiary)
 3. **Warning Log**: Logs when >30% of accumulated context is filtered as drift
 
-Output: Filtered tiered context ready for synthesis
+Output: Filtered tiered context ready for reranking
+
+### Phase 3.6: Task Summary Reranking (NEW)
+
+1. **rerank_task_summaries node**: Deterministic sort — no LLM call
+2. **Sort key**: descending `relevance_to_query` float; ascending `task_id` breaks ties
+3. **Rank stamping**: adds `rank` int (1 = most relevant) to each summary dict
+4. **Low-relevance warning**: logs task IDs with `relevance_to_query < 0.3`
+5. **_format_task_summaries()**: renders each header as `--- Task N: ... [Rank: N/total] [Relevance: N/100] ---`
+6. **Synthesis prompt rule**: tasks with Relevance ≥70/100 = primary evidence; ≤30/100 = supplementary context only
+
+Output: Sorted task_summaries with rank metadata, ready for synthesis
 
 ### Phase 4: Query-Anchored Synthesis + Quality Assurance
 

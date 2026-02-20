@@ -1017,3 +1017,73 @@ class TestHitlTerminationPaths:
 
         assert "hitl_conversation_history" in result
         assert "hitl_termination_reason" not in result or result.get("hitl_termination_reason") is None
+
+
+class TestRerankerTaskSummaries:
+    """Tests for rerank_task_summaries() node."""
+
+    def test_sorts_descending_by_relevance(self):
+        from src.agents.nodes import rerank_task_summaries
+
+        summaries = [
+            {"task_id": 1, "task_text": "T1", "summary": "s", "relevance_to_query": 0.4},
+            {"task_id": 2, "task_text": "T2", "summary": "s", "relevance_to_query": 0.9},
+            {"task_id": 3, "task_text": "T3", "summary": "s", "relevance_to_query": 0.6},
+        ]
+        result = rerank_task_summaries({"task_summaries": summaries})
+        ranked = result["task_summaries"]
+        assert ranked[0]["task_id"] == 2   # 0.9 first
+        assert ranked[1]["task_id"] == 3   # 0.6 second
+        assert ranked[2]["task_id"] == 1   # 0.4 last
+
+    def test_rank_field_stamped_correctly(self):
+        from src.agents.nodes import rerank_task_summaries
+
+        summaries = [
+            {"task_id": 10, "task_text": "Low", "summary": "s", "relevance_to_query": 0.2},
+            {"task_id": 11, "task_text": "High", "summary": "s", "relevance_to_query": 0.8},
+        ]
+        result = rerank_task_summaries({"task_summaries": summaries})
+        ranked = result["task_summaries"]
+        assert ranked[0]["rank"] == 1 and ranked[0]["task_id"] == 11
+        assert ranked[1]["rank"] == 2 and ranked[1]["task_id"] == 10
+
+    def test_tie_broken_by_task_id_ascending(self):
+        from src.agents.nodes import rerank_task_summaries
+
+        summaries = [
+            {"task_id": 5, "task_text": "B", "summary": "s", "relevance_to_query": 0.7},
+            {"task_id": 2, "task_text": "A", "summary": "s", "relevance_to_query": 0.7},
+        ]
+        result = rerank_task_summaries({"task_summaries": summaries})
+        assert result["task_summaries"][0]["task_id"] == 2  # lower task_id first on tie
+
+    def test_empty_summaries_returns_synthesize_phase(self):
+        from src.agents.nodes import rerank_task_summaries
+
+        result = rerank_task_summaries({"task_summaries": []})
+        assert result["phase"] == "synthesize"
+
+    def test_format_includes_rank_and_relevance(self):
+        from src.agents.nodes import _format_task_summaries
+
+        summaries = [
+            {"task_id": 1, "task_text": "DoseLimit", "summary": "20 mSv",
+             "relevance_to_query": 0.85, "rank": 1,
+             "key_findings": [], "gaps": [], "preserved_quotes": []},
+            {"task_id": 2, "task_text": "Monitoring", "summary": "quarterly",
+             "relevance_to_query": 0.4, "rank": 2,
+             "key_findings": [], "gaps": [], "preserved_quotes": []},
+        ]
+        text = _format_task_summaries(summaries)
+        assert "[Rank: 1/2]" in text
+        assert "[Relevance: 85/100]" in text
+        assert "[Rank: 2/2]" in text
+        assert "[Relevance: 40/100]" in text
+
+
+class TestRouteAfterValidateRelevance:
+    def test_routes_to_rerank(self):
+        from src.agents.graph import route_after_validate_relevance
+
+        assert route_after_validate_relevance({}) == "rerank_task_summaries"

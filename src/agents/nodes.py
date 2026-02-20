@@ -721,6 +721,54 @@ def validate_relevance(state: AgentState) -> dict:
     }
 
 
+# --- Phase 3.6: Task Summary Reranking ---
+
+
+def rerank_task_summaries(state: AgentState) -> dict:
+    """Sort task summaries by relevance_to_query before synthesis.
+
+    Deterministic — no LLM call. Uses relevance_to_query already computed
+    by _generate_task_summary() (Phase D). Adds 'rank' int (1 = most relevant)
+    to each summary dict so _format_task_summaries() can surface it.
+
+    Args:
+        state: Current agent state
+
+    Returns:
+        State update with reranked task_summaries and phase="synthesize"
+    """
+    task_summaries = list(state.get("task_summaries", []))
+
+    if not task_summaries:
+        return {"phase": "synthesize"}
+
+    low_relevance_threshold = 0.3
+
+    # Sort: descending by relevance_to_query; ascending task_id breaks ties
+    sorted_summaries = sorted(
+        task_summaries,
+        key=lambda ts: (-ts.get("relevance_to_query", 0.0), ts.get("task_id", 0)),
+    )
+
+    # Stamp rank (1 = most relevant)
+    for position, ts in enumerate(sorted_summaries, start=1):
+        ts["rank"] = position
+
+    low_rel = [ts for ts in sorted_summaries if ts.get("relevance_to_query", 0.0) < low_relevance_threshold]
+    if low_rel:
+        logger.warning(
+            "rerank_task_summaries: %d/%d summaries below %.1f threshold: task_ids=%s",
+            len(low_rel), len(sorted_summaries), low_relevance_threshold,
+            [ts.get("task_id") for ts in low_rel],
+        )
+
+    return {
+        "task_summaries": sorted_summaries,
+        "phase": "synthesize",
+        "messages": [f"Reranked {len(sorted_summaries)} task summaries by relevance_to_query"],
+    }
+
+
 def _score_and_filter_context(
     context_items: list[dict],
     query: str,
@@ -1014,7 +1062,16 @@ def _format_task_summaries(task_summaries: list[dict]) -> str:
         gaps = ts.get("gaps", [])
         quotes = ts.get("preserved_quotes", [])
 
-        lines = [f"--- Task {tid}: {task_text} ---", f"Summary: {summary}"]
+        relevance = ts.get("relevance_to_query", None)
+        rank = ts.get("rank", None)
+        total = len(task_summaries)
+        header_parts = [f"--- Task {tid}: {task_text}"]
+        if rank is not None:
+            header_parts.append(f"[Rank: {rank}/{total}]")
+        if relevance is not None:
+            header_parts.append(f"[Relevance: {round(relevance * 100)}/100]")
+        header_parts.append("---")
+        lines = [" ".join(header_parts), f"Summary: {summary}"]
 
         if key_findings:
             lines.append("Key findings:")

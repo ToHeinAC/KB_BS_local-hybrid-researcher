@@ -14,6 +14,7 @@ from src.agents.nodes import (
     hitl_approve_todo,
     process_hitl_todo,
     quality_check,
+    rerank_task_summaries,
     synthesize,
     validate_relevance,
     # Enhanced Phase 1: Iterative HITL nodes
@@ -180,8 +181,15 @@ def route_after_execute(
 
 def route_after_validate_relevance(
     state: AgentState,
+) -> Literal["rerank_task_summaries"]:
+    """Route after relevance validation — rerank before synthesis."""
+    return "rerank_task_summaries"
+
+
+def route_after_rerank(
+    state: AgentState,
 ) -> Literal["synthesize"]:
-    """Route after relevance validation - always go to synthesis."""
+    """Route after task summary reranking — always go to synthesis."""
     return "synthesize"
 
 
@@ -239,6 +247,7 @@ def create_research_graph() -> StateGraph:
     graph.add_node("process_hitl_todo", process_hitl_todo)
     graph.add_node("execute_task", execute_task)
     graph.add_node("validate_relevance", validate_relevance)  # Phase G
+    graph.add_node("rerank_task_summaries", rerank_task_summaries)  # Phase 3.6
     graph.add_node("synthesize", synthesize)
     graph.add_node("quality_check", quality_check)
     graph.add_node("attribute_sources", attribute_sources)
@@ -372,6 +381,15 @@ def create_research_graph() -> StateGraph:
     graph.add_conditional_edges(
         "validate_relevance",
         route_after_validate_relevance,
+        {
+            "rerank_task_summaries": "rerank_task_summaries",
+        },
+    )
+
+    # Phase 3.6: Task Summary Reranking
+    graph.add_conditional_edges(
+        "rerank_task_summaries",
+        route_after_rerank,
         {
             "synthesize": "synthesize",
         },

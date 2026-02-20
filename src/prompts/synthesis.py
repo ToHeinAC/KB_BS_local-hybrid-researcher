@@ -215,11 +215,13 @@ Field definitions:
 <constraints>
 HARD CONSTRAINTS — never violate:
 1. Use ONLY information from research_findings and hitl_findings. Never use outside knowledge.
-2. Every item listed under "Things to avoid" in hitl_findings is forbidden. Never include that content.
-3. If "Things to avoid" conflicts with research_findings, "Things to avoid" always wins.
-4. Never invent numbers, values, statistics, or citations.
-5. Never add text outside the JSON — no preamble, no explanation, no code fences around the JSON.
-6. Write all non-quoted text in {language}. Do not mix languages.
+2. Order findings by [Relevance: N/100] score shown in each task header. 
+3. Make use of the findings ordering, that is Rank 1 = most relevant, Rank 2 = also relevant, a bit less than Rank 1 and so on.
+4. Every item listed under "Things to avoid" in hitl_findings is forbidden. Never include that content.
+5. If "Things to avoid" conflicts with research_findings, "Things to avoid" always wins.
+6. Never invent numbers, values, statistics, or citations.
+7. Never add text outside the JSON — no preamble, no explanation, no code fences around the JSON.
+8. Write all non-quoted text in {language}. Do not mix languages.
 </constraints>
 
 <content_rules>
@@ -287,17 +289,19 @@ Field definitions:
 <constraints>
 HARD CONSTRAINTS — never violate:
 1. Use ONLY information from task_summaries and hitl_smry. Never use outside knowledge.
-2. Every item listed under "Things to avoid" in hitl_smry is forbidden content. Never include it, even if task_summaries mention it.
-3. If "Things to avoid" conflicts with task_summaries, "Things to avoid" always wins.
-4. Never invent numbers, values, statistics, or citations.
-5. Never add text outside the JSON — no preamble, no explanation, no code fences around the JSON.
-6. Write all non-quoted text in {language}. Do not mix languages.
+2. Order findings by [Relevance: N/100] score shown in each task header. 
+3. Make use of the findings ordering, that is Rank 1 = most relevant, Rank 2 = also relevant, a bit less than Rank 1 and so on.
+4. Every item listed under "Things to avoid" in hitl_smry is forbidden content. Never include it, even if task_summaries mention it.
+5. If "Things to avoid" conflicts with task_summaries, "Things to avoid" always wins.
+6. Never invent numbers, values, statistics, or citations.
+7. Never add text outside the JSON — no preamble, no explanation, no code fences around the JSON.
+8. Write all non-quoted text in {language}. Do not mix languages.
 </constraints>
 
 <content_rules>
 WRITING RULES — apply in this order:
 1. Start summary with a 1-2 sentence direct answer to original_query.
-2. Group findings by theme across all task_summaries. Do not list them in task order.
+2. Go on with details.
 3. Copy numbers, percentages, thresholds, and legal limits exactly as they appear. Never round or paraphrase.
 4. Use direct quotes (in quotation marks) for legal text, definitions, or critical formulations.
 5. Cite every factual claim as [Document.pdf, Page N]. Never omit citations.
@@ -310,7 +314,7 @@ WRITING RULES — apply in this order:
 Inputs provided:
 - original_query: The user's research question the report must answer.
 - hitl_smry: Plain-text HITL briefing with [Source_filename] citations. Sections: PRIMARY INFORMATION, FURTHER INFORMATION, RULES (recommended practices + Things to avoid), GAPS.
-- task_summaries: Formatted text blocks, one per completed research task. Each block contains: task description, summary, key findings with [Document.pdf, Page N] citations, gaps, and verbatim quotes.
+- task_summaries: Formatted text blocks ordered by relevance (highest first). Each block header shows [Rank: N/total] and [Relevance: N/100]. Blocks with Relevance ≥70/100 are primary evidence; blocks with Relevance ≤30/100 are supplementary context. Each block also contains: task description, summary, key findings with [Document.pdf, Page N] citations, gaps, and verbatim quotes.
 </input_definitions>
 
 <example>

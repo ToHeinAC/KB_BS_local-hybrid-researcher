@@ -255,14 +255,14 @@ Return exactly this JSON — no other text before or after:
 {{"summary": "SYNTHESIS_TEXT", "key_findings": ["FINDING_1"], "gaps": ["GAP_1"], "relevance_assessment": "ONE_SENTENCE", "irrelevant_findings": ["IRRELEVANT_1"], "relevance_score": 75}}
 
 Field definitions:
-- summary: Synthesis in {language} of what this task found. Include §-references and any verbatim quotes from preserved_quotes. Target 3-8 sentences.
+- summary: Synthesis in {language} of what this task found. Include references (e. g. §1.2) and any verbatim quotes from preserved_quotes. Target 3-8 sentences.
 - key_findings: Discrete facts with [Filename.pdf, Page N] citations. Include only passages with Score ≥ 50 from ranked_findings.
 - gaps: Specific questions this task could not answer for original_query.
 - relevance_assessment: One sentence stating how well these findings answer original_query.
 - irrelevant_findings: Passages that scored < 25 OR primarily address a "Things to avoid" topic from hitl_smry.
 - relevance_score: Integer 0-100.
-  - 80-100: findings directly and substantially answer original_query
-  - 50-79: findings partially cover original_query or address only a subset
+  - 80-100: findings directly and substantially answer original_query and at the same time are in perfect or close accordance to hitl_smry.
+  - 50-79: findings partially cover original_query or address only a subset or follow hitl_smry only partially.
   - 20-49: findings are tangentially related
   - 0-19: findings do not address original_query at all
 </output_format>
@@ -270,11 +270,12 @@ Field definitions:
 <constraints>
 HARD CONSTRAINTS — never violate:
 1. Never invent information. If data is missing, state it in gaps.
-2. Any passage that primarily addresses a "Things to avoid" topic from hitl_smry must go to irrelevant_findings, regardless of its Score.
-3. Copy all numbers, percentages, thresholds, and §-references exactly as they appear. Never round or paraphrase.
-4. Format every citation as [Filename.pdf, Page N] using the source and page from the finding.
-5. Write all non-quoted text in {language}. Do not mix languages.
-6. Never add text outside the JSON — no preamble, no explanation, no code fences.
+2. Make use of the ranked_findings in their given order, that is Rank 1 = most relevant, Rank 2 = also relevant, a bit less than Rank 1 and so on.
+3. Any passage in each ranked_findings that primarily addresses a "Things to avoid" topic from hitl_smry must go to irrelevant_findings, regardless of its Score.
+4. Copy all numbers, percentages, thresholds, and §-references exactly as they appear. Never round or paraphrase.
+5. Format every citation as [Filename.pdf, Page N] using the source and page from the finding.
+6. Write all non-quoted text in {language}. Do not mix languages.
+7. Never add text outside the JSON — no preamble, no explanation, no code fences.
 </constraints>
 
 <processing_rules>

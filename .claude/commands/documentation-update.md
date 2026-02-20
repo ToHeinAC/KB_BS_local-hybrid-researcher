@@ -4,3 +4,8 @@ From there, analyse the latest changes in the codebase etc.
 Firstly, change the CLAUDE.md
 Then go to the implementation details within the docs/ folder and make changes accordingly.
 In the end, reflect all critical changes also in README.md, if necessary.
+
+CRITICAL RULES:
+- Keep README.md < 15.000 chars (general)
+- Keep CLAUDE.md < 25.000 chars (use references to docs/ folder documentation in the form e. g. [docs/architecture.md](docs/architecture.md) @docs/architecture.md Full architecture diagram, state objects, data flow)
+- Keep each single doc in docs/ folder < 35.000 chars

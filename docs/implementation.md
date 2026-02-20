@@ -481,6 +481,29 @@ No changes to `_HUMAN` counterparts, graph logic, Pydantic models, or callers.
   - `TestTaskSummaryHitlSmry::test_task_summary_system_prompt_has_no_markdown_fences`: `"output raw JSON only"` → checks for `"no other text before or after"` or `"no code fences"`
 - [x] **184 tests pass** (no regressions)
 
+### Phase 3.6: Pre-Synthesis Task Summary Reranker (NEW)
+
+Deterministic relevance-based reranking of task summaries before synthesis — no new LLM call.
+
+- [x] **`rerank_task_summaries()` node** (`src/agents/nodes.py`):
+  - Sorts `task_summaries` by `relevance_to_query` desc; `task_id` asc breaks ties
+  - Stamps `rank` int (1 = most relevant) on each summary dict
+  - Logs a warning for summaries with `relevance_to_query < 0.3`
+  - Returns updated `task_summaries` + `phase="synthesize"`
+- [x] **`_format_task_summaries()` header** (`src/agents/nodes.py`):
+  - Old: `--- Task N: text ---`
+  - New: `--- Task N: text [Rank: N/total] [Relevance: N/100] ---` (only when fields present)
+- [x] **Graph wiring** (`src/agents/graph.py`):
+  - `validate_relevance` → `rerank_task_summaries` → `synthesize`
+  - `route_after_validate_relevance` returns `"rerank_task_summaries"`; new `route_after_rerank` returns `"synthesize"`
+- [x] **`SYNTHESIS_PROMPT_ENHANCED_SYSTEM`** (`src/prompts/synthesis.py`):
+  - New constraint 2: weight by `[Relevance: N/100]`; tasks ≥70 = primary evidence, ≤30 = supplementary only
+  - `<input_definitions>` updated to describe rank/relevance headers
+- [x] **`TASK_SUMMARY_PROMPT_SYSTEM` rubric update** (`src/prompts/research.py`):
+  - `relevance_score` 80-100 tier now requires alignment with `hitl_smry`, not just query coverage
+  - Added constraint: use `ranked_findings` in given order (Rank 1 = most relevant)
+- [x] **190 tests pass** (6 new: `TestRerankerTaskSummaries` × 5 + `TestRouteAfterValidateRelevance` × 1)
+
 ### Phase 7: Polish
 - [x] Multi-collection search
 - [ ] Query history and caching
@@ -646,7 +669,7 @@ def test_graph_execution():
 | **Reference resolution ambiguity** | Multiple matches | Document registry with 3-stage matching, scoped search within collection |
 | **Hallucinated references** | LLM invents citations | Hybrid: regex provides baseline, LLM adds coverage, dedup filters noise |
 | **Over-following tangential refs** | Poor relevance filter | Agentic reference gate (LLM decides per-ref), token budget (50K), convergence (same doc >= 3) |
-| **Query drift during synthesis** | Accumulating irrelevant context | Tiered evidence resolved at task summary level, pre-synthesis relevance validation, query_anchor |
+| **Query drift during synthesis** | Accumulating irrelevant context | Tiered evidence resolved at task summary level, pre-synthesis relevance validation, query_anchor, task summary reranking (Phase 3.6) |
 | **Wrong similarity scores broke tiers** | ChromaDB L2 distance naively converted via `1-score` | Proper L2→cosine: `1 - (L2^2/2)`, clamped to [0,1]. Tier thresholds (0.85/0.6) now reachable |
 | **Lost HITL context (chat-based UI)** | Chat-based HITL bypassed `hitl_finalize` | `_start_research_from_hitl()` now generates `hitl_smry` and `query_anchor` directly |
 | **Stale conversation on termination** | Only `continue` path synced `hitl_conversation_history` | All 3 termination paths (`/end`, max_iterations, convergence) now sync conversation history |
