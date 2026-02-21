@@ -42,9 +42,15 @@
 │  Phase 3.5: Pre-Synthesis Relevance Validation                           │
 │  └─ validate_relevance: filter drift against query_anchor                │
 │                                                                          │
-│  Phase 3.6: Task Summary Reranking (NEW)                                 │
+│  Phase 3.6: Task Summary Reranking                                       │
 │  └─ rerank_task_summaries: sort by relevance_to_query desc, stamp rank   │
 │     → synthesis prompt weights high-relevance findings over low ones     │
+│                                                                          │
+│  Phase 3.8: Reference Provenance (NEW)                                   │
+│  Nested chunks carry parent_document + reference_surrounding_context     │
+│  _rerank_task_chunks(): parent_context → CHUNK_RERANKER (−20-40 penalty) │
+│  _format_ranked_findings(): [via ref "..."] + Parent context: headers    │
+│  TASK_SUMMARY rule 2e: cap off-topic ref chunks at effective score 49    │
 │                                                                          │
 │  Phase 4: Query-Anchored Synthesis & Quality Assurance                   │
 │  ├─ synthesize: pre-digested task summaries + HITL summary               │
@@ -173,6 +179,12 @@ Each entry in `primary_context`, `secondary_context`, `tertiary_context`:
     "backfilled": bool,           # True if kept despite low relevance (Phase 3.5)
     "backfill_reason": str,       # Explanation for backfill (when backfilled=True)
     "final_relevance": float,     # Computed relevance score from validate_relevance
+    # Reference provenance (Phase 3.8) — present only when depth > 0 and parent known
+    "parent_document": str,       # Source document where the reference appeared
+    "parent_page": int | None,    # Page in parent document
+    "reference_original_text": str,  # Exact reference text ("§21 KrWG")
+    "reference_type": str,           # Reference type (e.g. "legal_section")
+    "reference_surrounding_context": str,  # ≤500 chars around reference in parent
 }
 ```
 
@@ -402,7 +414,29 @@ Output: Fully populated ResearchContext + tiered context (primary/secondary/tert
 
 Output: Filtered tiered context with guaranteed minimums, ready for reranking
 
-### Phase 3.6: Task Summary Reranking (NEW)
+### Phase 3.8: Reference Provenance (NEW)
+
+After the agentic gate decides to follow a reference and `resolve_reference_enhanced()` returns
+nested chunks, provenance is attached to each `NestedChunk` before tier classification:
+
+1. `nc.parent_document` / `nc.parent_page` — where the reference appeared
+2. `nc.reference_original_text` / `nc.reference_type` — the reference itself
+3. `nc.reference_surrounding_context` — up to 500 chars of surrounding context in parent chunk
+   (reuses `surrounding_window` already computed for the agentic gate — zero extra LLM calls)
+
+These are forwarded to `create_tiered_context_entry()` as new kwargs (stored only when `depth > 0`
+and `parent_document` non-empty). Downstream effects:
+
+- **`_rerank_task_chunks()`**: passes `parent_context` to `CHUNK_RERANKER_PROMPT_HUMAN`. The
+  reranker penalises chunks whose reference appeared in an off-topic parent sentence (−20–40 pts).
+- **`_format_ranked_findings()`**: adds `[via ref_type ref "original_text" in Parent.pdf, Page N]`
+  + `Parent context: "..."` lines so the task summariser can apply rule 2e.
+- **`TASK_SUMMARY_PROMPT_SYSTEM` rule 2e**: caps effective score of off-topic-ref chunks at 49
+  (supplementary evidence only, never elevated to `key_findings`).
+
+Design document: [docs/mindmap_rabbithole_provenance.md](mindmap_rabbithole_provenance.md)
+
+### Phase 3.6: Task Summary Reranking
 
 1. **rerank_task_summaries node**: Deterministic sort — no LLM call
 2. **Sort key**: descending `relevance_to_query` float; ascending `task_id` breaks ties

@@ -528,6 +528,11 @@ def create_tiered_context_entry(
     depth: int = 0,
     source_type: str = "vector_search",
     task_id: int | None = None,
+    parent_document: str = "",
+    parent_page: int | None = None,
+    reference_original_text: str = "",
+    reference_type: str = "",
+    reference_surrounding_context: str = "",
 ) -> dict:
     """Create a context entry dict with tier metadata.
 
@@ -538,6 +543,11 @@ def create_tiered_context_entry(
         depth: Recursion depth when found
         source_type: How this chunk was obtained
         task_id: Optional task ID for per-task filtering in UI
+        parent_document: Parent chunk's document (set only for reference-followed chunks)
+        parent_page: Parent chunk's page number
+        reference_original_text: Exact text of the reference in the parent chunk
+        reference_type: Reference type (e.g. legal_section, document_mention)
+        reference_surrounding_context: Context window around the reference (max 500 chars)
 
     Returns:
         Dict representation for tiered context storage
@@ -555,6 +565,13 @@ def create_tiered_context_entry(
     }
     if task_id is not None:
         entry["task_id"] = task_id
+    # Attach reference provenance for depth>0 chunks that were reference-followed
+    if depth > 0 and parent_document:
+        entry["parent_document"] = parent_document
+        entry["parent_page"] = parent_page
+        entry["reference_original_text"] = reference_original_text
+        entry["reference_type"] = reference_type
+        entry["reference_surrounding_context"] = reference_surrounding_context[:500]
     return entry
 
 

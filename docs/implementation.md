@@ -159,6 +159,36 @@ Bug fix: the user-selected database was respected for initial vector searches bu
 
 **Rationale**: Ensures primary retrieval results remain visible even if they don't meet strict relevance thresholds, preventing silent suppression while maintaining transparency through visual indicators.
 
+### Phase 3.8: Reference Provenance (NEW)
+
+Solves the lost-context problem: nested chunks were scored in isolation, allowing off-topic
+references to pollute synthesis. The `surrounding_window` already computed for the agentic gate
+is now attached to each `NestedChunk` and propagated through the pipeline — zero new LLM calls.
+
+- [x] **`NestedChunk` model** (`src/models/research.py`): 5 new optional provenance fields:
+  `parent_document`, `parent_page`, `reference_original_text`, `reference_type`,
+  `reference_surrounding_context` (all backward-compatible, default `""` / `None`)
+- [x] **`create_tiered_context_entry()`** (`src/agents/tools.py`): accepts 5 provenance kwargs;
+  writes them to the dict only when `depth > 0 and parent_document` non-empty
+- [x] **`execute_task()`** (`src/agents/nodes.py`):
+  - Initialises `surrounding_window = ""` before the `try:` block (safe default)
+  - After `resolve_reference_enhanced()`, loops over nested chunks to attach provenance
+  - Forwards provenance kwargs to `create_tiered_context_entry()`
+- [x] **`_rerank_task_chunks()`** (`src/agents/nodes.py`): reads `reference_surrounding_context`
+  from the chunk dict; passes as `parent_context` to `CHUNK_RERANKER_PROMPT_HUMAN`
+- [x] **`_format_ranked_findings()`** (`src/agents/nodes.py`): for depth>0 chunks with
+  `parent_document`, appends `[via ref_type ref "..." in Parent.pdf, Page N]` +
+  `Parent context: "..."` lines after the standard header
+- [x] **`CHUNK_RERANKER_PROMPT_SYSTEM`** (`src/prompts/research.py`): new rule 2 — penalise
+  off-topic parent context by 20-40 pts; old rules renumbered 3-5
+- [x] **`CHUNK_RERANKER_PROMPT_HUMAN`**: adds `parent_context: {parent_context}` field
+- [x] **`TASK_SUMMARY_PROMPT_SYSTEM`** processing rule 2e: chunks with off-topic parent context
+  capped at effective score 49 (supplementary, never elevated to `key_findings`)
+- [x] **Tests** (`tests/test_provenance.py`): 11 new unit tests, all passing
+- [x] **Design doc**: `docs/mindmap_rabbithole_provenance.md`
+
+**212 tests total, all passing.**
+
 ### Phase 7: Polish
 - [x] Multi-collection search
 - [ ] Query history and caching

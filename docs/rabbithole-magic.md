@@ -52,7 +52,7 @@ Located in `src/agents/nodes.py` (lines 312-413):
 │     └─ Hybrid: regex + LLM, deduplicated by type:target key    │
 │     └─ Returns list[DetectedReference] with extraction_method   │
 │                                                                  │
-│  4. Agentic Reference Gate (NEW) ─────────────────────────────────│
+│  4. Agentic Reference Gate ─────────────────────────────────────│
 │     └─ For each detected reference:                             │
 │         └─ LLM evaluates via REFERENCE_DECISION_PROMPT          │
 │         └─ Context: original_query, key_entities, scope, task   │
@@ -60,6 +60,17 @@ Located in `src/agents/nodes.py` (lines 312-413):
 │         └─ Bias: "when uncertain, FOLLOW" (safe default)        │
 │         └─ Skip if clearly tangential (logged for debug)        │
 │         └─ Fallback: follow on LLM error                        │
+│         └─ surrounding_window computed here (reused in step 4b) │
+│                                                                  │
+│  4b. Reference Provenance Attachment (NEW, Phase 3.8) ──────────│
+│     └─ After resolve_reference_enhanced() returns nested chunks │
+│         └─ nc.parent_document = chunk.document                  │
+│         └─ nc.parent_page = chunk.page                          │
+│         └─ nc.reference_original_text = ref.original_text       │
+│         └─ nc.reference_type = ref.type                         │
+│         └─ nc.reference_surrounding_context = surrounding_window│
+│     └─ Forwarded to create_tiered_context_entry() as kwargs     │
+│     └─ Stored in secondary/tertiary_context entry dict          │
 │                                                                  │
 │  5. Reference Resolution (Enhanced, RECURSIVE) ─────────────────│
 │     └─ For each followed reference:                             │
@@ -407,8 +418,10 @@ RABBITHOLE MAGIC (Phase 3)
 │   ├── Vector Search (ChromaDB)
 │   ├── Chunk Processing (LLM extraction)
 │   ├── Hybrid Reference Detection
-│   ├── Agentic Reference Gate (LLM decides follow/skip)
+│   ├── Agentic Reference Gate (LLM decides follow/skip) + surrounding_window computed
 │   ├── Enhanced Reference Resolution (scoped)
+│   ├── Reference Provenance Attachment (Phase 3.8, reuses surrounding_window)
+│   │   └── parent_document, parent_page, ref_text, ref_type, surrounding_context[:500]
 │   ├── Convergence Check (doc_history)
 │   ├── Relevance Filtering (threshold 0.6)
 │   └── Context Accumulation
@@ -439,5 +452,6 @@ The Rabbithole Magic creates **depth-controlled recursive context expansion** - 
 - **Hybrid detection**: Regex catches structured patterns fast; LLM catches nuanced references regex misses
 - **Quality control**: Relevance filtering prevents noise accumulation
 - **Intelligent selection**: Agentic reference gate lets the LLM skip tangential references, preserving token budget for high-value refs
+- **Reference provenance**: Nested chunks carry the surrounding context of the reference in the parent chunk — the reranker can penalise off-topic parent sentences, and the task summariser caps their contribution
 - **Self-correcting quality**: Agentic remediation loop detects weak synthesis and retries with focused instructions (max 1 retry)
 - **Safe exploration**: Depth limits, token budget, convergence detection, and loop prevention ensure termination

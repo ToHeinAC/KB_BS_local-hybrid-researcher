@@ -39,9 +39,14 @@ Classical RAG lacks deep contextual understanding and cannot follow inter-docume
 │  validate_relevance: Filter drift against query_anchor              │
 │  Guarantee min chunks (3 primary, 2 secondary) for transparency     │
 ├────────────────────────────────────────────────────────────────────┤
-│  Phase 3.6: Task Summary Reranking (NEW)                            │
+│  Phase 3.6: Task Summary Reranking                                  │
 │  rerank_task_summaries: Sort summaries by relevance_to_query desc   │
 │  Stamps rank int; synthesis prompt weights by [Relevance: N/100]    │
+├────────────────────────────────────────────────────────────────────┤
+│  Phase 3.8: Reference Provenance (NEW)                              │
+│  Nested chunks carry parent document + surrounding context of ref   │
+│  Reranker penalises off-topic parent context (−20-40 pts)           │
+│  Formatted findings show [via ref "..."] header for traceability    │
 ├────────────────────────────────────────────────────────────────────┤
 │  Phase 4: Deep Report Synthesis + Quality Assurance                   │
 │  Pre-Digested Task Summaries + HITL Summary → Deep Report            │
@@ -81,6 +86,7 @@ The system now uses **tiered context classification** to prevent query drift and
 - **Drift Detection**: Pre-synthesis filtering warns when >30% of context is irrelevant
 - **Chunk Backfill**: Guarantees minimum chunks per task (3 primary, 2 secondary) even if below relevance threshold; backfilled chunks marked with ⚠️ badge for transparency
 - **Task Summary Reranking**: Deterministic sort by `relevance_to_query` before synthesis; `[Rank: N/total]` / `[Relevance: N/100]` headers visible in formatted summaries
+- **Reference Provenance**: Nested chunks carry parent document + surrounding context of the reference; reranker penalises off-topic parent context; `[via ref "..."]` header in formatted findings for traceability
 - **Language Enforcement**: Strict single-language output with retry on mismatch
 
 ### Agentic Decision Points

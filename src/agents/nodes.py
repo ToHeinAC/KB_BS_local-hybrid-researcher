@@ -497,6 +497,8 @@ def execute_task(state: AgentState) -> dict:
             for ref in refs:
                 ref_key = f"{ref.type}:{ref.target}"
                 if not context.has_visited_ref(ref_key):
+                    # Default: empty surrounding window (overwritten inside try block)
+                    surrounding_window = ""
                     # Agentic gate: LLM decides whether to follow this reference
                     try:
                         anchor_text = json.dumps({
@@ -505,11 +507,11 @@ def execute_task(state: AgentState) -> dict:
                             "scope": query_anchor.get("scope", ""),
                             "current_task": current_task.task,
                         }, ensure_ascii=False)
-                        # Use a focused context window (e.g. 800 chars) instead of full extraction
+                        # Use a focused context window (e.g. 3000 chars) instead of full extraction
                         surrounding_window = get_context_window(
-                            chunk.extracted_info, 
-                            ref.original_text, 
-                            window_size=800
+                            chunk.extracted_info,
+                            ref.original_text,
+                            window_size=3000
                         ) if chunk.extracted_info else "Context missing"
 
                         ref_system = REFERENCE_DECISION_PROMPT_SYSTEM.format(
@@ -548,6 +550,14 @@ def execute_task(state: AgentState) -> dict:
                     ref.found = len(nested) > 0
                     context.mark_ref_visited(ref_key)
 
+                    # Attach reference provenance to each nested chunk
+                    for nc in nested:
+                        nc.parent_document = chunk.document
+                        nc.parent_page = chunk.page
+                        nc.reference_original_text = ref.original_text
+                        nc.reference_type = ref.type
+                        nc.reference_surrounding_context = surrounding_window[:500]
+
                     # Classify nested chunks into tiers (Phase B)
                     for nc in nested:
                         token_count += len(nc.chunk) // 4
@@ -573,6 +583,11 @@ def execute_task(state: AgentState) -> dict:
                             depth=current_depth + 1,
                             source_type="reference",
                             task_id=task_id,
+                            parent_document=nc.parent_document,
+                            parent_page=nc.parent_page,
+                            reference_original_text=nc.reference_original_text,
+                            reference_type=nc.reference_type,
+                            reference_surrounding_context=nc.reference_surrounding_context,
                         )
 
                         # Nested chunks go to tier 2 or 3
@@ -1755,11 +1770,13 @@ def _rerank_task_chunks(
 
     for chunk in candidates:
         text = (chunk.get("extracted_info") or chunk.get("chunk", ""))[:800]
+        parent_context = chunk.get("reference_surrounding_context", "")
         try:
             human_prompt = CHUNK_RERANKER_PROMPT_HUMAN.format(
                 query=original_query,
                 hitl_context=hitl_ctx,
                 text=text,
+                parent_context=parent_context or "N/A (direct vector search result)",
                 language=lang_label,
             )
             result = client.generate_structured_messages(
@@ -1794,6 +1811,16 @@ def _format_ranked_findings(ranked_chunks: list[dict], max_chars: int = 12000) -
         )
         if reasoning:
             header += f"  // {reasoning}"
+        # Append reference provenance for depth>0 reference-followed chunks
+        parent_doc = chunk.get("parent_document", "")
+        if parent_doc:
+            ref_text = chunk.get("reference_original_text", "")
+            ref_type = chunk.get("reference_type", "")
+            parent_page = chunk.get("parent_page", "?")
+            header += f"\n[via {ref_type} ref \"{ref_text}\" in {parent_doc}, Page {parent_page}]"
+            surroundings = chunk.get("reference_surrounding_context", "")
+            if surroundings:
+                header += f"\nParent context: \"{surroundings[:300]}...\""
         text = (chunk.get("extracted_info") or chunk.get("chunk", ""))[:1500]
         entry = f"{header}\n{text}"
         if total + len(entry) > max_chars:
@@ -2119,6 +2146,16 @@ def hitl_retrieve_chunks(state: AgentState) -> dict:
         "queries": queries,
         "new_chunks": dedup_stats["new_count"],
         "duplicates": dedup_stats["dup_count"],
+        "chunks": [
+            {
+                "doc_name": getattr(c, "doc_name", c.get("doc_name", "unknown") if isinstance(c, dict) else "unknown"),
+                "page_number": getattr(c, "page_number", c.get("page_number", 0) if isinstance(c, dict) else 0),
+                "chunk_text": (getattr(c, "chunk_text", c.get("chunk_text", "") if isinstance(c, dict) else str(c)))[:1000],
+                "relevance_score": round(getattr(c, "relevance_score", c.get("relevance_score", 0.0) if isinstance(c, dict) else 0.0), 4),
+                "collection": getattr(c, "collection", c.get("collection", "") if isinstance(c, dict) else ""),
+            }
+            for c in unique_chunks
+        ],
     }
 
     return {

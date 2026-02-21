@@ -61,6 +61,12 @@ class NestedChunk(BaseModel):
     document: str
     extracted_info: str
     relevance_score: float
+    # Reference provenance (Phase 3.8) — set in execute_task(), never by resolution functions
+    parent_document: str = ""            # Source document where reference appeared
+    parent_page: int | None = None       # Page in parent document
+    reference_original_text: str = ""   # Exact reference text (e.g. "§21 KrWG")
+    reference_type: str = ""            # Reference type (e.g. "legal_section")
+    reference_surrounding_context: str = ""  # ≤500 chars around reference in parent chunk
 
 
 class PreservedQuote(BaseModel):
@@ -529,6 +535,17 @@ context_entry = {
     "context_weight": float,      # 0.0-1.0 weight for synthesis
     "depth": int,                 # Recursion depth when found
     "source_type": str,           # "vector_search", "reference", "hitl"
+    # Optional fields (task_id always present when created in execute_task):
+    "task_id": int,               # Task ID for per-task UI grouping
+    "backfilled": bool,           # True if kept despite low relevance (Phase 3.5)
+    "backfill_reason": str,       # Explanation for backfill
+    "final_relevance": float,     # Relevance score from validate_relevance
+    # Reference provenance (Phase 3.8) — present only when depth > 0 and parent known:
+    "parent_document": str,       # Document where the reference appeared
+    "parent_page": int | None,    # Page in parent document
+    "reference_original_text": str,   # Exact reference text ("§21 KrWG")
+    "reference_type": str,            # e.g. "legal_section", "document_mention"
+    "reference_surrounding_context": str,  # ≤500 chars around reference in parent
 }
 ```
 

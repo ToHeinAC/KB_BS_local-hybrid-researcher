@@ -67,6 +67,27 @@ class NestedChunk(BaseModel):
         default=0.0,
         description="Relevance score to original query (0-1)",
     )
+    # Reference provenance — set in execute_task(), never by resolution functions
+    parent_document: str = Field(
+        default="",
+        description="Parent chunk's document name (source of the reference)",
+    )
+    parent_page: int | None = Field(
+        default=None,
+        description="Parent chunk's page number",
+    )
+    reference_original_text: str = Field(
+        default="",
+        description="Exact text of the reference as it appeared in the parent chunk",
+    )
+    reference_type: str = Field(
+        default="",
+        description="Reference type (e.g. legal_section, document_mention)",
+    )
+    reference_surrounding_context: str = Field(
+        default="",
+        description="Up to 500 chars of context surrounding the reference in the parent chunk",
+    )
 
 
 class PreservedQuote(BaseModel):

@@ -22,13 +22,10 @@ Attention Priority Hierarchy:
 # ─────────────────────────────────────────────────────────────────────────────
 TASK_SEARCH_QUERIES_PROMPT_SYSTEM = """
 ### Role
-You are a search query generation assistant that generates 2 targeted vector-DB search queries for a research task.
+You are a search query generation assistant that generates targeted vector-DB search queries for a research task.
 
 ### Goal
 Generate 2 targeted vector-DB search queries for a research task.
-DO: Given the task and under the condition of the original query, acknowledging the hitl context and key entities,
-generate 2 targeted vector-DB search queries for a research task.
-DON'T: You must not generate tasks that are not closely covered by the research task or the original query.
 
 ### Input
 - research_task: the current research task
@@ -38,13 +35,12 @@ DON'T: You must not generate tasks that are not closely covered by the research 
 - language: target language label
 
 ### Rules
-1. Use research_task and hitl_findings as your north star.
-2. query_1: focused query combining the task's core aspects with key entities.
-3. query_2: complementary query exploring a related angle.
-4. Both queries must stay anchored to the original user query.
-5. Use domain-specific terminology where possible.
-6. Write all JSON values in {language}. Preserve exact and precise terminology.
-7. Return ONLY valid JSON, no extra text.
+1. query_1: exactly the research_task
+2. For the additional query_2, use research_task and hitl_findings as your north star.
+3. query_2: complementary query exploring the task from an alternative but related angle as compared to query 1.
+4. Use domain-specific terminology where possible.
+5. Write all JSON values in {language}. Preserve exact and precise terminology.
+6. Return ONLY valid JSON, no extra text.
 
 ### Output format
 ```json
@@ -286,6 +282,7 @@ PROCESSING RULES — apply in this order:
    b. If Score ≥ 50 → add to key_findings with exact [Filename.pdf, Page N] citation.
    c. If Score < 25 → add to irrelevant_findings.
    d. If sources contradict each other → prefer the higher-ranked passage; note the conflict in gaps.
+   e. If a passage has a "[via ref ...]" header, check the "Parent context:" line. If the parent context is unrelated to original_query, treat the passage as supplementary evidence only (cap its effective Score at 49 regardless of its own content) and note this in gaps.
 3. Embed verbatim text from preserved_quotes inside the matching key_finding as "quote" [Source.pdf, Page N]. Do not list quotes separately.
 4. Write summary covering all key_findings. Include §-section references where sources provide them.
 5. Score relevance_score based on how well key_findings answer original_query (not just the task).
@@ -348,17 +345,22 @@ Score how relevant the given passage is for answering the research query, taking
 - query: the user's original research question
 - hitl_context: summary of the HITL clarification phase (may be empty; may include DONTs — topics the user explicitly excluded)
 - text: the passage to score (extracted text from a retrieved document chunk)
+- parent_context: the surrounding text in the parent chunk where the reference to this passage appeared ("N/A" if this is a direct vector search result, not a followed reference)
 
 ### Rules
 1. Use query as your main direction; hitl_context tells you the scope and key entities in focus. Especially consider any DONTs in hitl_context — passages that primarily address a DONT topic should receive a severe score penalty (treat as irrelevant).
-2. Score an integer from 0 to 100:
+2. If parent_context is provided (not "N/A"), this chunk was found by following a reference. Assess whether the reference appeared in a relevant part of the parent:
+   - If parent_context is clearly off-topic for the query → penalise the score by 20-40 points
+   - If parent_context is on-topic → score normally based on the text itself
+   Always state this assessment in your reasoning.
+3. Score an integer from 0 to 100:
    - 90-100: directly and precisely answers the query
    - 70-89: strongly supporting — key figures, thresholds, or definitions the query depends on
    - 50-69: relevant context — useful background or partial answer
    - 25-49: tangentially related — topic overlap but does not advance the query
    - 0-24: irrelevant — different topic, administrative boilerplate, or off-scope
-3. Write reasoning as exactly one sentence in {language}. Preserve exact and precise terminology.
-4. Return ONLY raw JSON, no markdown fences, no preamble.
+4. Write reasoning as exactly one sentence in {language}. Preserve exact and precise terminology.
+5. Return ONLY raw JSON, no markdown fences, no preamble.
 
 ### Output format
 {{"relevance_score": <0-100>, "reasoning": "<one sentence in {language}>"}}
@@ -368,5 +370,6 @@ CHUNK_RERANKER_PROMPT_HUMAN = """### Input
 - query: "{query}"
 - hitl_context: {hitl_context}
 - text: "{text}"
+- parent_context: {parent_context}
 
 Score the relevance of this passage to the query. Respond in {language}."""
