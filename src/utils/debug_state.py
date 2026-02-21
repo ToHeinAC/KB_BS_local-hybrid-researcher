@@ -5,6 +5,7 @@ import logging
 from datetime import datetime
 from pathlib import Path
 
+from src.agents.state import create_initial_state
 from src.config import settings
 
 logger = logging.getLogger(__name__)
@@ -50,7 +51,10 @@ def dump_state_markdown(
         return
 
     try:
-        merged = {**state, **return_dict}
+        # Build a complete baseline so every AgentState field appears even if
+        # no node has written it yet (AgentState is TypedDict, total=False).
+        defaults = dict(create_initial_state(""))
+        merged = {**defaults, **state, **return_dict}  # live values win over defaults
         path = Path(filepath)
         path.parent.mkdir(parents=True, exist_ok=True)
 

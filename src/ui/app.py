@@ -598,11 +598,23 @@ def _start_research_from_hitl(hitl_result: dict) -> None:
 
         # Generate citation-aware HITL summary (chat-based HITL bypasses hitl_finalize)
         hitl_conv = session.hitl_conversation_history or []
-        query_retrieval = (
-            session.hitl_state.get("query_retrieval", "")
-            if session.hitl_state
-            else ""
-        )
+        # Chat-based HITL stores chunks in retrieval_history, not query_retrieval.
+        # Reconstruct the formatted string from all iteration chunks.
+        query_retrieval = ""
+        if session.hitl_state:
+            hist = session.hitl_state.get("retrieval_history", {})
+            if hist:
+                from src.services.hitl_service import format_chunks_for_state
+                all_chunks: list = []
+                all_queries: list[str] = []
+                for iter_data in hist.values():
+                    all_chunks.extend(iter_data.get("chunks", []))
+                    all_queries.extend(iter_data.get("queries", []))
+                if all_chunks:
+                    query_retrieval = format_chunks_for_state(all_chunks, all_queries)
+            else:
+                # Fallback: graph-based HITL may have populated this directly
+                query_retrieval = session.hitl_state.get("query_retrieval", "")
         knowledge_gaps = (
             session.hitl_state.get("analysis", {}).get("knowledge_gaps", [])
             if session.hitl_state
@@ -621,6 +633,13 @@ def _start_research_from_hitl(hitl_result: dict) -> None:
             logger.warning(f"Failed to generate HITL summary in UI path: {e}")
             hitl_smry = additional_context  # Fallback to plain summary
         initial_state["hitl_smry"] = hitl_smry
+
+        # Expose chat-HITL retrieval in graph state (visible in debug dumps)
+        initial_state["query_retrieval"] = query_retrieval
+        if session.hitl_state:
+            session_hist = session.hitl_state.get("retrieval_history", {})
+            if session_hist:
+                initial_state["retrieval_history"] = session_hist
 
         # Skip analyze phase since we have HITL results - go directly to generate_todo
         initial_state["phase"] = "generate_todo"
