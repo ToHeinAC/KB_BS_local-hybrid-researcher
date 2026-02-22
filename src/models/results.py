@@ -322,6 +322,34 @@ class ChunkRankingOutput(BaseModel):
     )
 
 
+class RerankerChunkResult(BaseModel):
+    """Single chunk score from batch reranker (precision strategy)."""
+
+    id: int = Field(ge=0, description="Chunk ID within the batch")
+    score: int = Field(ge=1, le=5, description="Relevance score 1-5")
+    reason: str = Field(default="", description="One-sentence micro-CoT")
+
+
+class RerankerBatchOutput(BaseModel):
+    """Batch reranker output (precision strategy)."""
+
+    results: list[RerankerChunkResult] = Field(default_factory=list)
+
+
+class RerankerRecallChunkResult(BaseModel):
+    """Single chunk score from recall-focused reranker (short field names)."""
+
+    id: int = Field(ge=0, description="Chunk ID within the batch")
+    s: int = Field(ge=1, le=5, description="Relevance score 1-5")
+    r: str = Field(default="", description="Reason, max 15 words")
+
+
+class RerankerRecallBatchOutput(BaseModel):
+    """Batch reranker output (recall strategy)."""
+
+    results: list[RerankerRecallChunkResult] = Field(default_factory=list)
+
+
 class PDFMetadata(BaseModel):
     """PDF document metadata."""
 

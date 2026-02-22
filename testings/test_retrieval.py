@@ -19,7 +19,18 @@ import streamlit as st
 from src.config import settings
 from src.models.query import TaskSearchQueries
 from src.models.research import VectorResult
-from src.prompts import TASK_SEARCH_QUERIES_PROMPT_HUMAN, TASK_SEARCH_QUERIES_PROMPT_SYSTEM
+from src.models.results import (
+    RerankerBatchOutput,
+    RerankerRecallBatchOutput,
+)
+from src.prompts import (
+    RERANKER_PRECISION_PROMPT_HUMAN,
+    RERANKER_PRECISION_PROMPT_SYSTEM,
+    RERANKER_RECALL_PROMPT_HUMAN,
+    RERANKER_RECALL_PROMPT_SYSTEM,
+    TASK_SEARCH_QUERIES_PROMPT_HUMAN,
+    TASK_SEARCH_QUERIES_PROMPT_SYSTEM,
+)
 from src.services.chromadb_client import ChromaDBClient
 from src.services.ollama_client import OllamaClient
 
@@ -69,6 +80,18 @@ def init_session_state():
 
     if "language" not in st.session_state:
         st.session_state.language = "German"
+
+    if "reranker_enabled" not in st.session_state:
+        st.session_state.reranker_enabled = False
+
+    if "reranker_strategy" not in st.session_state:
+        st.session_state.reranker_strategy = "precision"
+
+    if "reranked_results" not in st.session_state:
+        st.session_state.reranked_results = None
+
+    if "show_reranked" not in st.session_state:
+        st.session_state.show_reranked = True
 
 
 # ============================================================================
@@ -331,6 +354,32 @@ def render_sidebar():
         help="Language for LLM-generated search queries",
     )
 
+    # LLM Reranker
+    st.sidebar.subheader("LLM Reranker")
+    st.session_state.reranker_enabled = st.sidebar.checkbox(
+        "Enable LLM Reranking",
+        value=st.session_state.reranker_enabled,
+        help="Re-score retrieved chunks using an LLM (pointwise, 5-point scale)",
+    )
+
+    if st.session_state.reranker_enabled:
+        st.session_state.reranker_strategy = st.sidebar.radio(
+            "Strategy",
+            options=["precision", "recall"],
+            index=0 if st.session_state.reranker_strategy == "precision" else 1,
+            help="Precision: strict relevance, drops tangential. Recall: broader retention.",
+        )
+        if st.session_state.reranker_strategy == "precision":
+            st.sidebar.info(
+                "**Precision**: 5-point scale, anti-tangential bias. "
+                "Mentioning a topic without answering the question = score 2 or lower."
+            )
+        else:
+            st.sidebar.info(
+                "**Recall**: 4-dimension composite (answerability, depth, novelty, specificity). "
+                "When in doubt, scores higher to retain more chunks."
+            )
+
     return True
 
 
@@ -362,8 +411,214 @@ def _generate_additional_queries(query: str, additional_context: str) -> list[st
     return [result.query_1, result.query_2]
 
 
+# ============================================================================
+# LLM Reranker Functions
+# ============================================================================
+
+
+def _build_reranker_batches(
+    chunks: list[VectorResult], batch_size: int = 6
+) -> list[list[tuple[int, VectorResult]]]:
+    """Round-robin distribute chunks into batches.
+
+    Args:
+        chunks: Flat list of VectorResult
+        batch_size: Max chunks per batch (default 6)
+
+    Returns:
+        List of batches, each batch is a list of (global_index, VectorResult)
+    """
+    if not chunks:
+        return []
+    n_batches = max(1, (len(chunks) + batch_size - 1) // batch_size)
+    batches: list[list[tuple[int, VectorResult]]] = [[] for _ in range(n_batches)]
+    for idx, chunk in enumerate(chunks):
+        batches[idx % n_batches].append((idx, chunk))
+    return batches
+
+
+def _format_chunks_for_prompt(batch: list[tuple[int, VectorResult]]) -> str:
+    """Format a batch of chunks for the reranker HUMAN prompt."""
+    lines = []
+    for global_idx, result in batch:
+        text_preview = result.chunk_text[:1500]
+        lines.append(
+            f"[Chunk {global_idx}]\n"
+            f"Document: {result.doc_name}, Page: {result.page_number or 'N/A'}\n"
+            f"Text: {text_preview}\n"
+        )
+    return "\n".join(lines)
+
+
+def _rerank_batch_precision(
+    batch: list[tuple[int, VectorResult]],
+    query: str,
+    additional_context: str,
+    language: str,
+) -> list[dict]:
+    """Rerank a batch using precision strategy.
+
+    Returns list of {id, score, reason, original_result} dicts.
+    Falls back to vector-score-based 1-5 mapping on error.
+    """
+    ollama = _get_ollama_client()
+    chunks_text = _format_chunks_for_prompt(batch)
+
+    system_prompt = RERANKER_PRECISION_PROMPT_SYSTEM.format(language=language)
+    human_prompt = RERANKER_PRECISION_PROMPT_HUMAN.format(
+        query=query,
+        additional_context=additional_context or "N/A",
+        chunks=chunks_text,
+        language=language,
+    )
+
+    try:
+        result = ollama.generate_structured_messages(
+            system_prompt, human_prompt, RerankerBatchOutput
+        )
+        # Build lookup by id
+        score_map = {r.id: (r.score, r.reason) for r in result.results}
+    except Exception as e:
+        logger.warning(f"Precision reranker failed: {e}, using fallback scores")
+        score_map = {}
+
+    output = []
+    for global_idx, vr in batch:
+        if global_idx in score_map:
+            score, reason = score_map[global_idx]
+        else:
+            # Fallback: map cosine score (0-1) to 1-5
+            score = max(1, min(5, round(vr.relevance_score * 5)))
+            reason = "fallback from vector score"
+        output.append({
+            "id": global_idx,
+            "score": score,
+            "reason": reason,
+            "original_result": vr,
+        })
+    return output
+
+
+def _rerank_batch_recall(
+    batch: list[tuple[int, VectorResult]],
+    query: str,
+    additional_context: str,
+    known_info: str,
+    language: str,
+) -> list[dict]:
+    """Rerank a batch using recall strategy.
+
+    Returns list of {id, score, reason, original_result} dicts.
+    """
+    ollama = _get_ollama_client()
+    chunks_text = _format_chunks_for_prompt(batch)
+
+    system_prompt = RERANKER_RECALL_PROMPT_SYSTEM.format(language=language)
+    human_prompt = RERANKER_RECALL_PROMPT_HUMAN.format(
+        query=query,
+        known_info=known_info or "N/A",
+        additional_context=additional_context or "N/A",
+        chunks=chunks_text,
+        language=language,
+    )
+
+    try:
+        result = ollama.generate_structured_messages(
+            system_prompt, human_prompt, RerankerRecallBatchOutput
+        )
+        score_map = {r.id: (r.s, r.r) for r in result.results}
+    except Exception as e:
+        logger.warning(f"Recall reranker failed: {e}, using fallback scores")
+        score_map = {}
+
+    output = []
+    for global_idx, vr in batch:
+        if global_idx in score_map:
+            score, reason = score_map[global_idx]
+        else:
+            score = max(1, min(5, round(vr.relevance_score * 5)))
+            reason = "fallback from vector score"
+        output.append({
+            "id": global_idx,
+            "score": score,
+            "reason": reason,
+            "original_result": vr,
+        })
+    return output
+
+
+def _normalize_batch_scores(
+    batch_results: list[list[dict]],
+) -> list[dict]:
+    """Per-batch zero-mean normalization, merge and sort descending.
+
+    Each entry has: {id, score, reason, original_result, normalized_score}
+    """
+    all_items = []
+    for batch in batch_results:
+        if not batch:
+            continue
+        batch_mean = sum(item["score"] for item in batch) / len(batch)
+        for item in batch:
+            item["normalized_score"] = item["score"] - batch_mean
+            all_items.append(item)
+
+    all_items.sort(key=lambda x: x["normalized_score"], reverse=True)
+    return all_items
+
+
+def _rerank_results(
+    grouped_results: dict[str, list[tuple[str, list[VectorResult]]]],
+    query: str,
+    additional_context: str,
+    language: str,
+    strategy: str,
+) -> dict[str, list[tuple[str, list[dict]]]]:
+    """Orchestrate reranking for all metrics and query groups.
+
+    Returns same structure as grouped_results but with reranked dicts
+    instead of VectorResult objects. Each dict has:
+    {id, score, reason, original_result, normalized_score}
+    """
+    reranked: dict[str, list[tuple[str, list[dict]]]] = {}
+
+    for metric, query_groups in grouped_results.items():
+        reranked_groups = []
+        for q_text, results in query_groups:
+            if not results:
+                reranked_groups.append((q_text, []))
+                continue
+
+            batches = _build_reranker_batches(results, batch_size=6)
+            batch_results = []
+
+            for batch in batches:
+                if strategy == "precision":
+                    scored = _rerank_batch_precision(
+                        batch, query, additional_context, language
+                    )
+                else:
+                    scored = _rerank_batch_recall(
+                        batch, query, additional_context, "", language
+                    )
+                batch_results.append(scored)
+
+            normalized = _normalize_batch_scores(batch_results)
+            reranked_groups.append((q_text, normalized))
+
+        reranked[metric] = reranked_groups
+
+    return reranked
+
+
+# ============================================================================
+# Chunk Rendering
+# ============================================================================
+
+
 def _render_chunk_expander(
-    result: VectorResult, rank: int, metric: str, query_idx: int = 0
+    result: VectorResult, rank: int, metric: str, query_idx: int = 0,
+    rerank_score: int | None = None, rerank_reason: str | None = None,
 ):
     """Render a single chunk result as an expander.
 
@@ -372,18 +627,35 @@ def _render_chunk_expander(
         rank: 1-based rank within this query group
         metric: Metric name for unique key generation
         query_idx: Query index for unique key generation (0 for single-query mode)
+        rerank_score: Optional LLM reranker score (1-5)
+        rerank_reason: Optional one-sentence reason from reranker
     """
-    with st.expander(
+    # Build title with optional reranker badge
+    title = (
         f"#{rank} | Score: {result.relevance_score:.3f} | "
-        f"{result.doc_name} (p.{result.page_number or 'N/A'})",
-        expanded=(rank == 1 and query_idx == 0),
-    ):
+        f"{result.doc_name} (p.{result.page_number or 'N/A'})"
+    )
+    if rerank_score is not None:
+        title = f"#{rank} | [LLM: {rerank_score}/5] | Vec: {result.relevance_score:.3f} | {result.doc_name} (p.{result.page_number or 'N/A'})"
+
+    # Key suffix to distinguish original vs reranked view
+    view_tag = "rr" if rerank_score is not None else "orig"
+
+    with st.expander(title, expanded=(rank == 1 and query_idx == 0)):
+        # Show reranker info if present
+        if rerank_score is not None:
+            score_colors = {5: "green", 4: "blue", 3: "orange", 2: "red", 1: "red"}
+            color = score_colors.get(rerank_score, "gray")
+            st.markdown(
+                f"**LLM Reranker:** :{color}[{rerank_score}/5] — {rerank_reason or 'N/A'}"
+            )
+
         st.markdown("**Chunk Text:**")
         st.text_area(
             "Content",
             value=result.chunk_text,
             height=200,
-            key=f"{metric}_q{query_idx}_{rank}_text",
+            key=f"{view_tag}_{metric}_q{query_idx}_{rank}_text",
             disabled=True,
         )
 
@@ -476,6 +748,7 @@ def render_search_test_tab():
                         grouped_results.setdefault(metric, []).append((q, results))
 
                 st.session_state.search_results = grouped_results
+                st.session_state.reranked_results = None  # Clear previous reranking
                 first_metric = st.session_state.selected_metrics[0]
                 total_chunks = sum(
                     len(r) for _, r in grouped_results.get(first_metric, [])
@@ -488,12 +761,48 @@ def render_search_test_tab():
                 st.error(f"Search failed: {e}")
                 st.exception(e)
 
+        # LLM Reranking (after search)
+        if (
+            st.session_state.search_results
+            and st.session_state.reranker_enabled
+            and st.session_state.reranked_results is None
+        ):
+            strategy = st.session_state.reranker_strategy
+            with st.spinner(f"Reranking with LLM ({strategy})..."):
+                try:
+                    reranked = _rerank_results(
+                        st.session_state.search_results,
+                        query,
+                        additional_context.strip() if additional_context else "",
+                        st.session_state.language,
+                        strategy,
+                    )
+                    st.session_state.reranked_results = reranked
+                    st.success(f"Reranking complete ({strategy} strategy)")
+                except Exception as e:
+                    st.error(f"Reranking failed: {e}")
+                    logger.exception("Reranking failed")
+
     # Display results
     if st.session_state.search_results:
         st.markdown("---")
         st.subheader("Search Results")
 
-        results_data = st.session_state.search_results
+        # Toggle for original vs reranked view
+        has_reranked = st.session_state.reranked_results is not None
+        if has_reranked:
+            st.session_state.show_reranked = st.toggle(
+                "Show LLM-reranked order",
+                value=st.session_state.show_reranked,
+                help="Toggle between original vector similarity order and LLM-reranked order",
+            )
+
+        show_reranked = has_reranked and st.session_state.show_reranked
+        results_data = (
+            st.session_state.reranked_results
+            if show_reranked
+            else st.session_state.search_results
+        )
 
         # Detect format: new grouped format (dict -> list[tuple]) vs legacy (dict -> list[VectorResult])
         first_metric = st.session_state.selected_metrics[0]
@@ -508,16 +817,33 @@ def render_search_test_tab():
                     query_groups = results_data.get(metric, [])
                     multi_query = len(query_groups) > 1
 
-                    for q_idx, (q_text, results) in enumerate(query_groups):
+                    for q_idx, (q_text, items) in enumerate(query_groups):
                         if multi_query:
                             st.markdown(
                                 f"### Query {q_idx + 1}: {q_text}"
                             )
-                        st.write(
-                            f"**Top {len(results)} Results - {metric.upper()} Similarity**"
-                        )
-                        for rank, result in enumerate(results, 1):
-                            _render_chunk_expander(result, rank, metric, q_idx)
+
+                        if show_reranked:
+                            # Reranked view: items are dicts with score/reason/original_result
+                            st.write(
+                                f"**Top {len(items)} Results - LLM Reranked ({st.session_state.reranker_strategy})**"
+                            )
+                            for rank, item in enumerate(items, 1):
+                                _render_chunk_expander(
+                                    item["original_result"],
+                                    rank,
+                                    metric,
+                                    q_idx,
+                                    rerank_score=item["score"],
+                                    rerank_reason=item["reason"],
+                                )
+                        else:
+                            # Original view: items are VectorResult
+                            st.write(
+                                f"**Top {len(items)} Results - {metric.upper()} Similarity**"
+                            )
+                            for rank, result in enumerate(items, 1):
+                                _render_chunk_expander(result, rank, metric, q_idx)
 
                         if multi_query and q_idx < len(query_groups) - 1:
                             st.markdown("---")

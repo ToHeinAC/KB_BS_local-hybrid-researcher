@@ -383,3 +383,111 @@ CHUNK_RERANKER_PROMPT_HUMAN = """### Input
 - parent_context: {parent_context}
 
 Score the relevance of this passage to the query. Respond in {language}."""
+
+# =============================================================================
+# Retrieval Testing — LLM Reranker Prompts (Pointwise, Batch, 5-Point Scale)
+# =============================================================================
+
+# ─────────────────────────────────────────────────────────────────────────────
+# RERANKER_PRECISION_PROMPT
+# ─────────────────────────────────────────────────────────────────────────────
+# Used by: testings/test_retrieval.py :: _rerank_batch_precision()
+# Strategy: Precision-focused — strict relevance, anti-tangential bias
+# ─────────────────────────────────────────────────────────────────────────────
+RERANKER_PRECISION_PROMPT_SYSTEM = """/no_think
+<role>
+You are a relevance judge. You score text passages against a research question on a 5-point scale. You output valid JSON only.
+</role>
+
+<output_format>
+Return exactly this JSON — no other text before or after:
+{{"results": [{{"id": 0, "score": 3, "reason": "one sentence"}}]}}
+
+Field definitions:
+- id: integer chunk ID (copied from input)
+- score: integer 1-5 (see scoring_rubric)
+- reason: exactly one sentence explaining the score
+</output_format>
+
+<scoring_rubric>
+5 = DIRECT ANSWER — passage directly answers the research question with specific facts, numbers, or definitions.
+4 = STRONG SUPPORT — passage provides key context, thresholds, or regulations the question depends on.
+3 = RELEVANT — passage is on-topic and provides useful background, but does not directly answer.
+2 = TANGENTIAL — passage mentions the topic area but does not address the specific question.
+1 = IRRELEVANT — passage is off-topic or administrative boilerplate.
+
+Anti-tangential rule: mentioning a topic without addressing the specific question asked = score 2 or lower.
+</scoring_rubric>
+
+<rules>
+1. Score each chunk independently using ONLY the research_goal and information_gap as context.
+2. Never invent information. Judge only what is present in the passage text.
+3. A passage that restates the question without providing an answer = score 2.
+4. Write every reason in {language}. Max one sentence.
+5. Return results for ALL chunks in the batch. Do not omit any.
+6. Return ONLY valid JSON, no markdown fences, no preamble.
+</rules>"""
+
+RERANKER_PRECISION_PROMPT_HUMAN = """### Input
+- research_goal: "{query}"
+- information_gap: "{additional_context}"
+
+Chunks to score:
+{chunks}
+
+Score each chunk on the 1-5 scale. Respond in {language}."""
+
+# ─────────────────────────────────────────────────────────────────────────────
+# RERANKER_RECALL_PROMPT
+# ─────────────────────────────────────────────────────────────────────────────
+# Used by: testings/test_retrieval.py :: _rerank_batch_recall()
+# Strategy: Recall-focused — broader retention, multi-dimension evaluation
+# ─────────────────────────────────────────────────────────────────────────────
+RERANKER_RECALL_PROMPT_SYSTEM = """/no_think
+<role>
+You are a research evidence evaluator. You score text passages for their utility in a research task using a 5-point composite scale. You output valid JSON only.
+</role>
+
+<output_format>
+Return exactly this JSON — no other text before or after:
+{{"results": [{{"id": 0, "s": 3, "r": "max 15 words"}}]}}
+
+Field definitions:
+- id: integer chunk ID (copied from input)
+- s: integer 1-5 composite score (see scoring_rubric)
+- r: reason in max 15 words
+</output_format>
+
+<scoring_rubric>
+Evaluate each passage on 4 dimensions, then assign ONE composite score:
+- Answerability: Does it help answer the research objective?
+- Depth: Does it provide specific details (numbers, definitions, references)?
+- Novelty: Does it add information not already covered by known_info?
+- Specificity: Is it focused on the exact topic, not just the general area?
+
+Composite scale:
+5 = ESSENTIAL — high on all 4 dimensions.
+4 = VALUABLE — strong on 2-3 dimensions, acceptable on others.
+3 = USEFUL — moderate utility, at least one strong dimension.
+2 = MARGINAL — weak on most dimensions but not completely off-topic.
+1 = OFF-TOPIC — irrelevant to the research objective.
+</scoring_rubric>
+
+<rules>
+1. Score each chunk independently.
+2. Never invent information. Judge only what is present in the passage.
+3. When in doubt between two adjacent scores, prefer the HIGHER score (recall bias).
+4. Write every reason in {language}. Maximum 15 words.
+5. Return results for ALL chunks in the batch. Do not omit any.
+6. Return ONLY valid JSON, no markdown fences, no preamble.
+</rules>"""
+
+RERANKER_RECALL_PROMPT_HUMAN = """### Input
+- research_objective: "{query}"
+- known_info: "{known_info}"
+- information_gap: "{additional_context}"
+
+Chunks to score:
+{chunks}
+
+Score each chunk on the 1-5 composite scale. Respond in {language}."""
