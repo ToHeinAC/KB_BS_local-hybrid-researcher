@@ -9,6 +9,7 @@ Run:
 """
 
 import json
+import logging
 from datetime import datetime
 from pathlib import Path
 
@@ -16,8 +17,19 @@ import chromadb
 import streamlit as st
 
 from src.config import settings
+from src.models.query import TaskSearchQueries
 from src.models.research import VectorResult
+from src.prompts import TASK_SEARCH_QUERIES_PROMPT_HUMAN, TASK_SEARCH_QUERIES_PROMPT_SYSTEM
 from src.services.chromadb_client import ChromaDBClient
+from src.services.ollama_client import OllamaClient
+
+logger = logging.getLogger(__name__)
+
+
+@st.cache_resource
+def _get_ollama_client() -> OllamaClient:
+    """Cached OllamaClient singleton."""
+    return OllamaClient()
 
 # Page configuration
 st.set_page_config(
@@ -51,6 +63,12 @@ def init_session_state():
 
     if "all_chunks" not in st.session_state:
         st.session_state.all_chunks = None
+
+    if "additional_context" not in st.session_state:
+        st.session_state.additional_context = ""
+
+    if "language" not in st.session_state:
+        st.session_state.language = "German"
 
 
 # ============================================================================
@@ -304,7 +322,78 @@ def render_sidebar():
         help="Note: All metrics currently use the collection's native distance function (L2)",
     )
 
+    # Language selector
+    st.sidebar.subheader("Language")
+    st.session_state.language = st.sidebar.selectbox(
+        "Output Language",
+        options=["German", "English"],
+        index=0 if st.session_state.language == "German" else 1,
+        help="Language for LLM-generated search queries",
+    )
+
     return True
+
+
+def _generate_additional_queries(query: str, additional_context: str) -> list[str]:
+    """Generate additional search queries using LLM when additional context is provided.
+
+    Args:
+        query: Original search query
+        additional_context: HITL-style context for query generation
+
+    Returns:
+        List of 3 queries: [original, query_1, query_2]. Falls back to [original] on error.
+    """
+    lang_label = st.session_state.language
+    ollama = _get_ollama_client()
+
+    system_prompt = TASK_SEARCH_QUERIES_PROMPT_SYSTEM.format(language=lang_label)
+    human_prompt = TASK_SEARCH_QUERIES_PROMPT_HUMAN.format(
+        task=query,
+        original_query=query,
+        hitl_context=additional_context,
+        key_entities="None",
+        language=lang_label,
+    )
+
+    result = ollama.generate_structured_messages(
+        system_prompt, human_prompt, TaskSearchQueries
+    )
+    return [result.query_1, result.query_2]
+
+
+def _render_chunk_expander(
+    result: VectorResult, rank: int, metric: str, query_idx: int = 0
+):
+    """Render a single chunk result as an expander.
+
+    Args:
+        result: VectorResult to display
+        rank: 1-based rank within this query group
+        metric: Metric name for unique key generation
+        query_idx: Query index for unique key generation (0 for single-query mode)
+    """
+    with st.expander(
+        f"#{rank} | Score: {result.relevance_score:.3f} | "
+        f"{result.doc_name} (p.{result.page_number or 'N/A'})",
+        expanded=(rank == 1 and query_idx == 0),
+    ):
+        st.markdown("**Chunk Text:**")
+        st.text_area(
+            "Content",
+            value=result.chunk_text,
+            height=200,
+            key=f"{metric}_q{query_idx}_{rank}_text",
+            disabled=True,
+        )
+
+        st.markdown("**Metadata:**")
+        cols = st.columns(5)
+        cols[0].metric("Document", result.doc_name)
+        cols[1].metric("Page", result.page_number or "N/A")
+        cols[2].metric("Collection", result.collection)
+        cols[3].metric("Score", f"{result.relevance_score:.4f}")
+        cols[4].metric("Query Used", result.query_used[:40] + "..." if len(result.query_used) > 40 else result.query_used)
 
 
 def render_search_test_tab():
@@ -337,21 +426,64 @@ def render_search_test_tab():
         help="Enter a query to search the selected database",
     )
 
+    additional_context = st.text_area(
+        "Additional Context (HITL)",
+        placeholder="Optional context to refine search...",
+        help=(
+            "When set, the LLM generates 2 additional search queries "
+            "(mirrors TASK_SEARCH_QUERIES_PROMPT in the research pipeline). "
+            "Results are grouped by source query."
+        ),
+        height=100,
+    )
+
     col1, col2 = st.columns([1, 4])
     with col1:
         search_button = st.button("Execute Search", type="primary")
 
     if search_button and query:
+        use_multi_query = bool(additional_context and additional_context.strip())
+
+        # Generate queries
+        all_queries = [query]
+        if use_multi_query:
+            with st.spinner("Generating additional queries via LLM..."):
+                try:
+                    all_queries = _generate_additional_queries(
+                        query, additional_context.strip()
+                    )
+                    st.success(
+                        f"Generated {len(all_queries)} queries: "
+                        + " | ".join(f'"{q}"' for q in all_queries)
+                    )
+                except Exception as e:
+                    st.warning(f"LLM query generation failed ({e}), using original query only")
+                    all_queries = [query]
+
+        # Execute search for each query
         with st.spinner("Executing search..."):
             try:
-                results = search_with_metrics(
-                    query=query,
-                    db_name=st.session_state.selected_db,
-                    top_k=st.session_state.k_results,
-                    metrics=st.session_state.selected_metrics,
+                # Results structure: metric -> list of (query_text, list[VectorResult])
+                grouped_results: dict[str, list[tuple[str, list[VectorResult]]]] = {}
+                for q in all_queries:
+                    per_metric = search_with_metrics(
+                        query=q,
+                        db_name=st.session_state.selected_db,
+                        top_k=st.session_state.k_results,
+                        metrics=st.session_state.selected_metrics,
+                    )
+                    for metric, results in per_metric.items():
+                        grouped_results.setdefault(metric, []).append((q, results))
+
+                st.session_state.search_results = grouped_results
+                first_metric = st.session_state.selected_metrics[0]
+                total_chunks = sum(
+                    len(r) for _, r in grouped_results.get(first_metric, [])
                 )
-                st.session_state.search_results = results
-                st.success(f"Found {len(results[st.session_state.selected_metrics[0]])} results")
+                st.success(
+                    f"Found {total_chunks} results across "
+                    f"{len(all_queries)} {'queries' if len(all_queries) > 1 else 'query'}"
+                )
             except Exception as e:
                 st.error(f"Search failed: {e}")
                 st.exception(e)
@@ -361,38 +493,42 @@ def render_search_test_tab():
         st.markdown("---")
         st.subheader("Search Results")
 
-        # Create tabs for each metric
+        results_data = st.session_state.search_results
+
+        # Detect format: new grouped format (dict -> list[tuple]) vs legacy (dict -> list[VectorResult])
+        first_metric = st.session_state.selected_metrics[0]
+        first_val = results_data.get(first_metric, [])
+        is_grouped = first_val and isinstance(first_val[0], tuple)
+
         metric_tabs = st.tabs([m.upper() for m in st.session_state.selected_metrics])
 
         for i, metric in enumerate(st.session_state.selected_metrics):
             with metric_tabs[i]:
-                results = st.session_state.search_results.get(metric, [])
+                if is_grouped:
+                    query_groups = results_data.get(metric, [])
+                    multi_query = len(query_groups) > 1
 
-                st.write(f"**Top {len(results)} Results - {metric.upper()} Similarity**")
-
-                for rank, result in enumerate(results, 1):
-                    with st.expander(
-                        f"#{rank} | Score: {result.relevance_score:.3f} | "
-                        f"{result.doc_name} (p.{result.page_number or 'N/A'})",
-                        expanded=(rank == 1),
-                    ):
-                        # Display full chunk text
-                        st.markdown("**Chunk Text:**")
-                        st.text_area(
-                            "Content",
-                            value=result.chunk_text,
-                            height=200,
-                            key=f"{metric}_{rank}_text",
-                            disabled=True,
+                    for q_idx, (q_text, results) in enumerate(query_groups):
+                        if multi_query:
+                            st.markdown(
+                                f"### Query {q_idx + 1}: {q_text}"
+                            )
+                        st.write(
+                            f"**Top {len(results)} Results - {metric.upper()} Similarity**"
                         )
+                        for rank, result in enumerate(results, 1):
+                            _render_chunk_expander(result, rank, metric, q_idx)
 
-                        # Metadata
-                        st.markdown("**Metadata:**")
-                        cols = st.columns(4)
-                        cols[0].metric("Document", result.doc_name)
-                        cols[1].metric("Page", result.page_number or "N/A")
-                        cols[2].metric("Collection", result.collection)
-                        cols[3].metric("Score", f"{result.relevance_score:.4f}")
+                        if multi_query and q_idx < len(query_groups) - 1:
+                            st.markdown("---")
+                else:
+                    # Legacy flat format (backward compat)
+                    results = results_data.get(metric, [])
+                    st.write(
+                        f"**Top {len(results)} Results - {metric.upper()} Similarity**"
+                    )
+                    for rank, result in enumerate(results, 1):
+                        _render_chunk_expander(result, rank, metric)
 
 
 def render_database_explorer_tab():
@@ -492,30 +628,59 @@ def render_chunk_export_tab():
             options=st.session_state.selected_metrics,
         )
 
-        results = st.session_state.search_results.get(metric, [])
+        raw_metric_data = st.session_state.search_results.get(metric, [])
 
         if st.button("Export All Results to JSON"):
-            # Convert VectorResult objects to dicts
-            results_dicts = [
-                {
-                    "doc_id": r.doc_id,
-                    "doc_name": r.doc_name,
-                    "chunk_text": r.chunk_text,
-                    "page_number": r.page_number,
-                    "relevance_score": r.relevance_score,
-                    "collection": r.collection,
-                    "query_used": r.query_used,
-                }
-                for r in results
-            ]
+            # Handle both grouped (new) and flat (legacy) formats
+            is_grouped = raw_metric_data and isinstance(raw_metric_data[0], tuple)
 
-            export_data = {
-                "metric": metric,
-                "query": results[0].query_used if results else "",
-                "timestamp": datetime.now().isoformat(),
-                "results_count": len(results),
-                "results": results_dicts,
-            }
+            if is_grouped:
+                all_results: list[VectorResult] = []
+                query_groups_export = []
+                for q_text, results_list in raw_metric_data:
+                    all_results.extend(results_list)
+                    query_groups_export.append({
+                        "query": q_text,
+                        "results_count": len(results_list),
+                        "results": [
+                            {
+                                "doc_id": r.doc_id,
+                                "doc_name": r.doc_name,
+                                "chunk_text": r.chunk_text,
+                                "page_number": r.page_number,
+                                "relevance_score": r.relevance_score,
+                                "collection": r.collection,
+                                "query_used": r.query_used,
+                            }
+                            for r in results_list
+                        ],
+                    })
+                export_data = {
+                    "metric": metric,
+                    "timestamp": datetime.now().isoformat(),
+                    "total_results": len(all_results),
+                    "query_groups": query_groups_export,
+                }
+            else:
+                results_dicts = [
+                    {
+                        "doc_id": r.doc_id,
+                        "doc_name": r.doc_name,
+                        "chunk_text": r.chunk_text,
+                        "page_number": r.page_number,
+                        "relevance_score": r.relevance_score,
+                        "collection": r.collection,
+                        "query_used": r.query_used,
+                    }
+                    for r in raw_metric_data
+                ]
+                export_data = {
+                    "metric": metric,
+                    "query": raw_metric_data[0].query_used if raw_metric_data else "",
+                    "timestamp": datetime.now().isoformat(),
+                    "results_count": len(raw_metric_data),
+                    "results": results_dicts,
+                }
 
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             filename = f"search_results_{metric}_{timestamp}.json"

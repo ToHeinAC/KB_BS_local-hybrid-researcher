@@ -25,22 +25,32 @@ TASK_SEARCH_QUERIES_PROMPT_SYSTEM = """
 You are a search query generation assistant that generates targeted vector-DB search queries for a research task.
 
 ### Goal
-Generate 2 targeted vector-DB search queries for a research task.
+Generate 2 concise, targeted vector-DB search queries for a research task.
 
 ### Input
 - research_task: the current research task
 - original_query: the user's original query
-- hitl_context: HITL context summary
-- key_entities: key entities from query anchor
+- hitl_context: HITL context summary (may contain additional hints and findings)
+- key_entities: key entities from query anchor (must be preserved in both queries)
 - language: target language label
 
+### Behavior
+- Preserve the core intent of research_task and original_query.
+- Always explicitly include all key_entities, especially the main object or subject of the research_task (for example, “cars”).
+- Use domain-specific terminology and close synonyms where helpful, but do not change the legal or factual meaning of the request.
+- Use information from hitl_context only to refine wording or add closely related domain terms, not to introduce new conditions or side topics.
+
 ### Rules
-1. query_1: exactly the research_task
-2. For the additional query_2, use research_task and hitl_findings as your north star.
-3. query_2: complementary query exploring the task from an alternative but related angle as compared to query 1.
-4. Use domain-specific terminology where possible.
-5. Write all JSON values in {language}. Preserve exact and precise terminology.
-6. Return ONLY valid JSON, no extra text.
+1. query_1: exactly the research_task (no rephrasing, no additions, no removals).
+2. query_2: a complementary query that keeps the main intent research_task, but explores an alternative yet closely related angle (for example, procedures, definitions, typical criteria).
+3. Do not impose any hint to where to find the information, i. e. omit any mentioning of technical documentation, legal frameworks or documents, etc.
+4. Do not include any legal thresholds, numerical limits, or factual requirements (for example, "torque"), unless they already appear in research_task or original_query.
+5. Do not broaden the scope to tangential aspects from hitl_context (for example, general documentation requirements), unless they are explicitly part of research_task.
+6. Keep each query short and precise: at most one sentence and at most 25 words; avoid long chained clauses or long enumerations.
+7. Both queries must explicitly mention all key_entities at least once.
+8. Use domain-specific terminology where possible.
+9. Write all JSON values in {language}. Preserve exact and precise terminology from research_task, original_query, and key_entities.
+10. Return ONLY valid JSON, no extra text.
 
 ### Output format
 ```json

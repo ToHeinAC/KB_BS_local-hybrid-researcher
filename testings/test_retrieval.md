@@ -1,14 +1,15 @@
 # GOAL
 Improvements of retrieval quality by testing different constellations via a GUI application
 
-# USER STROIES
+# USER STORIES
 - As a tester, in the GUI I want to select the database, the number of chunks (top k) given back, the similarity metric and the llm for chunk synthesis.
-- As a tester, in the GUI I want to see the selected database and the embedding model. 
-- As a tester, I want to be able to explore the selected database, i. e. I want to be able to see the chunks and their respective metadata in the database. I alslo want to be able to export a single selectable chunk with all its metadate in a text file.
+- As a tester, in the GUI I want to see the selected database and the embedding model.
+- As a tester, I want to be able to explore the selected database, i. e. I want to be able to see the chunks and their respective metadata in the database. I also want to be able to export a single selectable chunk with all its metadata in a text file.
 - As a tester, I want to be able to place a search query and receive the top k most similar chunks.
-- As a tester, I want to be able to set the similarty metric (cosine, l2, inner product). Also a multiselect for the similarity metric is possible.
-- As a tester, I want to get the full chunks with all metadata available as a response to the search query. The chunks text must be fully displayed in the GUI. The sorting must reflect the different similarity metrics, e. g. firstly show the to k results for cosine, then for l2, lastly for inner product. 
-- As a evaluator, I want to see the scoring of each chunk to understand the sorting by the most relevant chunks.
+- As a tester, I want to be able to set the similarity metric (cosine, l2, inner product). Also a multiselect for the similarity metric is possible.
+- As a tester, I want to get the full chunks with all metadata available as a response to the search query. The chunks text must be fully displayed in the GUI. The sorting must reflect the different similarity metrics, e. g. firstly show the top k results for cosine, then for l2, lastly for inner product.
+- As an evaluator, I want to see the scoring of each chunk to understand the sorting by the most relevant chunks.
+- As a tester, I want to provide additional context (like HITL context) so the LLM generates 2 extra search queries, and I can see results grouped by each query with full query text and metadata displayed.
 
 # RULES
 - all retrieval and chunk synthesis implementations must be identical to the one used in the deep researcher application src/ui/app.py. That is, the vector database selection and the automatical embedding model extraction must be identical. If you need to change the retrieval or chunk synthesis implementation, you must change it in the original implementation for src/ui/app.py, but set the existing solution (e.g. cosine similarity) as the default.
@@ -39,6 +40,7 @@ Once running, open your browser to:
 - Compare multiple similarity metrics side-by-side (cosine, L2, inner product)
 - View full chunk text with metadata
 - See relevance scores for each result
+- **Additional Context (HITL)**: Provide optional context to generate 2 extra LLM-based search queries (uses `TASK_SEARCH_QUERIES_PROMPT` from the research pipeline). Results are grouped by source query with full query text displayed.
 
 ### 2. Database Explorer Tab
 - Browse all chunks in the selected database
@@ -57,6 +59,7 @@ Use the sidebar to configure:
 - **Database Selection**: Choose from available ChromaDB databases
 - **Number of Results (k)**: 1-20 results per query
 - **Similarity Metrics**: Select one or more metrics for comparison
+- **Language**: German or English (used for LLM query generation)
 
 ## Usage Guide
 
@@ -212,6 +215,10 @@ uv run python -c "import testings.test_retrieval; print('OK')"
 | Multi-metric search | ✅ Implemented | Search Test |
 | Database selection | ✅ Implemented | Sidebar |
 | Embedding model display | ✅ Implemented | Sidebar |
+| Language selector | ✅ Implemented | Sidebar |
+| Additional context (HITL) | ✅ Implemented | Search Test |
+| LLM multi-query generation | ✅ Implemented | Search Test |
+| Per-query result grouping | ✅ Implemented | Search Test |
 | Chunk browsing | ✅ Implemented | Database Explorer |
 | Pagination | ✅ Implemented | Database Explorer |
 | Single chunk export | ✅ Implemented | Database Explorer |
