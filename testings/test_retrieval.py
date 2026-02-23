@@ -37,10 +37,20 @@ from src.services.ollama_client import OllamaClient
 logger = logging.getLogger(__name__)
 
 
+RERANKER_MODELS = [
+    "qwen3:1.7b",
+    "qwen3:8b",
+    "ministral-3:8b",
+    "qwen3:14b",
+    "ministral-3:14b",
+    "gpt-oss:20b",
+]
+
+
 @st.cache_resource
-def _get_ollama_client() -> OllamaClient:
-    """Cached OllamaClient singleton."""
-    return OllamaClient()
+def _get_ollama_client(model: str = settings.ollama_model) -> OllamaClient:
+    """Cached OllamaClient — one instance per model name."""
+    return OllamaClient(model=model)
 
 # Page configuration
 st.set_page_config(
@@ -92,6 +102,12 @@ def init_session_state():
 
     if "show_reranked" not in st.session_state:
         st.session_state.show_reranked = True
+
+    if "reranker_model" not in st.session_state:
+        st.session_state.reranker_model = "qwen3:14b"
+
+    if "export_data" not in st.session_state:
+        st.session_state.export_data = None
 
 
 # ============================================================================
@@ -380,6 +396,17 @@ def render_sidebar():
                 "When in doubt, scores higher to retain more chunks."
             )
 
+        st.session_state.reranker_model = st.sidebar.selectbox(
+            "Reranker Model",
+            options=RERANKER_MODELS,
+            index=(
+                RERANKER_MODELS.index(st.session_state.reranker_model)
+                if st.session_state.reranker_model in RERANKER_MODELS
+                else 3
+            ),
+            help="Ollama model used for LLM reranking",
+        )
+
     return True
 
 
@@ -455,13 +482,14 @@ def _rerank_batch_precision(
     query: str,
     additional_context: str,
     language: str,
+    model: str = settings.ollama_model,
 ) -> list[dict]:
     """Rerank a batch using precision strategy.
 
     Returns list of {id, score, reason, original_result} dicts.
     Falls back to vector-score-based 1-5 mapping on error.
     """
-    ollama = _get_ollama_client()
+    ollama = _get_ollama_client(model)
     chunks_text = _format_chunks_for_prompt(batch)
 
     system_prompt = RERANKER_PRECISION_PROMPT_SYSTEM.format(language=language)
@@ -505,12 +533,13 @@ def _rerank_batch_recall(
     additional_context: str,
     known_info: str,
     language: str,
+    model: str = settings.ollama_model,
 ) -> list[dict]:
     """Rerank a batch using recall strategy.
 
     Returns list of {id, score, reason, original_result} dicts.
     """
-    ollama = _get_ollama_client()
+    ollama = _get_ollama_client(model)
     chunks_text = _format_chunks_for_prompt(batch)
 
     system_prompt = RERANKER_RECALL_PROMPT_SYSTEM.format(language=language)
@@ -591,15 +620,16 @@ def _rerank_results(
 
             batches = _build_reranker_batches(results, batch_size=6)
             batch_results = []
+            model = st.session_state.get("reranker_model", settings.ollama_model)
 
             for batch in batches:
                 if strategy == "precision":
                     scored = _rerank_batch_precision(
-                        batch, query, additional_context, language
+                        batch, query, additional_context, language, model
                     )
                 else:
                     scored = _rerank_batch_recall(
-                        batch, query, additional_context, "", language
+                        batch, query, additional_context, "", language, model
                     )
                 batch_results.append(scored)
 
@@ -1017,6 +1047,27 @@ def render_chunk_export_tab():
                 file_name=filename,
                 mime="application/json",
             )
+
+            st.session_state.export_data = export_data
+
+    if st.session_state.export_data is not None:
+        st.divider()
+        st.subheader("Save to testings/ Directory")
+        save_filename = st.text_input(
+            "Filename",
+            value="rerank.json",
+            help="File will be saved inside the testings/ directory",
+        )
+        if st.button("Save to testings/"):
+            save_path = Path(__file__).parent / save_filename
+            try:
+                save_path.write_text(
+                    json.dumps(st.session_state.export_data, indent=2, ensure_ascii=False),
+                    encoding="utf-8",
+                )
+                st.success(f"Saved to {save_path}")
+            except Exception as e:
+                st.error(f"Save failed: {e}")
 
 
 # ============================================================================

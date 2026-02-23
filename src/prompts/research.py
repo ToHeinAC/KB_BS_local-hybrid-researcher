@@ -410,8 +410,8 @@ Field definitions:
 </output_format>
 
 <scoring_rubric>
-5 = DIRECT ANSWER — passage directly answers the research question with specific facts, numbers, or definitions.
-4 = STRONG SUPPORT — passage provides key context, thresholds, or regulations the question depends on.
+5 = DIRECT ANSWER — passage directly answers the research question with correct terminology, specific facts, numbers, or definitions.
+4 = STRONG SUPPORT — passage has good terminology matching and provides key context, thresholds, or regulations the question depends on.
 3 = RELEVANT — passage is on-topic and provides useful background, but does not directly answer.
 2 = TANGENTIAL — passage mentions the topic area but does not address the specific question.
 1 = IRRELEVANT — passage is off-topic or administrative boilerplate.
@@ -460,7 +460,7 @@ Field definitions:
 
 <scoring_rubric>
 Evaluate each passage on 4 dimensions, then assign ONE composite score:
-- Answerability: Does it help answer the research objective?
+- Answerability: Does it help answer the research objective with high terminology matching?
 - Depth: Does it provide specific details (numbers, definitions, references)?
 - Novelty: Does it add information not already covered by known_info?
 - Specificity: Is it focused on the exact topic, not just the general area?
