@@ -15,6 +15,10 @@ class VectorResult(BaseModel):
         default=None,
         description="Page number if available",
     )
+    chunk_id: int | None = Field(
+        default=None,
+        description="Chunk sequence number within page",
+    )
     relevance_score: float = Field(description="Similarity score (0-1)")
     collection: str = Field(description="ChromaDB collection name")
     query_used: str = Field(description="Query that retrieved this result")

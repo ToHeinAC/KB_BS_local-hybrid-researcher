@@ -22,6 +22,7 @@ from src.models.research import VectorResult
 from src.models.results import (
     RerankerBatchOutput,
     RerankerRecallBatchOutput,
+    TaskSummaryOutput,
 )
 from src.prompts import (
     RERANKER_PRECISION_PROMPT_HUMAN,
@@ -30,6 +31,8 @@ from src.prompts import (
     RERANKER_RECALL_PROMPT_SYSTEM,
     TASK_SEARCH_QUERIES_PROMPT_HUMAN,
     TASK_SEARCH_QUERIES_PROMPT_SYSTEM,
+    TASK_SUMMARY_PROMPT_HUMAN,
+    TASK_SUMMARY_PROMPT_SYSTEM,
 )
 from src.services.chromadb_client import ChromaDBClient
 from src.services.ollama_client import OllamaClient
@@ -74,7 +77,7 @@ def init_session_state():
         st.session_state.selected_db = None
 
     if "k_results" not in st.session_state:
-        st.session_state.k_results = 4
+        st.session_state.k_results = 10
 
     if "selected_metrics" not in st.session_state:
         st.session_state.selected_metrics = ["cosine"]
@@ -108,6 +111,15 @@ def init_session_state():
 
     if "export_data" not in st.session_state:
         st.session_state.export_data = None
+
+    if "synthesis_result" not in st.session_state:
+        st.session_state.synthesis_result = None
+
+    if "last_query" not in st.session_state:
+        st.session_state.last_query = ""
+
+    if "last_additional_context" not in st.session_state:
+        st.session_state.last_additional_context = ""
 
 
 # ============================================================================
@@ -199,9 +211,10 @@ def search_with_metrics(
             vector_results.append(
                 VectorResult(
                     doc_id=doc_id,
-                    doc_name=metadata.get("source", "unknown"),
+                    doc_name=metadata.get("original_filename", metadata.get("source", "unknown")),
                     chunk_text=document,
                     page_number=metadata.get("page"),
+                    chunk_id=metadata.get("chunk_id"),
                     relevance_score=similarity,
                     collection=collection_name,
                     query_used=query,
@@ -317,6 +330,8 @@ def render_sidebar():
             st.sidebar.warning("No databases found in kb/database/")
             return False
 
+        prev_selected = st.session_state.selected_db
+
         selected_db = st.sidebar.selectbox(
             "Select Database",
             options=available_dbs,
@@ -326,6 +341,12 @@ def render_sidebar():
                 else 0
             ),
         )
+
+        if prev_selected != selected_db:
+            st.session_state.search_results = None
+            st.session_state.reranked_results = None
+            st.session_state.synthesis_result = None
+            st.session_state.all_chunks = None
 
         st.session_state.selected_db = selected_db
 
@@ -418,7 +439,7 @@ def _generate_additional_queries(query: str, additional_context: str) -> list[st
         additional_context: HITL-style context for query generation
 
     Returns:
-        List of 3 queries: [original, query_1, query_2]. Falls back to [original] on error.
+        List of 2 queries: [query_1, query_2] where query_1 == original (per prompt rule 1). Falls back to [original] on error.
     """
     lang_label = st.session_state.language
     ollama = _get_ollama_client()
@@ -469,9 +490,10 @@ def _format_chunks_for_prompt(batch: list[tuple[int, VectorResult]]) -> str:
     lines = []
     for global_idx, result in batch:
         text_preview = result.chunk_text[:1500]
+        page_display = result.page_number if result.page_number is not None else "N/A"
         lines.append(
             f"[Chunk {global_idx}]\n"
-            f"Document: {result.doc_name}, Page: {result.page_number or 'N/A'}\n"
+            f"Document: {result.doc_name}, Page: {page_display}\n"
             f"Text: {text_preview}\n"
         )
     return "\n".join(lines)
@@ -642,6 +664,70 @@ def _rerank_results(
 
 
 # ============================================================================
+# Synthesis Helpers
+# ============================================================================
+
+
+def _build_ranked_findings() -> tuple[str, int, int]:
+    """Collect reranked chunks scoring >= 4, deduplicate, and format for TASK_SUMMARY_PROMPT.
+
+    Returns:
+        (ranked_findings_str, count_5, count_4) where counts are deduplicated chunk counts.
+    """
+    reranked: dict = st.session_state.reranked_results or {}
+
+    # Deduplicate by (doc_name, page_number, chunk_id); keep highest score entry
+    seen: dict[tuple, dict] = {}
+    for metric_groups in reranked.values():
+        for _q_text, items in metric_groups:
+            for item in items:
+                if item["score"] < 4:
+                    continue
+                vr = item["original_result"]
+                key = (vr.doc_name, vr.page_number, vr.chunk_id)
+                if key not in seen or item["score"] > seen[key]["score"]:
+                    seen[key] = item
+
+    # Sort: 5/5 first, then 4/5; within same score by normalized_score desc
+    top = sorted(seen.values(), key=lambda x: (-x["score"], -x.get("normalized_score", 0.0)))
+
+    count_5 = sum(1 for x in top if x["score"] == 5)
+    count_4 = sum(1 for x in top if x["score"] == 4)
+
+    # Score mapping: 5/5 → 90/100, 4/5 → 70/100
+    score_map = {5: 90, 4: 70}
+
+    lines = []
+    for rank, item in enumerate(top, 1):
+        vr = item["original_result"]
+        page_str = str(vr.page_number) if vr.page_number is not None else "N/A"
+        chunk_str = f" chunk {vr.chunk_id}" if vr.chunk_id is not None else ""
+        source_ref = f"[{vr.doc_name} ({chunk_str.strip() or 'N/A'}), Page {page_str}]"
+        score_100 = score_map.get(item["score"], 60)
+        reason = (item.get("reason") or "").strip() or "LLM scored highly relevant"
+        text = vr.chunk_text[:1500]
+        lines.append(f"Rank {rank} | Score {score_100}/100 | {source_ref} | {reason} | {text}")
+
+    return "\n".join(lines), count_5, count_4
+
+
+def _synthesize_from_reranked(query: str, additional_context: str, language: str) -> TaskSummaryOutput:
+    """Run TASK_SUMMARY_PROMPT on top-rated reranked chunks."""
+    ranked_findings, _, _ = _build_ranked_findings()
+    ollama = _get_ollama_client(st.session_state.reranker_model)
+    system_prompt = TASK_SUMMARY_PROMPT_SYSTEM.format(language=language)
+    human_prompt = TASK_SUMMARY_PROMPT_HUMAN.format(
+        task="",
+        original_query=query,
+        hitl_smry=additional_context or "N/A",
+        ranked_findings=ranked_findings,
+        preserved_quotes="[]",
+        language=language,
+    )
+    return ollama.generate_structured_messages(system_prompt, human_prompt, TaskSummaryOutput)
+
+
+# ============================================================================
 # Chunk Rendering
 # ============================================================================
 
@@ -661,12 +747,14 @@ def _render_chunk_expander(
         rerank_reason: Optional one-sentence reason from reranker
     """
     # Build title with optional reranker badge
+    page_str = result.page_number if result.page_number is not None else "N/A"
+    chunk_str = f" chunk {result.chunk_id}" if result.chunk_id is not None else ""
     title = (
         f"#{rank} | Score: {result.relevance_score:.3f} | "
-        f"{result.doc_name} (p.{result.page_number or 'N/A'})"
+        f"{result.doc_name} (p.{page_str}{chunk_str})"
     )
     if rerank_score is not None:
-        title = f"#{rank} | [LLM: {rerank_score}/5] | Vec: {result.relevance_score:.3f} | {result.doc_name} (p.{result.page_number or 'N/A'})"
+        title = f"#{rank} | [LLM: {rerank_score}/5] | Vec: {result.relevance_score:.3f} | {result.doc_name} (p.{page_str}{chunk_str})"
 
     # Key suffix to distinguish original vs reranked view
     view_tag = "rr" if rerank_score is not None else "orig"
@@ -690,12 +778,13 @@ def _render_chunk_expander(
         )
 
         st.markdown("**Metadata:**")
-        cols = st.columns(5)
+        cols = st.columns(6)
         cols[0].metric("Document", result.doc_name)
-        cols[1].metric("Page", result.page_number or "N/A")
-        cols[2].metric("Collection", result.collection)
-        cols[3].metric("Score", f"{result.relevance_score:.4f}")
-        cols[4].metric("Query Used", result.query_used[:40] + "..." if len(result.query_used) > 40 else result.query_used)
+        cols[1].metric("Page", result.page_number if result.page_number is not None else "N/A")
+        cols[2].metric("Chunk ID", result.chunk_id if result.chunk_id is not None else "N/A")
+        cols[3].metric("Collection", result.collection)
+        cols[4].metric("Score", f"{result.relevance_score:.4f}")
+        cols[5].metric("Query Used", result.query_used[:40] + "..." if len(result.query_used) > 40 else result.query_used)
 
 
 def render_search_test_tab():
@@ -779,6 +868,9 @@ def render_search_test_tab():
 
                 st.session_state.search_results = grouped_results
                 st.session_state.reranked_results = None  # Clear previous reranking
+                st.session_state.synthesis_result = None  # Clear previous synthesis
+                st.session_state.last_query = query
+                st.session_state.last_additional_context = additional_context.strip() if additional_context else ""
                 first_metric = st.session_state.selected_metrics[0]
                 total_chunks = sum(
                     len(r) for _, r in grouped_results.get(first_metric, [])
@@ -885,6 +977,50 @@ def render_search_test_tab():
                     )
                     for rank, result in enumerate(results, 1):
                         _render_chunk_expander(result, rank, metric)
+
+        # ── Synthesize Report ──────────────────────────────────────────────
+        if has_reranked:
+            st.markdown("---")
+            ranked_findings_str, count_5, count_4 = _build_ranked_findings()
+            eligible = count_5 + count_4
+            if eligible == 0:
+                st.info("No chunks with LLM score 4 or 5 available for synthesis.")
+            else:
+                st.info(
+                    f"**Synthesis pool:** {count_5} main resources (5/5) + "
+                    f"{count_4} supplementing resources (4/5) = {eligible} chunks"
+                )
+                if st.button("Synthesize Report", type="primary", key="synthesize_btn"):
+                    q = st.session_state.get("last_query", "")
+                    ctx = st.session_state.get("last_additional_context", "")
+                    with st.spinner("Synthesizing report..."):
+                        try:
+                            result = _synthesize_from_reranked(q, ctx, st.session_state.language)
+                            st.session_state.synthesis_result = result
+                        except Exception as e:
+                            st.error(f"Synthesis failed: {e}")
+                            logger.exception("Synthesis failed")
+
+        if st.session_state.synthesis_result:
+            result = st.session_state.synthesis_result
+            st.markdown("### Research Report")
+            st.markdown(f"**Relevance Score:** {result.relevance_score}/100")
+            if result.relevance_assessment:
+                st.markdown(f"*{result.relevance_assessment}*")
+            st.markdown("**Summary:**")
+            st.markdown(result.summary)
+            if result.key_findings:
+                st.markdown("**Key Findings:**")
+                for f in result.key_findings:
+                    st.markdown(f"- {f}")
+            if result.gaps:
+                with st.expander("Gaps"):
+                    for g in result.gaps:
+                        st.markdown(f"- {g}")
+            if result.irrelevant_findings:
+                with st.expander("Irrelevant Findings"):
+                    for irr in result.irrelevant_findings:
+                        st.markdown(f"- {irr}")
 
 
 def render_database_explorer_tab():

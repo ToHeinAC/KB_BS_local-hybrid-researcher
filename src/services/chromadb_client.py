@@ -230,9 +230,10 @@ class ChromaDBClient:
             vector_results.append(
                 VectorResult(
                     doc_id=metadata.get("id", str(hash(doc.page_content[:50]))),
-                    doc_name=metadata.get("source", metadata.get("filename", "unknown")),
+                    doc_name=metadata.get("original_filename", metadata.get("source", metadata.get("filename", "unknown"))),
                     chunk_text=doc.page_content,
                     page_number=metadata.get("page"),
+                    chunk_id=metadata.get("chunk_id"),
                     relevance_score=similarity,
                     collection=collection_key,
                     query_used=query,
@@ -451,9 +452,10 @@ class ChromaDBClient:
             vector_results.append(
                 VectorResult(
                     doc_id=metadata.get("id", str(hash(doc.page_content[:50]))),
-                    doc_name=metadata.get("source", metadata.get("filename", "unknown")),
+                    doc_name=metadata.get("original_filename", metadata.get("source", metadata.get("filename", "unknown"))),
                     chunk_text=doc.page_content,
                     page_number=metadata.get("page"),
+                    chunk_id=metadata.get("chunk_id"),
                     relevance_score=similarity,
                     collection=collection_key,
                     query_used=query,
