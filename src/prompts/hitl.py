@@ -311,53 +311,6 @@ USER_FEEDBACK_ANALYSIS_PROMPT_HUMAN = """### Input
 Analyse the conversation and extract research directions. Respond in {language}."""
 
 # =============================================================================
-# Phase 1 — HITL: Knowledge Base Questions
-# =============================================================================
-
-# ─────────────────────────────────────────────────────────────────────────────
-# KNOWLEDGE_BASE_QUESTIONS_PROMPT
-# ─────────────────────────────────────────────────────────────────────────────
-# Phase: Phase 1 -> Phase 2 transition (HITL finalization)
-# Graph node: hitl_finalize
-# Called by: src/services/hitl_service.py :: _generate_knowledge_base_questions_llm()
-# ─────────────────────────────────────────────────────────────────────────────
-KNOWLEDGE_BASE_QUESTIONS_PROMPT_SYSTEM = """
-### Role
-Within the deep research agentic workflow, you are a master for knowledge base questions generation.
-
-### Goal
-Generate optimised search queries for a knowledge base based on the input.
-
-### Input
-- original_query: the user's research question
-- conversation_history: accumulated Q&A
-- extracted_analysis: structured analysis from prior step
-- num_queries: number of queries to generate
-- language: target language label
-
-### Rules
-1. Each query must target a different aspect of the original query.
-2. Use domain-specific terminology from the extracted_analysis.
-3. Queries must be specific enough for vector similarity search.
-4. Write all JSON values (queries, summary) in {language}.
-5. Return ONLY valid JSON, no extra text.
-
-### Output format
-```json
-{{"research_queries": ["query_1", "query_2", "..."],
-  "summary": "brief summary of the research direction"}}
-```"""
-
-KNOWLEDGE_BASE_QUESTIONS_PROMPT_HUMAN = """### Input
-- original_query: "{user_query}"
-- conversation_history: {context}
-- extracted_analysis: {analysis}
-- num_queries: {max_queries}
-- language: {language}
-
-Generate {max_queries} optimised search queries. Respond in {language}."""
-
-# =============================================================================
 # Phase 1 — HITL: Summary (citation-aware, for synthesis)
 # =============================================================================
 

@@ -199,6 +199,30 @@ is now attached to each `NestedChunk` and propagated through the pipeline — ze
 ### Phase 6.6: UI Localization & Layout Fixes
 - [x] German localization, layout fixes
 
+### Phase 3.9: Batch Chunk Reranking
+- [x] **Batch architecture**: `_build_reranker_batches()` splits chunks via round-robin into batches of `reranker_batch_size` (default 6)
+- [x] **Dual strategy**: `_rerank_batch()` supports `precision` and `recall` strategies with separate prompt pairs (`RERANKER_PRECISION_PROMPT`, `RERANKER_RECALL_PROMPT`)
+- [x] **Cross-batch normalization**: `_normalize_batch_scores()` applies zero-mean normalization for comparability across batches
+- [x] **Hard filtering**: Drops chunks with raw score < `reranker_min_score` (default 4)
+- [x] **Score mapping**: Raw 1-5 → 0-100 via `SCORE_TO_100` dict for downstream `_format_ranked_findings` / `TASK_SUMMARY` compatibility
+- [x] **New models**: `RerankerChunkResult`, `RerankerBatchOutput`, `RerankerRecallChunkResult`, `RerankerRecallBatchOutput` in `src/models/results.py`
+- [x] **New prompts**: `RERANKER_PRECISION_PROMPT_{SYSTEM,HUMAN}`, `RERANKER_RECALL_PROMPT_{SYSTEM,HUMAN}` in `src/prompts/research.py`
+- [x] **Configuration**: `reranker_strategy`, `reranker_batch_size`, `reranker_min_score` in `src/config.py`
+- [x] **Tests**: `tests/test_batch_reranking.py` (11 tests) + updated `TestChunkReranker` in `tests/test_agents.py`
+
+### Phase 3.10: Diverse Research Queries (Question-Shaped, No Duplication)
+- [x] **`_build_diverse_queries()`** rewritten in `src/services/hitl_service.py`:
+  - Excludes `user_query` from output (Task 0 already covers it)
+  - Accepts `language` parameter for German/English question templates
+  - Produces question-shaped queries: `"Welche Regelungen gelten für {entity} im Bereich {scope}?"`
+  - Refined query passed through as-is (usually already a sentence from LLM)
+- [x] **Removed**: `KNOWLEDGE_BASE_QUESTIONS_PROMPT` (unused LLM-based query generation), `_generate_knowledge_base_questions_llm()`, `HITLService.generate_knowledge_base_questions()`
+- [x] **Removed**: `max_search_queries` UI slider (query count now driven by `num_tasks` from assess_query)
+- [x] **Callsites updated**: 3 in `hitl_panel.py` + 1 in `finalize_hitl_conversation()` — all pass `language`
+- [x] **Tests**: `tests/test_diverse_queries.py` (12 tests)
+
+**238 tests total, all passing.**
+
 ### Phase 8: Testing Improvements
 - [x] `TestRouteEntryPoint` class for graph routing logic
   - `test_route_to_hitl_init_on_new_session`

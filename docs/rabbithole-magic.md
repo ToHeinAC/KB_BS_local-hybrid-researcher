@@ -424,6 +424,7 @@ RABBITHOLE MAGIC (Phase 3)
 │   │   └── parent_document, parent_page, ref_text, ref_type, surrounding_context[:500]
 │   ├── Convergence Check (doc_history)
 │   ├── Relevance Filtering (threshold 0.6)
+│   ├── Batch Chunk Reranking (Phase 3.9, precision/recall, ~3-4 LLM calls per task)
 │   └── Context Accumulation
 │
 ├── LOOP CONTROL
@@ -453,5 +454,6 @@ The Rabbithole Magic creates **depth-controlled recursive context expansion** - 
 - **Quality control**: Relevance filtering prevents noise accumulation
 - **Intelligent selection**: Agentic reference gate lets the LLM skip tangential references, preserving token budget for high-value refs
 - **Reference provenance**: Nested chunks carry the surrounding context of the reference in the parent chunk — the reranker can penalise off-topic parent sentences, and the task summariser caps their contribution
+- **Efficient batch reranking**: Batch LLM scoring (~3-4 calls for 20 chunks) with precision/recall strategies, cross-batch normalization, and hard-filtering replaces per-chunk scoring
 - **Self-correcting quality**: Agentic remediation loop detects weak synthesis and retries with focused instructions (max 1 retry)
 - **Safe exploration**: Depth limits, token budget, convergence detection, and loop prevention ensure termination

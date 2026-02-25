@@ -2,7 +2,7 @@
 
 import streamlit as st
 
-from src.services.hitl_service import HITLService, format_analysis_dict
+from src.services.hitl_service import HITLService, _build_diverse_queries, format_analysis_dict
 from src.ui.state import (
     add_hitl_message,
     get_session_state,
@@ -254,30 +254,26 @@ def render_chat_hitl() -> dict | None:
 
                 # Analyze accumulated feedback
                 if session.hitl_state:
-                    with st.spinner("Generiere Suchanfragen..."):
+                    with st.spinner("Analysiere Gespräch..."):
                         try:
                             analysis = hitl_service.analyse_user_feedback(session.hitl_state)
                             session.hitl_state["analysis"] = analysis
-
-                            # Generate final research queries
-                            result = hitl_service.generate_knowledge_base_questions(
-                                session.hitl_state,
-                                max_queries=session.max_search_queries,
-                            )
                         except Exception as e:
                             st.error(f"LLM-Verbindung fehlgeschlagen: {e}")
-                            # Use fallback result
-                            result = {
-                                "research_queries": [session.hitl_state.get("user_query", "")],
-                                "summary": "Fallback: Verwende ursprüngliche Anfrage",
-                            }
+                            analysis = session.hitl_state.get("analysis", {})
+
+                    # Build result from existing analysis — no extra LLM call
+                    user_query = session.hitl_state.get("user_query", "")
+                    hitl_lang = session.hitl_state.get("language", "de")
+                    result = {
+                        "research_queries": _build_diverse_queries(
+                            analysis, user_query, language=hitl_lang,
+                        ),
+                        "summary": analysis.get("refined_query") or analysis.get("context", ""),
+                    }
 
                     # Add final message
-                    summary = f"Starte Recherche mit {len(result.get('research_queries', []))} Suchanfragen:\n\n"
-                    for i, q in enumerate(result.get("research_queries", []), 1):
-                        summary += f"{i}. {q}\n"
-
-                    add_hitl_message("assistant", summary)
+                    add_hitl_message("assistant", "Starte Recherche...")
 
                     result["user_query"] = session.hitl_state.get("user_query", "")
                     result["language"] = session.hitl_state.get("language", "de")
@@ -354,17 +350,22 @@ def render_chat_hitl() -> dict | None:
     # Conversation ended, waiting for research to start
     elif session.conversation_ended:
         if session.hitl_state:
-            result = hitl_service.generate_knowledge_base_questions(
-                session.hitl_state,
-                max_queries=session.max_search_queries,
-            )
+            analysis = session.hitl_state.get("analysis", {})
+            user_query = session.hitl_state.get("user_query", "")
+            hitl_lang = session.hitl_state.get("language", "de")
+            result = {
+                "research_queries": _build_diverse_queries(
+                    analysis, user_query, language=hitl_lang,
+                ),
+                "summary": analysis.get("refined_query") or analysis.get("context", ""),
+            }
             return result
 
     return None
 
 
 def create_hitl_result(hitl_state: dict) -> dict:
-    """Create HITL result dict from conversation state.
+    """Create HITL result dict from conversation state (no LLM call).
 
     Args:
         hitl_state: The accumulated HITL state
@@ -372,22 +373,19 @@ def create_hitl_result(hitl_state: dict) -> dict:
     Returns:
         Dict with research_queries, analysis, user_query, and additional fields
     """
-    hitl_service = _get_hitl_service()
-
-    result = hitl_service.generate_knowledge_base_questions(
-        hitl_state,
-        max_queries=5,
-    )
-
     analysis = hitl_state.get("analysis", {})
+    user_query = hitl_state.get("user_query", "")
 
+    hitl_lang = hitl_state.get("language", "de")
     return {
-        "research_queries": result.get("research_queries", []),
-        "summary": result.get("summary", ""),
-        "user_query": hitl_state.get("user_query", ""),
+        "research_queries": _build_diverse_queries(
+            analysis, user_query, language=hitl_lang,
+        ),
+        "summary": analysis.get("refined_query") or analysis.get("context", ""),
+        "user_query": user_query,
         "analysis": analysis,
         # Additional fields for Phase 2 handoff
-        "language": hitl_state.get("language", "de"),
+        "language": hitl_lang,
         "conversation_history": hitl_state.get("conversation_history", []),
         "entities": analysis.get("entities", []),
         "scope": analysis.get("scope", ""),

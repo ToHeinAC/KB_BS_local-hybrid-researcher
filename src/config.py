@@ -62,6 +62,11 @@ class Settings(BaseSettings):
     primary_min_chunks: int = 3  # Minimum primary chunks to keep per task
     secondary_min_chunks: int = 2  # Minimum secondary chunks to keep per task
 
+    # Batch Reranking (Phase 3)
+    reranker_strategy: str = "precision"  # "precision" or "recall"
+    reranker_batch_size: int = 6  # Chunks per LLM reranking call
+    reranker_min_score: int = 4  # Minimum raw score (1-5) to keep
+
     # Phase 4: Quality Assurance
     enable_quality_checker: bool = True
     quality_threshold: int = 375

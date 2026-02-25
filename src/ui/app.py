@@ -365,14 +365,6 @@ def render_sidebar():
 
         # Settings expander
         with st.expander("Erweiterte Einstellungen"):
-            session.max_search_queries = st.slider(
-                "Max. Forschungsabfragen",
-                min_value=1,
-                max_value=10,
-                value=session.max_search_queries,
-                key="max_queries_slider",
-            )
-
             session.enable_web_search = st.checkbox(
                 "Web Search aktivieren",
                 value=session.enable_web_search,

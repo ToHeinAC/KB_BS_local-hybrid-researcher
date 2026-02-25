@@ -28,6 +28,7 @@ streamlit run src/ui/app.py --server.port 8511
 - **Multi-Angle Search**: Generates original, broader, and alternative queries in parallel to ensure maximum document coverage.
 - **Query Assessment Gate**: After HITL, an LLM gate (`assess_query`) decides whether the query is answerable from the knowledge base, sets the number of research tasks (3-6), and routes unanswerable queries to an immediate rejection response — no wasted compute.
 - **Task Summary Reranking**: Deterministic relevance-based sort before synthesis; high-relevance findings ([Relevance: ≥70/100]) weighted as primary evidence, low-relevance as supplementary only
+- **Batch Chunk Reranking**: Efficient batch LLM scoring (~3-4 calls for 20 chunks) with precision/recall strategies, cross-batch normalization, and hard-filtering — replaces per-chunk scoring.
 - **Multi-Query Task Execution**: Each research task generates 3 deduplicated search queries (1 base + 2 LLM-targeted) for comprehensive retrieval.
 - **Deep Reference Following**: Hybrid regex+LLM detection with document registry-based scoped resolution, token budget tracking, convergence detection, and full `selected_database` propagation (broad fallback searches respect the user's database selection). Agentic reference gate lets the LLM skip tangential references.
 - **Agentic Quality Remediation**: LLM evaluates synthesis quality and autonomously retries with focused instructions when below threshold.

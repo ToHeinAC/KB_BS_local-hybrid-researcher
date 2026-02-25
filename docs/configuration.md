@@ -68,6 +68,13 @@ PRIMARY_MIN_CHUNKS=3      # Keep at least 3 primary chunks per task
 SECONDARY_MIN_CHUNKS=2    # Keep at least 2 secondary chunks per task
 
 # =============================================================================
+# PHASE 3.9: BATCH CHUNK RERANKING
+# =============================================================================
+RERANKER_STRATEGY=precision       # "precision" or "recall"
+RERANKER_BATCH_SIZE=6             # Chunks per LLM reranking call
+RERANKER_MIN_SCORE=4              # Minimum raw score (1-5) to keep
+
+# =============================================================================
 # PHASE 4: QUALITY ASSURANCE
 # =============================================================================
 ENABLE_QUALITY_CHECKER=true
@@ -211,6 +218,11 @@ class Settings(BaseSettings):
     # Chunk Filtering (Phase 3.5)
     primary_min_chunks: int = 3  # Minimum primary chunks to keep per task
     secondary_min_chunks: int = 2  # Minimum secondary chunks to keep per task
+
+    # Batch Reranking (Phase 3.9)
+    reranker_strategy: str = "precision"  # "precision" or "recall"
+    reranker_batch_size: int = 6  # Chunks per LLM reranking call
+    reranker_min_score: int = 4  # Minimum raw score (1-5) to keep
 
     # Phase 4
     enable_quality_checker: bool = True

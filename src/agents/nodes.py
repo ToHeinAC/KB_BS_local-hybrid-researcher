@@ -38,6 +38,8 @@ from src.models.results import (
     Finding,
     LinkedSource,
     QualityAssessment,
+    RerankerBatchOutput,
+    RerankerRecallBatchOutput,
     RelevanceScoreOutput,
     Source,
     SynthesisOutputEnhanced,
@@ -47,6 +49,10 @@ from src.prompts import (
     CHUNK_RERANKER_PROMPT_HUMAN,
     CHUNK_RERANKER_PROMPT_SYSTEM,
     HITL_SUMMARY_PROMPT_HUMAN,
+    RERANKER_PRECISION_PROMPT_HUMAN,
+    RERANKER_PRECISION_PROMPT_SYSTEM,
+    RERANKER_RECALL_PROMPT_HUMAN,
+    RERANKER_RECALL_PROMPT_SYSTEM,
     HITL_SUMMARY_PROMPT_SYSTEM,
     QUALITY_CHECK_PROMPT_HUMAN,
     QUALITY_CHECK_PROMPT_SYSTEM,
@@ -1736,6 +1742,119 @@ def hitl_finalize(state: AgentState) -> dict:
 # --- Phase D Helpers: Per-Task Structured Summary ---
 
 
+# Raw 1-5 → 0-100 mapping for compatibility with _format_ranked_findings / TASK_SUMMARY
+SCORE_TO_100: dict[int, int] = {5: 95, 4: 75, 3: 50, 2: 25, 1: 10}
+
+
+def _build_reranker_batches(
+    chunks: list[dict], batch_size: int = 6,
+) -> list[list[dict]]:
+    """Split chunks into batches via round-robin distribution.
+
+    Round-robin ensures each batch gets a mix of primary/secondary/tertiary.
+    """
+    if not chunks:
+        return []
+    n_batches = max(1, -(-len(chunks) // batch_size))  # ceil division
+    batches: list[list[dict]] = [[] for _ in range(n_batches)]
+    for i, chunk in enumerate(chunks):
+        batches[i % n_batches].append(chunk)
+    return batches
+
+
+def _format_batch_chunks_for_prompt(batch: list[dict]) -> str:
+    """Format a batch of chunk dicts into numbered text for the reranker prompt."""
+    lines: list[str] = []
+    for i, chunk in enumerate(batch):
+        text = (chunk.get("extracted_info") or chunk.get("chunk", ""))[:600]
+        doc = chunk.get("document", "Unknown")
+        page = chunk.get("page", "?")
+        lines.append(f"[Chunk {i}] ({doc}, p.{page})\n{text}")
+    return "\n\n".join(lines)
+
+
+def _rerank_batch(
+    batch: list[dict],
+    query: str,
+    hitl_smry: str,
+    language: str,
+    strategy: str = "precision",
+) -> list[dict]:
+    """Score one batch of chunks via a single LLM call.
+
+    Returns list of dicts with _raw_score (1-5) and _llm_reasoning added.
+    Falls back to relevance_score on LLM error.
+    """
+    client = get_ollama_client()
+    lang_label = "German" if language == "de" else "English"
+    chunks_text = _format_batch_chunks_for_prompt(batch)
+    hitl_ctx = hitl_smry or "No prior HITL context"
+
+    if strategy == "recall":
+        sys_prompt = RERANKER_RECALL_PROMPT_SYSTEM.format(language=lang_label)
+        human_prompt = RERANKER_RECALL_PROMPT_HUMAN.format(
+            query=query,
+            known_info=hitl_ctx,
+            additional_context=hitl_ctx,
+            chunks=chunks_text,
+            language=lang_label,
+        )
+        model_cls = RerankerRecallBatchOutput
+    else:
+        sys_prompt = RERANKER_PRECISION_PROMPT_SYSTEM.format(language=lang_label)
+        human_prompt = RERANKER_PRECISION_PROMPT_HUMAN.format(
+            query=query,
+            additional_context=hitl_ctx,
+            chunks=chunks_text,
+            language=lang_label,
+        )
+        model_cls = RerankerBatchOutput
+
+    try:
+        result = client.generate_structured_messages(
+            sys_prompt, human_prompt, model_cls,
+        )
+        # Build id → (score, reason) lookup
+        score_map: dict[int, tuple[int, str]] = {}
+        for r in result.results:
+            cid = r.id
+            raw_score = r.s if hasattr(r, "s") else r.score
+            reason = r.r if hasattr(r, "r") else r.reason
+            score_map[cid] = (max(1, min(5, raw_score)), reason)
+
+        scored: list[dict] = []
+        for i, chunk in enumerate(batch):
+            raw, reason = score_map.get(i, (0, ""))
+            if raw == 0:
+                # LLM omitted this chunk — use vector score fallback
+                raw = max(1, min(5, round(chunk.get("relevance_score", 0.5) * 5)))
+                reason = "LLM omitted"
+            scored.append({**chunk, "_raw_score": raw, "_llm_reasoning": reason})
+        return scored
+    except Exception as e:
+        logger.warning(f"Batch reranking failed: {e}")
+        return [
+            {**chunk, "_raw_score": max(1, min(5, round(chunk.get("relevance_score", 0.5) * 5))),
+             "_llm_reasoning": "fallback"}
+            for chunk in batch
+        ]
+
+
+def _normalize_batch_scores(all_scored: list[dict]) -> list[dict]:
+    """Per-result zero-mean normalization for cross-batch comparability.
+
+    Adds _normalized_score field. Sorts descending by _normalized_score.
+    """
+    if not all_scored:
+        return []
+    scores = [c["_raw_score"] for c in all_scored]
+    mean = sum(scores) / len(scores)
+    for chunk in all_scored:
+        chunk["_normalized_score"] = chunk["_raw_score"] - mean
+    all_scored.sort(key=lambda c: c["_normalized_score"], reverse=True)
+    return all_scored
+
+
 def _rerank_task_chunks(
     task_primary: list[dict],
     task_secondary: list[dict],
@@ -1745,17 +1864,14 @@ def _rerank_task_chunks(
     language: str,
     max_chunks: int = 20,
 ) -> list[dict]:
-    """Score and sort task chunks by LLM relevance to query + HITL context.
+    """Score and sort task chunks by LLM relevance using batch reranking.
 
-    One LLM call per chunk. Fallback: chunk["relevance_score"] * 100 on error.
-    Primary chunks fill the cap first, then secondary, then tertiary.
+    ~3-4 LLM calls for 20 chunks (batch_size=6) instead of 20 per-chunk calls.
+    Hard-filters chunks with raw score < reranker_min_score.
+    Maps raw 1-5 scores to 0-100 via SCORE_TO_100 for downstream compat.
     Returns chunks sorted descending by _llm_score, each augmented with
     _llm_score (int 0-100) and _llm_reasoning (str).
     """
-    client = get_ollama_client()
-    lang_label = "German" if language == "de" else "English"
-    hitl_ctx = hitl_smry or "No prior HITL context"
-
     candidates: list[dict] = []
     for chunk in (*task_primary, *task_secondary, *task_tertiary):
         if len(candidates) >= max_chunks:
@@ -1765,31 +1881,36 @@ def _rerank_task_chunks(
     if not candidates:
         return []
 
-    sys_prompt = CHUNK_RERANKER_PROMPT_SYSTEM.format(language=lang_label)
-    scored: list[dict] = []
+    batch_size = settings.reranker_batch_size
+    strategy = settings.reranker_strategy
+    min_score = settings.reranker_min_score
 
-    for chunk in candidates:
-        text = (chunk.get("extracted_info") or chunk.get("chunk", ""))[:800]
-        parent_context = chunk.get("reference_surrounding_context", "")
-        try:
-            human_prompt = CHUNK_RERANKER_PROMPT_HUMAN.format(
-                query=original_query,
-                hitl_context=hitl_ctx,
-                text=text,
-                parent_context=parent_context or "N/A (direct vector search result)",
-                language=lang_label,
-            )
-            result = client.generate_structured_messages(
-                sys_prompt, human_prompt, ChunkRankingOutput,
-            )
-            score, reasoning = result.relevance_score, result.reasoning
-        except Exception:
-            score = int(chunk.get("relevance_score", 0.5) * 100)
-            reasoning = ""
-        scored.append({**chunk, "_llm_score": score, "_llm_reasoning": reasoning})
+    batches = _build_reranker_batches(candidates, batch_size)
+    logger.info(
+        f"Batch reranking: {len(candidates)} chunks in {len(batches)} batches "
+        f"(strategy={strategy}, min_score={min_score})"
+    )
 
-    scored.sort(key=lambda c: c["_llm_score"], reverse=True)
-    return scored
+    all_scored: list[dict] = []
+    for batch in batches:
+        scored = _rerank_batch(batch, original_query, hitl_smry, language, strategy)
+        all_scored.extend(scored)
+
+    # Normalize across batches
+    all_scored = _normalize_batch_scores(all_scored)
+
+    # Hard filter: drop below min_score
+    before = len(all_scored)
+    all_scored = [c for c in all_scored if c["_raw_score"] >= min_score]
+    dropped = before - len(all_scored)
+    if dropped:
+        logger.info(f"Batch reranking: dropped {dropped}/{before} chunks below score {min_score}")
+
+    # Map raw 1-5 → 0-100 for _format_ranked_findings / TASK_SUMMARY compat
+    for chunk in all_scored:
+        chunk["_llm_score"] = SCORE_TO_100.get(chunk["_raw_score"], 50)
+
+    return all_scored
 
 
 def _format_ranked_findings(ranked_chunks: list[dict], max_chars: int = 12000) -> str:

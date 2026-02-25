@@ -46,11 +46,18 @@
 │  └─ rerank_task_summaries: sort by relevance_to_query desc, stamp rank   │
 │     → synthesis prompt weights high-relevance findings over low ones     │
 │                                                                          │
-│  Phase 3.8: Reference Provenance (NEW)                                   │
+│  Phase 3.8: Reference Provenance                                         │
 │  Nested chunks carry parent_document + reference_surrounding_context     │
 │  _rerank_task_chunks(): parent_context → CHUNK_RERANKER (−20-40 penalty) │
 │  _format_ranked_findings(): [via ref "..."] + Parent context: headers    │
 │  TASK_SUMMARY rule 2e: cap off-topic ref chunks at effective score 49    │
+│                                                                          │
+│  Phase 3.9: Batch Chunk Reranking                                        │
+│  └─ _rerank_task_chunks(): batch LLM scoring (batch_size=6)              │
+│     ├─ Precision/recall strategies (RERANKER_PRECISION/RECALL_PROMPT)     │
+│     ├─ Round-robin batching → cross-batch zero-mean normalization        │
+│     ├─ Hard-filter below reranker_min_score (default 4)                  │
+│     └─ Raw 1-5 → 0-100 mapping (SCORE_TO_100) for downstream compat     │
 │                                                                          │
 │  Phase 4: Query-Anchored Synthesis & Quality Assurance                   │
 │  ├─ synthesize: pre-digested task summaries + HITL summary               │
@@ -324,7 +331,7 @@ The growing JSON structure that accumulates all research findings:
          │ no (termination or /end)
          ▼
 ┌───────────────────────────┐
-│ hitl_finalize              │  (generate research_queries, query_anchor, hitl_smry)
+│ hitl_finalize              │  (build query_anchor/hitl_smry, supplementary queries)
 └────────┬──────────────────┘
          │
          ▼
@@ -358,8 +365,8 @@ The growing JSON structure that accumulates all research findings:
    - Max iterations reached → terminate with `max_iterations`
    - Convergence criteria met (coverage ≥ 0.8, dedup ≥ 0.7, gaps ≤ 2) → terminate with `convergence`
    - Otherwise → loop back to `hitl_generate_queries`
-9. **hitl_finalize**: Generate research_queries list, build query_analysis, query_anchor, hitl_smry
-10. **Output**: `research_queries[]`, `query_analysis`, `query_anchor`, `hitl_smry`, `coverage_score`, `query_retrieval`
+9. **hitl_finalize**: Build query_analysis, query_anchor, hitl_smry; generate supplementary research_queries via `_build_diverse_queries()` (question-shaped, excludes original query since Task 0 covers it)
+10. **Output**: `research_queries[]` (supplementary only), `query_analysis`, `query_anchor`, `hitl_smry`, `coverage_score`, `query_retrieval`
 
 ### Phase 2.5: Query Assessment
 
@@ -446,6 +453,21 @@ Design document: [docs/mindmap_rabbithole_provenance.md](mindmap_rabbithole_prov
 6. **Synthesis prompt rule**: tasks with Relevance ≥70/100 = primary evidence; ≤30/100 = supplementary context only
 
 Output: Sorted task_summaries with rank metadata, ready for synthesis
+
+### Phase 3.9: Batch Chunk Reranking
+
+Replaces the previous per-chunk LLM reranking with batch scoring for efficiency (~3-4 LLM calls for 20 chunks instead of 20).
+
+1. **`_build_reranker_batches()`**: Splits task chunks into batches of `reranker_batch_size` (default 6) via round-robin distribution ensuring each batch gets a mix of primary/secondary/tertiary chunks
+2. **`_rerank_batch()`**: Scores one batch via a single LLM call using either `precision` or `recall` strategy:
+   - **Precision** (`RERANKER_PRECISION_PROMPT`): Uses `RerankerBatchOutput` → `RerankerChunkResult(id, score, reason)`
+   - **Recall** (`RERANKER_RECALL_PROMPT`): Uses `RerankerRecallBatchOutput` → `RerankerRecallChunkResult(id, s, r)` with shorter field names
+   - Fallback on LLM error: `raw_score = round(relevance_score * 5)`
+3. **`_normalize_batch_scores()`**: Zero-mean normalization across all batches for cross-batch comparability
+4. **Hard filtering**: Drops chunks with `_raw_score < reranker_min_score` (default 4)
+5. **Score mapping**: `SCORE_TO_100` dict maps raw 1-5 → 0-100 (`{5:95, 4:75, 3:50, 2:25, 1:10}`) for downstream `_format_ranked_findings` / `TASK_SUMMARY` compatibility
+
+Output: Scored, filtered chunks with `_llm_score` (0-100) and `_llm_reasoning`, sorted by `_normalized_score` descending
 
 ### Phase 4: Query-Anchored Synthesis + Quality Assurance
 

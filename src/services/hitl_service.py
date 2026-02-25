@@ -17,8 +17,6 @@ from src.prompts import (
     ALTERNATIVE_QUERIES_REFINED_PROMPT_SYSTEM,
     FOLLOW_UP_QUESTIONS_PROMPT_HUMAN,
     FOLLOW_UP_QUESTIONS_PROMPT_SYSTEM,
-    KNOWLEDGE_BASE_QUESTIONS_PROMPT_HUMAN,
-    KNOWLEDGE_BASE_QUESTIONS_PROMPT_SYSTEM,
     LANGUAGE_DETECTION_PROMPT_HUMAN,
     LANGUAGE_DETECTION_PROMPT_SYSTEM,
     REFINED_QUERIES_PROMPT_HUMAN,
@@ -336,23 +334,6 @@ class HITLService:
         """
         return _analyse_user_feedback_llm(state)
 
-    def generate_knowledge_base_questions(
-        self,
-        state: dict,
-        max_queries: int = 5,
-    ) -> dict:
-        """Generate final research queries from conversation.
-
-        Args:
-            state: Current HITL conversation state
-            max_queries: Maximum number of search queries to generate
-
-        Returns:
-            Dict with research_queries list and summary
-        """
-        return _generate_knowledge_base_questions_llm(state, max_queries)
-
-
 # --- Explicit HITL Functions (Reference Pattern) ---
 
 
@@ -462,55 +443,6 @@ def _analyse_user_feedback_llm(state: dict) -> dict:
     }
 
 
-def _generate_knowledge_base_questions_llm(state: dict, max_queries: int = 5) -> dict:
-    """Generate research queries using LLM."""
-    import json
-
-    client = get_ollama_client()
-
-    user_query = state.get("user_query", "")
-    conversation_history = state.get("conversation_history", [])
-    analysis = state.get("analysis", {})
-
-    # Build conversation context
-    context = ""
-    for msg in conversation_history:
-        role = msg.get("role", "")
-        content = msg.get("content", "")
-        context += f"{role}: {content}\n"
-
-    language = state.get("detected_language", "de")
-    lang_label = "German" if language == "de" else "English"
-
-    system_prompt = KNOWLEDGE_BASE_QUESTIONS_PROMPT_SYSTEM.format(language=lang_label)
-    human_prompt = KNOWLEDGE_BASE_QUESTIONS_PROMPT_HUMAN.format(
-        max_queries=max_queries,
-        user_query=user_query,
-        context=context,
-        analysis=analysis,
-        language=lang_label,
-    )
-
-    try:
-        response = client.generate_messages(system_prompt, human_prompt)
-        start = response.find("{")
-        end = response.rfind("}") + 1
-        if start >= 0 and end > start:
-            result = json.loads(response[start:end])
-            if "research_queries" not in result:
-                result["research_queries"] = [user_query]
-            if "summary" not in result:
-                result["summary"] = f"Recherche zu: {user_query}"
-            return result
-    except Exception as e:
-        logger.warning(f"Failed to generate KB questions: {e}")
-
-    return {
-        "research_queries": [user_query],
-        "summary": f"Recherche zu: {user_query}",
-    }
-
-
 # --- Four Explicit HITL Functions (Reference App Pattern) ---
 
 
@@ -605,6 +537,66 @@ def process_human_feedback(hitl_state: dict, user_response: str) -> dict:
     return hitl_state
 
 
+def _build_diverse_queries(
+    analysis: dict, user_query: str, language: str = "de", max_queries: int = 5,
+) -> list[str]:
+    """Build diverse research queries from HITL analysis without LLM calls.
+
+    Produces *supplementary* question-shaped queries for generate_todo fallback.
+    The user_query itself is excluded because Task 0 already covers it.
+
+    Args:
+        analysis: HITL analysis dict (entities, scope, refined_query, context)
+        user_query: Original user query (excluded from output, used for dedup)
+        language: Language code ('de' or 'en') for question templates
+        max_queries: Maximum queries to return
+
+    Returns:
+        List of unique question-shaped query strings (never contains user_query)
+    """
+    seen: set[str] = set()
+    queries: list[str] = []
+
+    # Pre-seed seen set with user_query so it's excluded from output
+    if user_query.strip():
+        seen.add(user_query.strip().lower())
+
+    def _add(q: str) -> None:
+        q = q.strip()
+        if q and q.lower() not in seen:
+            seen.add(q.lower())
+            queries.append(q)
+
+    # Question templates by language
+    if language == "de":
+        entity_scope_tpl = "Welche Regelungen gelten für {entity} im Bereich {scope}?"
+        entity_tpl = "Was sind die wichtigsten Bestimmungen zu {entity}?"
+        scope_tpl = "Was sind die relevanten Aspekte von {scope}?"
+    else:
+        entity_scope_tpl = "What regulations apply to {entity} regarding {scope}?"
+        entity_tpl = "What are the key provisions regarding {entity}?"
+        scope_tpl = "What are the relevant aspects of {scope}?"
+
+    # 1. Refined query (usually already a proper sentence from LLM analysis)
+    refined = analysis.get("refined_query", "")
+    _add(refined)
+
+    # 2. Entity + scope question combinations (up to 3)
+    entities = analysis.get("entities", [])
+    scope = analysis.get("scope", "")
+    for entity in entities[:3]:
+        if scope:
+            _add(entity_scope_tpl.format(entity=entity, scope=scope))
+        else:
+            _add(entity_tpl.format(entity=entity))
+
+    # 3. Bare scope as question (if distinct and still room)
+    if scope:
+        _add(scope_tpl.format(scope=scope))
+
+    return queries[:max_queries]
+
+
 def finalize_hitl_conversation(hitl_state: dict, max_queries: int = 5) -> dict:
     """Finalize HITL conversation and generate research queries.
 
@@ -623,15 +615,22 @@ def finalize_hitl_conversation(hitl_state: dict, max_queries: int = 5) -> dict:
     analysis = _analyse_user_feedback_llm(hitl_state)
     hitl_state["analysis"] = analysis
 
-    # Generate research queries
-    result = _generate_knowledge_base_questions_llm(hitl_state, max_queries)
+    # Build diverse research_queries from analysis — no extra LLM call.
+    # research_queries must be non-empty: it is the routing signal (entry_router checks
+    # `if state.get("research_queries")`) and the emergency fallback for generate_todo.
+    user_query = hitl_state.get("user_query", "")
+    hitl_lang = hitl_state.get("detected_language", "de")
+    research_queries = _build_diverse_queries(
+        analysis, user_query, language=hitl_lang, max_queries=max_queries,
+    )
+    summary = analysis.get("refined_query") or analysis.get("context", "")
 
     # Return complete result for Phase 2 handoff
     return {
-        "research_queries": result.get("research_queries", []),
-        "summary": result.get("summary", ""),
+        "research_queries": research_queries,
+        "summary": summary,
         "analysis": analysis,
-        "user_query": hitl_state.get("user_query", ""),
+        "user_query": user_query,
         "entities": analysis.get("entities", []),
         "scope": analysis.get("scope", ""),
         "context": analysis.get("context", ""),

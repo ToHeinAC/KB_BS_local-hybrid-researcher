@@ -90,13 +90,11 @@ def render_results_view() -> None:
 
 
 def _render_hitl_expander(session) -> None:
-    """Render HITL conversation, summary, and research queries."""
+    """Render HITL conversation and summary."""
     conversation = session.hitl_conversation_history
     hitl_smry = session.agent_state.get("hitl_smry", "")
-    hitl_result = session.hitl_result
-    research_queries = (hitl_result or {}).get("research_queries", [])
 
-    if not conversation and not hitl_smry and not research_queries:
+    if not conversation and not hitl_smry:
         return
 
     with st.expander("HITL - Klärungsgespräch", expanded=True):
@@ -109,11 +107,6 @@ def _render_hitl_expander(session) -> None:
         if hitl_smry:
             st.markdown("#### HITL Zusammenfassung")
             st.markdown(hitl_smry)
-
-        if research_queries:
-            st.markdown("#### Recherche-Abfragen")
-            for i, q in enumerate(research_queries, 1):
-                st.markdown(f"{i}. {q}")
 
 
 def _render_task_expanders(session) -> None:

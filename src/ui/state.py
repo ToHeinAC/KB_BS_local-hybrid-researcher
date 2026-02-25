@@ -37,7 +37,6 @@ class SessionState:
     k_results: int = 3
 
     # Settings
-    max_search_queries: int = 5
     enable_web_search: bool = False
     enable_quality_checker: bool = True
 

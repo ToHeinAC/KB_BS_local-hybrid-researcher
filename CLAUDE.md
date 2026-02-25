@@ -16,7 +16,7 @@ Classical RAG lacks deep contextual understanding and cannot follow inter-docume
 │  │  hitl_init → hitl_generate_questions ↔ hitl_process_response │  │
 │  │  → hitl_finalize (on /end, max_iterations, or convergence)   │  │
 │  └──────────────────────────────────────────────────────────────┘  │
-│  Output: research_queries[], query_anchor, hitl_smry                │
+│  Output: research_queries[] (supplementary), query_anchor, hitl_smry │
 ├────────────────────────────────────────────────────────────────────┤
 │  Phase 2.5: Query Assessment (Agentic Gate)                         │
 │  assess_query: LLM decides proceed/reject + num_tasks (3-6)         │
@@ -43,10 +43,15 @@ Classical RAG lacks deep contextual understanding and cannot follow inter-docume
 │  rerank_task_summaries: Sort summaries by relevance_to_query desc   │
 │  Stamps rank int; synthesis prompt weights by [Relevance: N/100]    │
 ├────────────────────────────────────────────────────────────────────┤
-│  Phase 3.8: Reference Provenance (NEW)                              │
+│  Phase 3.8: Reference Provenance                                    │
 │  Nested chunks carry parent document + surrounding context of ref   │
 │  Reranker penalises off-topic parent context (−20-40 pts)           │
 │  Formatted findings show [via ref "..."] header for traceability    │
+├────────────────────────────────────────────────────────────────────┤
+│  Phase 3.9: Batch Chunk Reranking                                   │
+│  _rerank_task_chunks(): batch LLM scoring (6 chunks/call)           │
+│  Precision/recall strategies; raw 1-5 → 0-100 mapping               │
+│  Hard-filter below reranker_min_score; cross-batch normalization    │
 ├────────────────────────────────────────────────────────────────────┤
 │  Phase 4: Deep Report Synthesis + Quality Assurance                   │
 │  Pre-Digested Task Summaries + HITL Summary → Deep Report            │
@@ -87,6 +92,7 @@ The system now uses **tiered context classification** to prevent query drift and
 - **Chunk Backfill**: Guarantees minimum chunks per task (3 primary, 2 secondary) even if below relevance threshold; backfilled chunks marked with ⚠️ badge for transparency
 - **Task Summary Reranking**: Deterministic sort by `relevance_to_query` before synthesis; `[Rank: N/total]` / `[Relevance: N/100]` headers visible in formatted summaries
 - **Reference Provenance**: Nested chunks carry parent document + surrounding context of the reference; reranker penalises off-topic parent context; `[via ref "..."]` header in formatted findings for traceability
+- **Batch Chunk Reranking**: `_rerank_task_chunks()` uses batch LLM scoring (~3-4 calls for 20 chunks) with precision/recall strategies, cross-batch normalization, and hard-filtering below `reranker_min_score`
 - **Language Enforcement**: Strict single-language output with retry on mismatch
 
 ### Agentic Decision Points
@@ -148,7 +154,7 @@ The enhanced iterative HITL system provides intelligent query refinement through
    - Now informed by retrieval analysis and identified gaps
    - **Uses `query_retrieval` from state** to provide retrieval context to LLM
 6. **hitl_process_response**: Analyze user response, check termination conditions
-7. **hitl_finalize**: Generate research_queries, build query_anchor/hitl_smry → routes to `assess_query`
+7. **hitl_finalize**: Build query_anchor/hitl_smry, generate supplementary research_queries → routes to `assess_query`
 
 **Termination Conditions** (all paths sync `hitl_conversation_history` to agent state):
 - User types `/end` → `user_end`
@@ -225,6 +231,9 @@ Edit `.env` for your setup:
 - `CONVERGENCE_SAME_DOC_THRESHOLD=3`: Stop following when same doc appears N times
 - `PRIMARY_MIN_CHUNKS=3`: Minimum primary chunks to keep per task (ensures transparency)
 - `SECONDARY_MIN_CHUNKS=2`: Minimum secondary chunks to keep per task
+- `RERANKER_STRATEGY=precision`: Chunk reranking strategy (`precision` or `recall`)
+- `RERANKER_BATCH_SIZE=6`: Chunks per LLM reranking call
+- `RERANKER_MIN_SCORE=4`: Minimum raw score (1-5) to keep after reranking
 
 ## Directory Structure
 

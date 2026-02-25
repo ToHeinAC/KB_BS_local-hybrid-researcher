@@ -103,6 +103,7 @@ DO:
 - Analyse the original query, the key concepts and entities that are identified.
 - Follow up your deep analysis by the scope and  the already found context. 
 - From your analysis generate specific research questions, each one must be highly relevant to the query concepts and entities.
+- Respond with research questions.
 DON'T: You must not generate research questions that are not directly related to the query concepts and entities
 or that have been excluded, e.g. if a term is excluded by the user, you must not generate research questions related to that term.
 

@@ -368,6 +368,38 @@ class QualityRemediationDecision(BaseModel):
 
 Used in `quality_check()` when synthesis scores below `quality_threshold` (375) and `synthesis_retry_count < 1`. If `action == "retry"`, the `focus_instructions` are appended to the synthesis prompt on the retry pass.
 
+## Batch Reranker Models
+
+### RerankerChunkResult / RerankerBatchOutput (Precision)
+
+```python
+class RerankerChunkResult(BaseModel):
+    """Single chunk score from batch reranker (precision strategy)."""
+    id: int = Field(ge=0)       # Chunk ID within the batch
+    score: int = Field(ge=1, le=5)  # Relevance score 1-5
+    reason: str = ""            # One-sentence micro-CoT
+
+class RerankerBatchOutput(BaseModel):
+    """Batch reranker output (precision strategy)."""
+    results: list[RerankerChunkResult] = []
+```
+
+### RerankerRecallChunkResult / RerankerRecallBatchOutput (Recall)
+
+```python
+class RerankerRecallChunkResult(BaseModel):
+    """Single chunk score from recall-focused reranker (short field names)."""
+    id: int = Field(ge=0)       # Chunk ID within the batch
+    s: int = Field(ge=1, le=5)  # Relevance score 1-5
+    r: str = ""                 # Reason, max 15 words
+
+class RerankerRecallBatchOutput(BaseModel):
+    """Batch reranker output (recall strategy)."""
+    results: list[RerankerRecallChunkResult] = []
+```
+
+Used by `_rerank_batch()` in `src/agents/nodes.py`. Raw 1-5 scores are mapped to 0-100 via `SCORE_TO_100` for downstream compatibility.
+
 ## Document Models
 
 ### SynthesisOutputEnhanced (NEW)
