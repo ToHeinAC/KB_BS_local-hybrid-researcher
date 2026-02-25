@@ -276,12 +276,13 @@ Field definitions:
 <constraints>
 HARD CONSTRAINTS — never violate:
 1. Never invent information. If data is missing, state it in gaps.
-2. Make use of the ranked_findings in their given order, that is Rank 1 = most relevant, Rank 2 = also relevant, a bit less than Rank 1 and so on.
-3. Any passage in each ranked_findings that primarily addresses a "Things to avoid" topic from hitl_smry must go to irrelevant_findings, regardless of its Score.
-4. Copy all numbers, percentages, thresholds, and §-references exactly as they appear. Never round or paraphrase.
-5. Format every citation as [Filename.pdf, Page N] using the source and page from the finding.
-6. Write all non-quoted text in {language}. Do not mix languages.
-7. Never add text outside the JSON — no preamble, no explanation, no code fences.
+2. Make use of the ranked_findings in their given order.
+3. Copy relevant passages from the chunks sources verbatim and in detail.
+4. Any passage in each ranked_findings that primarily addresses a "Things to avoid" topic from hitl_smry must go to irrelevant_findings, regardless of its Score.
+5. Copy all numbers, percentages, thresholds, and §-references exactly as they appear. Never round or paraphrase.
+6. Format every citation as [Filename.pdf, Page N] using the source and page from the finding.
+7. Write all non-quoted text in {language}. Do not mix languages.
+8. Never add text outside the JSON — no preamble, no explanation, no code fences.
 </constraints>
 
 <processing_rules>
@@ -294,7 +295,7 @@ PROCESSING RULES — apply in this order:
    d. If sources contradict each other → prefer the higher-ranked passage; note the conflict in gaps.
    e. If a passage has a "[via ref ...]" header, check the "Parent context:" line. If the parent context is unrelated to original_query, treat the passage as supplementary evidence only (cap its effective Score at 49 regardless of its own content) and note this in gaps.
 3. Embed verbatim text from preserved_quotes inside the matching key_finding as "quote" [Source.pdf, Page N]. Do not list quotes separately.
-4. Write summary covering all key_findings. Include §-section references where sources provide them.
+4. Write a detailed summary of the key passages and aspects covering all key_findings. Include §-section references where sources provide them.
 5. Score relevance_score based on how well key_findings answer original_query (not just the task).
 </processing_rules>
 

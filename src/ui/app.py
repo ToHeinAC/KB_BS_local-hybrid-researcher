@@ -452,7 +452,7 @@ def main():
                     else ""
                 )
 
-                if checkpoint_type == "todo_approve":
+                if checkpoint_type == "todo_approve" and phase == "hitl_approve_todo":
                     decision = render_todo_approval()
                     if decision:
                         _resume_with_decision(decision.model_dump())
@@ -469,8 +469,9 @@ def main():
                 # Main-column spinner placeholder for live updates during streaming
                 main_status_placeholder = st.empty()
             else:
-                # Progress status (spinner-based)
-                render_research_status()
+                # Progress status (spinner-based) — suppress during HITL checkpoints
+                if not session.hitl_pending:
+                    render_research_status()
                 if phase not in ["idle", "analyze"]:
                     with results_container:
                         render_preliminary_results()

@@ -75,8 +75,8 @@ def render_todo_side_panel() -> None:
 
         st.divider()
 
-        # Compact task list with sequential numbering
-        if todo_list:
+        # Compact task list — hidden during todo approval (tasks shown in full in main column)
+        if todo_list and phase != "hitl_approve_todo":
             st.markdown("**Aufgaben:**")
             for idx, item in enumerate(todo_list, 1):
                 task = item.get("task", "")

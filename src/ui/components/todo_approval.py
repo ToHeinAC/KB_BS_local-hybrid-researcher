@@ -95,32 +95,22 @@ def render_todo_approval() -> HITLDecision | None:
         )
 
     # Action buttons
-    col1, col2, col3 = st.columns([1, 1, 2])
+    if st.button("Aufgaben genehmigen", type="primary"):
+        modifications = {
+            "edited_items": edited_tasks,
+            "removed_ids": removed_ids,
+        }
 
-    with col1:
-        if st.button("Aufgaben genehmigen", type="primary"):
-            modifications = {
-                "edited_items": edited_tasks,
-                "removed_ids": removed_ids,
-            }
+        if new_task_text:
+            modifications["new_items"] = [{
+                "task": new_task_text,
+                "context": new_task_context or "",
+            }]
 
-            if new_task_text:
-                modifications["new_items"] = [{
-                    "task": new_task_text,
-                    "context": new_task_context or "",
-                }]
-
-            clear_hitl_state()
-            return HITLDecision(
-                approved=True,
-                modifications=modifications,
-            )
-
-    with col2:
-        if st.button("Unverändert übernehmen", type="secondary"):
-            clear_hitl_state()
-            return HITLDecision(
-                approved=True,
-            )
+        clear_hitl_state()
+        return HITLDecision(
+            approved=True,
+            modifications=modifications,
+        )
 
     return None
