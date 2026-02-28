@@ -255,7 +255,7 @@ KB_BS_local-hybrid-researcher/
 │   ├── models/            # Pydantic data models
 │   ├── prompts/           # LLM prompt constants (hitl.py, research.py, synthesis.py)
 │   ├── services/          # ChromaDB, Ollama, PDF
-│   └── ui/                # Streamlit app (incl. gpu_widget.py for live GPU stats)
+│   └── ui/                # Streamlit app (incl. gpu_widget.py for live GPU stats + elapsed timer)
 ├── tests/                 # Pytest tests
 └── kb/                    # Knowledge base (pre-existing)
     ├── database/          # ChromaDB collections

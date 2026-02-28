@@ -23,7 +23,7 @@ from src.ui.components import (
     render_todo_display,
     render_todo_side_panel,
 )
-from src.ui.components.gpu_widget import render_gpu_sidebar
+from src.ui.components.gpu_widget import render_gpu_sidebar, set_research_start, set_research_end, reset_research_timer
 
 from src.ui.components.task_rendering import (
     filter_tiered_context_by_task,
@@ -458,6 +458,7 @@ def main():
                     decision = render_todo_approval()
                     if decision:
                         _resume_with_decision(decision.model_dump())
+                        set_research_start()
                         st.rerun()
 
                 elif checkpoint_type == "iterative_hitl":
@@ -510,6 +511,7 @@ def main():
 
         # Results display - check for completion
         if session.final_report:
+            set_research_end()
             set_workflow_phase("completed")
             st.rerun()
 
@@ -519,6 +521,7 @@ def main():
 
         # Button to start new research
         if st.button("Neue Recherche starten", type="primary"):
+            reset_research_timer()
             reset_hitl_conversation()
             st.rerun()
 

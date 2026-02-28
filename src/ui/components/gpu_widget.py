@@ -17,11 +17,34 @@ import gc
 import json
 import logging
 import subprocess
+import time
 
 import streamlit as st
 import streamlit.components.v1 as components
 
 logger = logging.getLogger(__name__)
+
+# Module-level timing state (safe for single-user local app)
+_research_start_time: float | None = None
+_research_end_time: float | None = None
+
+
+def set_research_start() -> None:
+    global _research_start_time, _research_end_time
+    _research_start_time = time.monotonic()
+    _research_end_time = None
+
+
+def set_research_end() -> None:
+    global _research_end_time
+    if _research_start_time is not None:
+        _research_end_time = time.monotonic()
+
+
+def reset_research_timer() -> None:
+    global _research_start_time, _research_end_time
+    _research_start_time = None
+    _research_end_time = None
 
 
 # ---------------------------------------------------------------------------
@@ -101,7 +124,14 @@ def _inject_gpu_route() -> bool:
                 self.set_header("Cache-Control", "no-store")
 
             def get(self):
-                self.write(json.dumps(_get_gpu_stats()))
+                gpus = _get_gpu_stats()
+                elapsed = None
+                is_running = False
+                if _research_start_time is not None:
+                    end = _research_end_time if _research_end_time is not None else time.monotonic()
+                    elapsed = int(end - _research_start_time)
+                    is_running = _research_end_time is None
+                self.write(json.dumps({"gpus": gpus, "elapsed": elapsed, "is_running": is_running}))
 
         tornado_app.add_handlers(".*", [(r"/_api/gpu", GPUStatsHandler)])
         logger.info("Injected /_api/gpu Tornado route for GPU widget")
@@ -124,17 +154,20 @@ def _ensure_gpu_route() -> bool:
 # HTML/JS template (fetches relative /_api/gpu)
 # ---------------------------------------------------------------------------
 
-_GPU_HTML = """\
+def _gpu_html(model: str) -> str:
+    """Return the GPU widget HTML with the LLM model name embedded."""
+    return f"""\
 <div id="gpu-stats" style="font-family:monospace; font-size:13px; color:#ddd; white-space:nowrap;">
   Lade GPU...
 </div>
 <script>
-function fetchGPU() {
+function fetchGPU() {{
   fetch("/_api/gpu")
     .then(r => r.json())
-    .then(gpus => {
+    .then(data => {{
+      const gpus = data.gpus || [];
       if (!gpus.length) return;
-      let html = gpus.map(g => {
+      let html = gpus.map(g => {{
         let name = g.name.replace("NVIDIA GeForce ", "").padEnd(10);
         let t = parseInt(g.temp);
         let u = parseInt(g.util);
@@ -147,11 +180,17 @@ function fetchGPU() {
           + " <span style='color:" + tCol + "'>" + tmp + "&deg;C</span>"
           + "|Fan:" + fan + "%"
           + "|<span style='color:" + uCol + "'>Load:" + load + "%</span>";
-      }).join("<br>");
+      }}).join("<br>");
+      html += "<br><span style='color:#aaa'>llm: {model}</span>";
+      if (data.elapsed !== null && data.elapsed !== undefined) {{
+        let eCol = data.is_running ? "#21c354" : "#aaa";
+        let dots = data.is_running ? "..." : "";
+        html += "<br><span style='color:" + eCol + "'>t: " + data.elapsed + "s" + dots + "</span>";
+      }}
       document.getElementById("gpu-stats").innerHTML = html;
-    })
-    .catch(() => {});
-}
+    }})
+    .catch(() => {{}});
+}}
 fetchGPU();
 setInterval(fetchGPU, 1000);
 </script>
@@ -166,6 +205,7 @@ def render_gpu_sidebar() -> None:
     """Render live GPU widget in sidebar via Tornado route injection."""
     if not _ensure_gpu_route():
         return  # no GPU or injection failed
+    from src.config import settings
     st.sidebar.markdown("**GPU**")
     with st.sidebar:
-        components.html(_GPU_HTML, height=50, scrolling=False)
+        components.html(_gpu_html(settings.ollama_model), height=85, scrolling=False)

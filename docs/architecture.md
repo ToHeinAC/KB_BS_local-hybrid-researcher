@@ -541,7 +541,7 @@ This prevents re-loading the embedding model and reconnecting to services on eve
 
 ### GPU Widget (Sidebar)
 
-Live GPU temperature, fan speed, and utilization are displayed in the sidebar via a Tornado route injection pattern:
+Live GPU temperature, fan speed, and utilization — plus elapsed research time — are displayed in the sidebar via a Tornado route injection pattern:
 
 1. **`_ensure_gpu_route()`** (`@st.cache_resource`): One-time injection that:
    - Checks `nvidia-smi` availability; returns `False` if no GPU
@@ -551,7 +551,24 @@ Live GPU temperature, fan speed, and utilization are displayed in the sidebar vi
 2. **`render_gpu_sidebar()`**: Renders a `components.v1.html()` snippet in the sidebar whose JS fetches `/_api/gpu` every 1s
 3. **Why Tornado**: Tornado's I/O loop runs independently of Streamlit's script-runner thread, so GPU stats keep updating even while `graph.stream()` blocks for 30s+. `@st.fragment(run_every=...)` is not viable because fragments queue on the same single thread.
 
-Display format: `RTX 4090   48°C|Fan:33%|Load: 88%` with color coding (temp: green/orange/red at 70/80°C thresholds; load: green/orange/red at 50/80% thresholds).
+**Response format** (as of Phase 6.11):
+```json
+{"gpus": [{"name": "...", "fan": "33", "temp": "48", "util": "88"}], "elapsed": 42, "is_running": true}
+```
+`elapsed` is `null` until the user approves the todo list; `is_running` turns `false` when the report is generated.
+
+**Elapsed research time** (`gpu_widget.py` module-level globals, three public setters):
+- `set_research_start()` — called in `app.py` immediately after todo approval
+- `set_research_end()` — called when `session.final_report` is detected
+- `reset_research_timer()` — called on "Neue Recherche starten"
+
+Display format: two GPU lines + `llm: <model>` + optional `t: Xs...` (green, running) / `t: Xs` (grey, done):
+```
+RTX 4090    48°C|Fan:33%|Load: 88%
+llm: qwen3:14b
+t: 127s
+```
+Color coding: temp green/orange/red at 70/80°C; load green/orange/red at 50/80%; elapsed green while running, grey when complete.
 
 ### Graph Entry Point Routing
 

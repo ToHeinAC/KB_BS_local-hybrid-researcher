@@ -208,6 +208,17 @@ is now attached to each `NestedChunk` and propagated through the pipeline — ze
 - [x] **Graceful degradation**: No GPU / no `nvidia-smi` → widget not rendered, no errors
 - [x] **Why not `@st.fragment`**: Fragments queue on the same script-runner thread and block during `graph.stream()`; Tornado I/O loop is independent
 
+### Phase 6.11: Elapsed Research Time in GPU Widget
+- [x] **Module-level timing state** (`gpu_widget.py`): `_research_start_time` / `_research_end_time` (float | None) — safe for single-user local app
+- [x] **Three public setters**: `set_research_start()`, `set_research_end()`, `reset_research_timer()` — called from `app.py`
+- [x] **Updated `/_api/gpu` response**: `{"gpus": [...], "elapsed": int|null, "is_running": bool}` (backward-compatible within widget)
+- [x] **JS rendering**: `t: Xs...` in green (`#21c354`) while running; `t: Xs` in grey (`#aaa`) when done; line hidden before first approval
+- [x] **Lifecycle hooks in `app.py`**:
+  - `set_research_start()` — called right after todo approval (`_resume_with_decision`)
+  - `set_research_end()` — called when `session.final_report` is detected before `set_workflow_phase("completed")`
+  - `reset_research_timer()` — called in "Neue Recherche starten" reset handler
+- [x] **Component height**: 70 → 85 px to accommodate the extra line
+
 ### Phase 3.9: Batch Chunk Reranking
 - [x] **Batch architecture**: `_build_reranker_batches()` splits chunks via round-robin into batches of `reranker_batch_size` (default 6)
 - [x] **Dual strategy**: `_rerank_batch()` supports `precision` and `recall` strategies with separate prompt pairs (`RERANKER_PRECISION_PROMPT`, `RERANKER_RECALL_PROMPT`)
