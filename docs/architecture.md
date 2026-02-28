@@ -8,6 +8,9 @@
 │  ┌────────────┐ ┌────────────┐ ┌──────────────┐ ┌────────────────────┐  │
 │  │Query Input │ │To-Do List  │ │Results View  │ │HITL Panel          │  │
 │  └────────────┘ └────────────┘ └──────────────┘ └────────────────────┘  │
+│  ┌─────────────────────────────────────────────────────────────────────┐│
+│  │  GPU Widget (sidebar): live temp/fan/load via Tornado route inject  ││
+│  └─────────────────────────────────────────────────────────────────────┘│
 └─────────────────────────────────┬───────────────────────────────────────┘
                                   │
 ┌─────────────────────────────────▼───────────────────────────────────────┐
@@ -421,27 +424,9 @@ Output: Fully populated ResearchContext + tiered context (primary/secondary/tert
 
 Output: Filtered tiered context with guaranteed minimums, ready for reranking
 
-### Phase 3.8: Reference Provenance (NEW)
+### Phase 3.8: Reference Provenance
 
-After the agentic gate decides to follow a reference and `resolve_reference_enhanced()` returns
-nested chunks, provenance is attached to each `NestedChunk` before tier classification:
-
-1. `nc.parent_document` / `nc.parent_page` — where the reference appeared
-2. `nc.reference_original_text` / `nc.reference_type` — the reference itself
-3. `nc.reference_surrounding_context` — up to 500 chars of surrounding context in parent chunk
-   (reuses `surrounding_window` already computed for the agentic gate — zero extra LLM calls)
-
-These are forwarded to `create_tiered_context_entry()` as new kwargs (stored only when `depth > 0`
-and `parent_document` non-empty). Downstream effects:
-
-- **`_rerank_task_chunks()`**: passes `parent_context` to `CHUNK_RERANKER_PROMPT_HUMAN`. The
-  reranker penalises chunks whose reference appeared in an off-topic parent sentence (−20–40 pts).
-- **`_format_ranked_findings()`**: adds `[via ref_type ref "original_text" in Parent.pdf, Page N]`
-  + `Parent context: "..."` lines so the task summariser can apply rule 2e.
-- **`TASK_SUMMARY_PROMPT_SYSTEM` rule 2e**: caps effective score of off-topic-ref chunks at 49
-  (supplementary evidence only, never elevated to `key_findings`).
-
-Design document: [docs/mindmap_rabbithole_provenance.md](mindmap_rabbithole_provenance.md)
+Nested chunks carry parent document + surrounding context of the reference (reuses `surrounding_window` from the agentic gate — zero extra LLM calls). Stored via `create_tiered_context_entry()` when `depth > 0`. Downstream: reranker penalises off-topic parent context (−20–40 pts), task summariser caps at score 49. See [docs/mindmap_rabbithole_provenance.md](mindmap_rabbithole_provenance.md).
 
 ### Phase 3.6: Task Summary Reranking
 
@@ -456,18 +441,7 @@ Output: Sorted task_summaries with rank metadata, ready for synthesis
 
 ### Phase 3.9: Batch Chunk Reranking
 
-Replaces the previous per-chunk LLM reranking with batch scoring for efficiency (~3-4 LLM calls for 20 chunks instead of 20).
-
-1. **`_build_reranker_batches()`**: Splits task chunks into batches of `reranker_batch_size` (default 6) via round-robin distribution ensuring each batch gets a mix of primary/secondary/tertiary chunks
-2. **`_rerank_batch()`**: Scores one batch via a single LLM call using either `precision` or `recall` strategy:
-   - **Precision** (`RERANKER_PRECISION_PROMPT`): Uses `RerankerBatchOutput` → `RerankerChunkResult(id, score, reason)`
-   - **Recall** (`RERANKER_RECALL_PROMPT`): Uses `RerankerRecallBatchOutput` → `RerankerRecallChunkResult(id, s, r)` with shorter field names
-   - Fallback on LLM error: `raw_score = round(relevance_score * 5)`
-3. **`_normalize_batch_scores()`**: Zero-mean normalization across all batches for cross-batch comparability
-4. **Hard filtering**: Drops chunks with `_raw_score < reranker_min_score` (default 4)
-5. **Score mapping**: `SCORE_TO_100` dict maps raw 1-5 → 0-100 (`{5:95, 4:75, 3:50, 2:25, 1:10}`) for downstream `_format_ranked_findings` / `TASK_SUMMARY` compatibility
-
-Output: Scored, filtered chunks with `_llm_score` (0-100) and `_llm_reasoning`, sorted by `_normalized_score` descending
+Batch LLM scoring (~3-4 calls for 20 chunks) with precision/recall strategies. Round-robin batching (`reranker_batch_size=6`) → cross-batch zero-mean normalization → hard-filter below `reranker_min_score` (default 4) → raw 1-5 mapped to 0-100 via `SCORE_TO_100`. Fallback on LLM error: `raw_score = round(relevance_score * 5)`.
 
 ### Phase 4: Query-Anchored Synthesis + Quality Assurance
 
@@ -560,9 +534,24 @@ def _get_chromadb_client():    # safe_exit.py
 def get_chromadb_client():     # app.py
 def _get_ollama_client():      # safe_exit.py
 def _get_hitl_service():       # hitl_panel.py
+def _ensure_gpu_route():       # gpu_widget.py (one-time Tornado route injection)
 ```
 
 This prevents re-loading the embedding model and reconnecting to services on every UI interaction.
+
+### GPU Widget (Sidebar)
+
+Live GPU temperature, fan speed, and utilization are displayed in the sidebar via a Tornado route injection pattern:
+
+1. **`_ensure_gpu_route()`** (`@st.cache_resource`): One-time injection that:
+   - Checks `nvidia-smi` availability; returns `False` if no GPU
+   - Discovers the live `tornado.web.Application` via `gc.get_objects()` (Streamlit ≥1.53 removed `Server.get_current()`)
+   - Registers a `GPUStatsHandler` at `/_api/gpu` via `tornado_app.add_handlers()`
+   - Double-injection guard checks `default_router.rules` (where `add_handlers` writes)
+2. **`render_gpu_sidebar()`**: Renders a `components.v1.html()` snippet in the sidebar whose JS fetches `/_api/gpu` every 1s
+3. **Why Tornado**: Tornado's I/O loop runs independently of Streamlit's script-runner thread, so GPU stats keep updating even while `graph.stream()` blocks for 30s+. `@st.fragment(run_every=...)` is not viable because fragments queue on the same single thread.
+
+Display format: `RTX 4090   48°C|Fan:33%|Load: 88%` with color coding (temp: green/orange/red at 70/80°C thresholds; load: green/orange/red at 50/80% thresholds).
 
 ### Graph Entry Point Routing
 

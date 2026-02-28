@@ -96,3 +96,5 @@ def render_todo_side_panel() -> None:
                     st.markdown(task)
         else:
             st.caption("Keine Aufgaben vorhanden")
+
+

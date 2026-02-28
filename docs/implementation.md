@@ -199,6 +199,15 @@ is now attached to each `NestedChunk` and propagated through the pipeline — ze
 ### Phase 6.6: UI Localization & Layout Fixes
 - [x] German localization, layout fixes
 
+### Phase 6.10: Live GPU Widget (Sidebar)
+- [x] **Tornado route injection** (`src/ui/components/gpu_widget.py`): `/_api/gpu` endpoint serving live `nvidia-smi` stats as JSON
+- [x] **gc-based discovery**: `gc.get_objects()` finds the live `tornado.web.Application` (Streamlit ≥1.53 removed `Server.get_current()`)
+- [x] **Double-injection guard**: Checks `default_router.rules` (where `add_handlers` writes) to prevent duplicate registration
+- [x] **Sidebar rendering**: `components.v1.html()` with JS polling `/_api/gpu` every 1s; fixed-width monospace layout
+- [x] **Color coding**: Temp (green <70°C, orange <80°C, red ≥80°C), Load (green <50%, orange <80%, red ≥80%)
+- [x] **Graceful degradation**: No GPU / no `nvidia-smi` → widget not rendered, no errors
+- [x] **Why not `@st.fragment`**: Fragments queue on the same script-runner thread and block during `graph.stream()`; Tornado I/O loop is independent
+
 ### Phase 3.9: Batch Chunk Reranking
 - [x] **Batch architecture**: `_build_reranker_batches()` splits chunks via round-robin into batches of `reranker_batch_size` (default 6)
 - [x] **Dual strategy**: `_rerank_batch()` supports `precision` and `recall` strategies with separate prompt pairs (`RERANKER_PRECISION_PROMPT`, `RERANKER_RECALL_PROMPT`)

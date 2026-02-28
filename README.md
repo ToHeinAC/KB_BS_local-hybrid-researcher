@@ -46,6 +46,7 @@ streamlit run src/ui/app.py --server.port 8511
 - **Retrieval History Panel**: Real-time display of vector search results during HITL with chunk details.
 - **Database Selection**: Choose specific knowledge base collections or search all.
 - **Cached Service Clients**: Fast UI reloads via `@st.cache_resource` for ChromaDB/Ollama clients.
+- **Live GPU Widget**: Sidebar shows real-time GPU temp/fan/load via Tornado route injection (`/_api/gpu`), updating every 1s even during blocking `graph.stream()` calls. Color-coded thresholds for temp and load. Graceful degradation when no GPU is available.
 
 ## Documentation
 

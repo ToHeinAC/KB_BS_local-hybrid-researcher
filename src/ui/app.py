@@ -23,6 +23,7 @@ from src.ui.components import (
     render_todo_display,
     render_todo_side_panel,
 )
+from src.ui.components.gpu_widget import render_gpu_sidebar
 
 from src.ui.components.task_rendering import (
     filter_tiered_context_by_task,
@@ -311,6 +312,7 @@ def render_sidebar():
         available_dbs = []
 
     with st.sidebar:
+        render_gpu_sidebar()
         st.header("Einstellungen")
 
         # Database selection expander
