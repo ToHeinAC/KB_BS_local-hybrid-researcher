@@ -184,7 +184,7 @@ The enhanced iterative HITL system provides intelligent query refinement through
 | Component | Technology |
 |-----------|------------|
 | Framework | LangChain v1.0+, LangGraph v1.0+ |
-| LLM | Ollama (qwen3:14b, qwen3:8b fallback) |
+| LLM | Ollama (qwen3:14b default, gpt-oss:20b supported; qwen3:8b fallback) |
 | Embeddings | Qwen/Qwen3-Embedding-0.6B via HuggingFace |
 | Vector DB | ChromaDB (local persistent) |
 | Orchestration | LangGraph StateGraph (TypedDict state) |
@@ -223,6 +223,8 @@ pytest tests/ -v
 ## Key Configuration
 
 Edit `.env` for your setup:
+- `OLLAMA_MODEL=qwen3:14b`: Primary LLM model (`gpt-oss:20b` also supported — prompts auto-adapt)
+- `OLLAMA_TEMPERATURE=0.0`: LLM sampling temperature
 - `OLLAMA_NUM_CTX=131072`: 128K context for dual 4090s (adjust if needed)
 - `OLLAMA_SAFE_LIMIT=0.9`: Stop at 90% to prevent OOM
 - `QUALITY_THRESHOLD=375`: Minimum quality score (0-500, 5 dimensions)
@@ -253,7 +255,7 @@ KB_BS_local-hybrid-researcher/
 ├── src/                   # Source code
 │   ├── agents/            # LangGraph agents + tools
 │   ├── models/            # Pydantic data models
-│   ├── prompts/           # LLM prompt constants (hitl.py, research.py, synthesis.py)
+│   ├── prompts/           # LLM prompt constants (model-conditional: hitl.py/hitl_gpt.py, etc.)
 │   ├── services/          # ChromaDB, Ollama, PDF
 │   └── ui/                # Streamlit app (incl. gpu_widget.py for live GPU stats + elapsed timer)
 ├── tests/                 # Pytest tests
@@ -281,9 +283,35 @@ KB_BS_local-hybrid-researcher/
 Every prompt is split into a `_SYSTEM` / `_HUMAN` pair (e.g. `TODO_GENERATION_PROMPT_SYSTEM` + `TODO_GENERATION_PROMPT_HUMAN`).
 All callers use `OllamaClient.generate_structured_messages()` or `generate_messages()` with separate system/human arguments.
 
+### Model-Conditional Prompt Routing
+
+The `src/prompts/__init__.py` routes imports based on `settings.model_family`:
+- **`model_family == "qwen"` (default)**: Loads `hitl.py`, `research.py`, `synthesis.py`
+- **`model_family == "gpt-oss"`**: Loads `hitl_gpt.py`, `research_gpt.py`, `synthesis_gpt.py`
+
+Both variants export **identical constant names** (48 total), so consumers (`nodes.py`, `tools.py`, `hitl_service.py`) require zero changes. The `model_family` property returns `"gpt-oss"` when `ollama_model.startswith("gpt-oss")`, else `"qwen"`.
+
+### Qwen Prompt Format (hitl.py, research.py, synthesis.py)
+
 Two SYSTEM prompt formats co-exist (see `docs/prompts-design.md` for full rules):
 - **XML tag format** (`<role>`, `<output_format>`, `<constraints>`, `<content_rules>`, `<input_definitions>`, `<example>`): used by the 5 synthesis/summary prompts (`SYNTHESIS_PROMPT_ENHANCED_SYSTEM`, `SYNTHESIS_PROMPT_SYSTEM`, `QUERY_ASSESSMENT_PROMPT_SYSTEM`, `HITL_SUMMARY_PROMPT_SYSTEM`, `TASK_SUMMARY_PROMPT_SYSTEM`). Output format is placed 2nd so the LLM sees the schema before the rules.
 - **Markdown section format** (`### Role / ### Goal / ### Rules / ### Output format`): used by all other prompts.
+
+### gpt-oss Prompt Format (hitl_gpt.py, research_gpt.py, synthesis_gpt.py)
+
+Adapted for Harmony format conventions:
+- **`# Role` / `# Goal` / `# Rules`**: Top-level markdown headers (not `###` or XML tags)
+- **Flat numbered rules**: No nested sub-lists (a, b, c) — everything at one level
+- **`<json>...</json>` wrapper tags**: Structured output prompts instruct the model to wrap JSON in `<json>` tags
+- **No `/no_think`**: Qwen3-specific directives removed
+- **Output-only examples**: Trimmed input portions (~200 tokens saved per prompt)
+- **`{language}` placeholder**: Retained in all content-bearing prompts (unchanged from Qwen variants)
+
+### OllamaClient Adaptations for gpt-oss
+
+- **Harmony preamble**: `_prepare_system_prompt()` prepends `"You are a helpful assistant.\nReasoning: high\n---\n"` for gpt-oss models
+- **JSON tag extraction**: `_extract_json_from_tags()` regex-extracts content between `<json>` and `</json>` tags as fallback when structured output parsing fails
+- **Temperature**: `ChatOllama` instances use `settings.ollama_temperature` (configurable, default `0.0`)
 
 For specific prompt rules, see @docs/prompts-design.md [docs/prompts-design.md](docs/prompts-design.md).
 

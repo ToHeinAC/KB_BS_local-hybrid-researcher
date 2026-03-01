@@ -2,6 +2,7 @@
 
 import json
 import logging
+import re
 from typing import TypeVar
 
 from langchain_core.messages import HumanMessage, SystemMessage
@@ -32,6 +33,11 @@ class StructuredOutputError(Exception):
     """Raised when structured output parsing fails."""
 
     pass
+
+
+_HARMONY_PREAMBLE = "You are a helpful assistant.\nReasoning: high\n---\n"
+
+_JSON_TAG_RE = re.compile(r"<json>\s*(.*?)\s*</json>", re.DOTALL)
 
 
 class OllamaClient:
@@ -65,6 +71,11 @@ class OllamaClient:
         )
 
     @property
+    def is_gpt_oss(self) -> bool:
+        """Check if the primary model is a gpt-oss variant."""
+        return self.model.startswith("gpt-oss")
+
+    @property
     def llm(self) -> ChatOllama:
         """Get or create primary LLM instance."""
         if self._llm is None:
@@ -72,7 +83,7 @@ class OllamaClient:
                 model=self.model,
                 base_url=self.base_url,
                 num_ctx=self.num_ctx,
-                temperature=0,
+                temperature=settings.ollama_temperature,
                 timeout=60,  # 60 second timeout to prevent UI hangs
             )
         return self._llm
@@ -85,10 +96,28 @@ class OllamaClient:
                 model=self.fallback_model,
                 base_url=self.base_url,
                 num_ctx=self.num_ctx,
-                temperature=0,
+                temperature=settings.ollama_temperature,
                 timeout=60,  # 60 second timeout to prevent UI hangs
             )
         return self._fallback_llm
+
+    def _prepare_system_prompt(self, system_prompt: str) -> str:
+        """Prepend Harmony preamble for gpt-oss models."""
+        if self.is_gpt_oss:
+            return _HARMONY_PREAMBLE + system_prompt
+        return system_prompt
+
+    @staticmethod
+    def _extract_json_from_tags(text: str) -> str:
+        """Extract JSON content from <json>...</json> tags.
+
+        Returns the inner content if tags are found, otherwise the
+        original text unchanged.
+        """
+        match = _JSON_TAG_RE.search(text)
+        if match:
+            return match.group(1)
+        return text
 
     def estimate_tokens(self, text: str) -> int:
         """Estimate token count for text (rough approximation).
@@ -253,8 +282,9 @@ JSON response:"""
         self.check_context_limit(system_prompt + human_prompt)
 
         llm = self.fallback_llm if use_fallback else self.llm
+        prepared_system = self._prepare_system_prompt(system_prompt)
         messages = [
-            SystemMessage(content=system_prompt),
+            SystemMessage(content=prepared_system),
             HumanMessage(content=human_prompt),
         ]
         response = llm.invoke(messages)
@@ -291,9 +321,10 @@ JSON response:"""
             response_model, method="json_mode",
         )
 
+        prepared_system = self._prepare_system_prompt(system_prompt)
         schema_hint = response_model.model_json_schema()
         sys_with_schema = (
-            f"{system_prompt}\n\n"
+            f"{prepared_system}\n\n"
             f"Respond with valid JSON matching this schema:\n"
             f"{json.dumps(schema_hint, indent=2)}"
         )
@@ -310,6 +341,15 @@ JSON response:"""
                 return result
             return response_model.model_validate(result)
         except (json.JSONDecodeError, ValidationError) as e:
+            # For gpt-oss: try raw invoke + JSON tag extraction before retrying
+            if self.is_gpt_oss:
+                try:
+                    raw_response = llm.invoke(messages)
+                    raw_text = self._extract_json_from_tags(raw_response.content)
+                    parsed = json.loads(raw_text)
+                    return response_model.model_validate(parsed)
+                except Exception:
+                    pass  # Fall through to normal retry
             logger.warning(f"Structured messages output failed, retrying: {e}")
             raise
 

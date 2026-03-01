@@ -7,8 +7,9 @@
 # OLLAMA CONFIGURATION
 # =============================================================================
 OLLAMA_BASE_URL=http://localhost:11434
-OLLAMA_MODEL=qwen3:14b
+OLLAMA_MODEL=qwen3:14b              # or gpt-oss:20b for Harmony-format models
 OLLAMA_FALLBACK_MODEL=qwen3:8b
+OLLAMA_TEMPERATURE=0.0               # LLM sampling temperature (0.0 = greedy)
 DEFAULT_EMBEDDING_MODEL=Qwen/Qwen3-Embedding-0.6B
 
 # =============================================================================
@@ -177,9 +178,17 @@ class Settings(BaseSettings):
     ollama_base_url: str = "http://localhost:11434"
     ollama_model: str = "qwen3:14b"
     ollama_fallback_model: str = "qwen3:8b"
+    ollama_temperature: float = 0.0
     default_embedding_model: str = "Qwen/Qwen3-Embedding-0.6B"
     ollama_num_ctx: int = 131072
     ollama_safe_limit: float = 0.9
+
+    @property
+    def model_family(self) -> str:
+        """Return model family: 'gpt-oss' or 'qwen'."""
+        if self.ollama_model.startswith("gpt-oss"):
+            return "gpt-oss"
+        return "qwen"
 
     # ChromaDB
     chromadb_path: str = "./kb/database"

@@ -19,6 +19,7 @@ class Settings(BaseSettings):
     ollama_model: str = "qwen3:14b"
     ollama_fallback_model: str = "qwen3:8b"
     default_embedding_model: str = "Qwen/Qwen3-Embedding-0.6B"
+    ollama_temperature: float = 0.0
     # Critical: 128K context for dual 4090s
     ollama_num_ctx: int = 131072
     # Safety: stop at 90% of max context to prevent OOM
@@ -76,6 +77,13 @@ class Settings(BaseSettings):
     enable_web_search: bool = False
     tavily_api_key: str = ""
     web_results_per_query: int = 2
+
+    @property
+    def model_family(self) -> str:
+        """Return model family: 'gpt-oss' or 'qwen'."""
+        if self.ollama_model.startswith("gpt-oss"):
+            return "gpt-oss"
+        return "qwen"
 
     @property
     def safe_context_limit(self) -> int:

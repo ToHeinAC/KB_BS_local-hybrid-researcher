@@ -15,7 +15,7 @@
 
 ## SYSTEM Prompt Formats
 
-Two formats co-exist in the codebase. Choose based on prompt complexity.
+Three formats co-exist in the codebase. Formats A and B are for Qwen models; Format C is for gpt-oss models. Choose based on model family and prompt complexity.
 
 ### Format A — XML tags (preferred for synthesis/summary prompts)
 
@@ -82,6 +82,66 @@ Structure:
 ### Rules     ← in SYSTEM half
 ### Output format  ← in SYSTEM half
 ```
+
+### Format C — Harmony format (gpt-oss models)
+
+Used by all `*_gpt.py` prompt files (`hitl_gpt.py`, `research_gpt.py`, `synthesis_gpt.py`).
+Loaded automatically when `settings.model_family == "gpt-oss"` via `src/prompts/__init__.py`.
+
+Adaptation rules from Format A/B:
+
+| Original pattern | gpt-oss (Harmony) adaptation |
+|---|---|
+| `<role>...</role>` XML tags | `# Role` top-level markdown header |
+| `### Role` / `### Goal` sections | `# Role` / `# Goal` (single `#`) |
+| Separate `<constraints>` + `<content_rules>` | Merged into single `# Rules` with flat numbered list |
+| `"Return ONLY valid JSON"` | `"Wrap your JSON between <json> and </json> tags"` |
+| `/no_think` directive (Qwen3-specific) | Removed entirely |
+| Nested bullet sub-lists (a, b, c) | Flatten to single-level numbered items |
+| `{language}` placeholder | Unchanged — kept in all content-bearing prompts |
+
+Structure:
+
+```
+# Role
+One or two sentences.
+
+# Output format
+Wrap your JSON output between <json> and </json> tags:
+<json>{"field": "VALUE"}</json>
+
+Field definitions:
+- field: description
+
+# Rules
+1. Flat numbered rule.
+2. Another rule.
+```
+
+Key differences from Format A/B:
+- **Single `#` headers** instead of `###` or XML tags — better parsed by Harmony-tuned models
+- **`<json>` wrapper tags** for structured output — OllamaClient extracts content between tags on parse failure
+- **No `/no_think`** — gpt-oss models do not support Qwen3's thinking mode toggle
+- **Harmony preamble** injected at runtime by `OllamaClient._prepare_system_prompt()` (not in the prompt file itself)
+
+### Model-Conditional Routing
+
+`src/prompts/__init__.py` routes imports at module load time:
+
+```python
+from src.config import settings
+
+if settings.model_family == "gpt-oss":
+    from src.prompts.hitl_gpt import *
+    from src.prompts.research_gpt import *
+    from src.prompts.synthesis_gpt import *
+else:
+    from src.prompts.hitl import *
+    from src.prompts.research import *
+    from src.prompts.synthesis import *
+```
+
+All gpt-oss files export **identical constant names** as their Qwen counterparts, so consumer code (`nodes.py`, `hitl_service.py`, `tools.py`) requires zero changes.
 
 ### HITL Summary output sections (reference)
 

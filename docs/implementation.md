@@ -243,6 +243,26 @@ is now attached to each `NestedChunk` and propagated through the pipeline — ze
 
 **238 tests total, all passing.**
 
+### Phase 3.11: Model-Conditional Prompt Routing (gpt-oss Support)
+- [x] **`src/config.py`**: Added `ollama_temperature: float = 0.0` field and `model_family` property (returns `"gpt-oss"` or `"qwen"` based on `ollama_model` prefix)
+- [x] **`src/services/ollama_client.py`**: gpt-oss runtime adaptations:
+  - `is_gpt_oss` property for model detection
+  - `_HARMONY_PREAMBLE` constant prepended to system prompts for gpt-oss models
+  - `_prepare_system_prompt()` applies preamble conditionally
+  - `_extract_json_from_tags()` regex extracts content between `<json>...</json>` tags
+  - `generate_messages()` and `generate_structured_messages()` apply `_prepare_system_prompt()`
+  - `generate_structured_messages()` error handler: on gpt-oss, falls back to raw invoke + tag extraction + manual validation
+  - `temperature=0` replaced with `settings.ollama_temperature` in both `llm` and `fallback_llm`
+- [x] **gpt-oss prompt files** (Harmony format: `# headers`, flat rules, `<json>` tags, no `/no_think`):
+  - `src/prompts/hitl_gpt.py`: 16 constants (8 SYSTEM/HUMAN pairs)
+  - `src/prompts/research_gpt.py`: 18 constants (9 pairs)
+  - `src/prompts/synthesis_gpt.py`: 14 constants (7 pairs)
+  - All export identical constant names as Qwen counterparts — zero consumer changes
+- [x] **`src/prompts/__init__.py`**: Conditional routing via `settings.model_family`
+- [x] **Tests**: `tests/test_prompt_routing.py` (15 tests), `tests/test_ollama_gpt_oss.py` (12 tests)
+
+**265 tests total, all passing.**
+
 ### Phase 8: Testing Improvements
 - [x] `TestRouteEntryPoint` class for graph routing logic
   - `test_route_to_hitl_init_on_new_session`

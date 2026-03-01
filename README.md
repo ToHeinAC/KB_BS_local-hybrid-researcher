@@ -11,8 +11,9 @@ uv pip install -e ".[dev]"
 cp .env.example .env
 
 # Pull Ollama models (for LLM generation)
-ollama pull qwen3:14b
-ollama pull qwen3:8b
+ollama pull qwen3:14b            # Default model
+ollama pull qwen3:8b             # Fallback model
+# Optional: ollama pull gpt-oss:20b  # Alternative model (auto-detected)
 
 # Note: Embeddings use HuggingFace Qwen/Qwen3-Embedding-0.6B
 # (downloaded automatically on first run)
@@ -35,7 +36,8 @@ streamlit run src/ui/app.py --server.port 8511
 - **Graded Context Management**: Tiered classification (primary/secondary/tertiary) prevents query drift and ensures synthesis quality.
 - **Verbatim Quote Preservation**: Critical legal/technical quotes extracted and preserved for precision.
 - **Deep Report Synthesis**: Produces extensive, structured deep reports (not brief summaries) from pre-digested task summaries, with exact figures, verbatim quotes, and section references, anchored to original intent with HITL context.
-- **Optimized Prompt Architecture**: All prompts in `src/prompts/` package (split by phase: `hitl.py`, `research.py`, `synthesis.py`), each as SYSTEM/HUMAN pairs. The 5 key synthesis/summary prompts use an XML-tag format (`<role>`, `<output_format>`, `<constraints>`, `<content_rules>`, `<example>`) optimized for Qwen3:14b — output schema placed before rules so the LLM anchors on structure first, HARD CONSTRAINTS separated from writing rules, realistic domain examples replacing placeholders.
+- **Model-Conditional Prompt Routing**: Set `OLLAMA_MODEL=gpt-oss:20b` in `.env` and all prompts automatically swap to Harmony-adapted variants (`# headers`, `<json>` tags, no `/no_think`) with zero consumer-code changes. Qwen prompts use XML-tag format for synthesis and `###` sections for simpler prompts.
+- **Optimized Prompt Architecture**: All prompts in `src/prompts/` package (split by phase: `hitl.py`, `research.py`, `synthesis.py` + `*_gpt.py` variants), each as SYSTEM/HUMAN pairs. The 5 key synthesis/summary prompts use an XML-tag format (`<role>`, `<output_format>`, `<constraints>`, `<content_rules>`, `<example>`) optimized for Qwen3:14b — output schema placed before rules so the LLM anchors on structure first, HARD CONSTRAINTS separated from writing rules, realistic domain examples replacing placeholders.
 - **Language Enforcement**: All 17 content-bearing prompts enforce `{language}`, with validation and retry on mismatch.
 - **Pre-Synthesis Drift Detection**: Filters irrelevant accumulated context before synthesis.
 - **Transparent Chunk Filtering**: Guarantees minimum chunks per task (3 primary, 2 secondary) even if below relevance threshold; backfilled chunks marked with ⚠️ badge to maintain transparency while preventing silent suppression of retrieval results.

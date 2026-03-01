@@ -120,6 +120,11 @@ text = client.generate_messages(system_prompt, human_prompt)
 
 Internally, `generate_structured_messages()` wraps prompts as `SystemMessage`/`HumanMessage` from `langchain_core.messages` and uses `llm.with_structured_output(Model, method="json_mode")`.
 
+**gpt-oss model adaptations** (transparent to callers):
+- `_prepare_system_prompt()` prepends Harmony preamble for gpt-oss models
+- `_extract_json_from_tags()` extracts content between `<json>...</json>` tags as fallback on parse failure
+- `temperature` uses `settings.ollama_temperature` (configurable, default 0.0)
+
 ## The Rabbithole Magic (Phase 3)
 
 The core innovation: iterative reference following with context enrichment.
