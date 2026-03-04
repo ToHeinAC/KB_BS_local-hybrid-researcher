@@ -241,48 +241,7 @@ class ToDoList(BaseModel):
 
 ### state['ResearchContext']
 
-The growing JSON structure that accumulates all research findings:
-
-```json
-{
-  "search_queries": [
-    {
-      "query": "original search query string",
-      "chunks": [
-        {
-          "chunk": "original chunk text from vector DB",
-          "document": "document_name.pdf",
-          "extracted_info": "condensed relevant passages",
-          "references": [
-            {
-              "type": "section|document|external",
-              "target": "section_number/document_name/url",
-              "found": true,
-              "nested_chunks": [
-                {
-                  "chunk": "reference content",
-                  "document": "document_name.pdf",
-                  "extracted_info": "relevant to original query",
-                  "relevance_score": 0.85
-                }
-              ]
-            }
-          ]
-        }
-      ],
-      "summary": "comprehensive answer to search query",
-      "summary_references": ["document1.pdf", "document2.pdf"],
-      "quality_score": 0.9,
-      "web_search_results": null
-    }
-  ],
-  "metadata": {
-    "total_iterations": 3,
-    "documents_referenced": ["StrlSchG.pdf", "StrlSchV.pdf"],
-    "external_sources_used": false
-  }
-}
-```
+Accumulates all research findings. Top-level keys: `search_queries` (list of `SearchQueryResult` with query, chunks, summary, references) and `metadata` (total_iterations, documents_referenced, external_sources_used). Each chunk contains `extracted_info`, `references` (with `nested_chunks` from rabbithole traversal), and `relevance_score`. See `src/models/research.py` for full schema.
 
 ## Phase Transitions
 
@@ -479,50 +438,13 @@ HITL checkpoints are supported via a persisted `thread_id` stored in session sta
 
 ### UI Data Flow for Chat-Based HITL
 
-The chat-based HITL (`render_chat_hitl`) runs independently from the LangGraph, using standalone services:
+The chat-based HITL (`render_chat_hitl`) runs independently from the LangGraph:
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│  Chat-Based HITL (hitl_panel.py)                                 │
-├─────────────────────────────────────────────────────────────────┤
-│  User Query                                                      │
-│      │                                                           │
-│      ▼                                                           │
-│  HITLService.detect_language()                                   │
-│      │                                                           │
-│      ▼                                                           │
-│  _perform_hitl_retrieval(query, session)  ──┐                    │
-│      │                                      │                    │
-│      │  ┌───────────────────────────────────┘                    │
-│      │  │  Uses session.selected_database                        │
-│      │  │  Stores in session.hitl_state["retrieval_history"]     │
-│      │  └───────────────────────────────────┐                    │
-│      │                                      │                    │
-│      ▼                                      ▼                    │
-│  HITLService.generate_follow_up_questions() │                    │
-│      │                                      │                    │
-│      ▼                                      │                    │
-│  _render_retrieval_history()  ◄─────────────┘                    │
-│      │  (reads from hitl_state or agent_state)                   │
-│      │                                                           │
-│      ▼                                                           │
-│  [User Feedback Loop]                                            │
-│      │                                                           │
-│      ▼                                                           │
-│  On /end: create_hitl_result() → research_queries                │
-│      │                                                           │
-│      ▼                                                           │
-│  _start_research_from_hitl()                                     │
-│      ├─ Builds query_anchor (entities, scope, language)          │
-│      ├─ Calls _generate_hitl_summary() → hitl_smry               │
-│      └─ Sets initial_state for graph                             │
-└─────────────────────────────────────────────────────────────────┘
-```
+1. `HITLService.detect_language()` → `_perform_hitl_retrieval(query, session)` (uses `session.selected_database`)
+2. `HITLService.generate_follow_up_questions()` → `_render_retrieval_history()` → user feedback loop
+3. On `/end`: `create_hitl_result()` → `_start_research_from_hitl()` (builds `query_anchor`, generates `hitl_smry`, sets `initial_state`)
 
-**Key Data Sources:**
-- `session.hitl_state["retrieval_history"]`: Populated during HITL phase
-- `session.agent_state["retrieval_history"]`: Populated during graph execution
-- `_render_retrieval_history()` reads from both, preferring `hitl_state`
+**Key Data Sources:** `session.hitl_state["retrieval_history"]` (HITL phase) and `session.agent_state["retrieval_history"]` (graph execution). `_render_retrieval_history()` reads both, preferring `hitl_state`.
 
 ### Cached Service Clients
 
@@ -538,6 +460,27 @@ def _ensure_gpu_route():       # gpu_widget.py (one-time Tornado route injection
 ```
 
 This prevents re-loading the embedding model and reconnecting to services on every UI interaction.
+
+**Runtime reset on model switch**: When the user changes the research depth selector, `_apply_research_depth()` calls `reset_ollama_client()` on all 3 consumer modules (`nodes.py`, `tools.py`, `hitl_service.py`) and clears the `@st.cache_resource` for `_get_hitl_service` and `_get_ollama_client`. This ensures new `OllamaClient` instances pick up the changed `settings.ollama_model`.
+
+### Research Depth Selector (Sidebar)
+
+The "Erweiterte Einstellungen" expander in the sidebar contains a selectbox for runtime model switching:
+
+| Label | Model | Family |
+|-------|-------|--------|
+| einfach (qwen3:8b) | `qwen3:8b` | qwen |
+| standard (qwen3:14b) | `qwen3:14b` | qwen |
+| erhöht (gpt-oss:20b) | `gpt-oss:20b` | gpt-oss |
+| tief (qwen3:30b) | `qwen3:30b` | qwen |
+
+On change, `_apply_research_depth()`:
+1. Sets `settings.ollama_model` to the new model name
+2. Resets all module-level `OllamaClient` singletons via `reset_ollama_client()`
+3. Clears `@st.cache_resource` cached services
+4. Prompt routing auto-adapts via PEP 562 `__getattr__` in `src/prompts/__init__.py`
+
+The selectbox is disabled during active research (`workflow_phase == "research"`) and persists across reruns via `session.research_depth`.
 
 ### GPU Widget (Sidebar)
 

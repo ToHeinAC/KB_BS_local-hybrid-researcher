@@ -1,11 +1,13 @@
 """Prompt constants for all LLM interactions, split by phase.
 
-Re-exports everything for backward compatibility:
-    from src.prompts import LANGUAGE_DETECTION_PROMPT_SYSTEM  # still works
+Dynamic routing via PEP 562 __getattr__: prompt constants are resolved
+at access time based on the current ``settings.model_family``, so
+switching the model at runtime takes effect immediately.
 
-When OLLAMA_MODEL starts with "gpt-oss", gpt-oss-adapted prompts are
-loaded instead of the Qwen3-optimized defaults. The constant names are
-identical so consumers do not need any changes.
+Usage in consumers::
+
+    from src import prompts
+    system = prompts.SYNTHESIS_PROMPT_ENHANCED_SYSTEM.format(language=lang)
 
 Modules:
     hitl.py / hitl_gpt.py           - Phase 1: All HITL prompts
@@ -13,13 +15,49 @@ Modules:
     synthesis.py / synthesis_gpt.py - Phase 2 + 4: Todo, synthesis, quality
 """
 
-from src.config import settings
+import re as _re
 
-if settings.model_family == "gpt-oss":
-    from src.prompts.hitl_gpt import *  # noqa: F401,F403
-    from src.prompts.research_gpt import *  # noqa: F401,F403
-    from src.prompts.synthesis_gpt import *  # noqa: F401,F403
-else:
-    from src.prompts.hitl import *  # noqa: F401,F403
-    from src.prompts.research import *  # noqa: F401,F403
-    from src.prompts.synthesis import *  # noqa: F401,F403
+from src.prompts import hitl as _hitl_qwen
+from src.prompts import hitl_gpt as _hitl_gpt
+from src.prompts import research as _research_qwen
+from src.prompts import research_gpt as _research_gpt
+from src.prompts import synthesis as _synthesis_qwen
+from src.prompts import synthesis_gpt as _synthesis_gpt
+
+
+def _collect_constants(module):
+    """Collect all UPPER_CASE string constants from a module."""
+    return {
+        name: getattr(module, name)
+        for name in dir(module)
+        if _re.match(r"^[A-Z][A-Z_0-9]+$", name) and isinstance(getattr(module, name), str)
+    }
+
+
+# Eagerly build dicts from both prompt sets
+_qwen_prompts: dict[str, str] = {}
+_gptoss_prompts: dict[str, str] = {}
+
+for _mod in (_hitl_qwen, _research_qwen, _synthesis_qwen):
+    _qwen_prompts.update(_collect_constants(_mod))
+
+for _mod in (_hitl_gpt, _research_gpt, _synthesis_gpt):
+    _gptoss_prompts.update(_collect_constants(_mod))
+
+# Union of all constant names (both sets export identical names)
+__all__ = sorted(set(_qwen_prompts) | set(_gptoss_prompts))
+
+
+def __getattr__(name: str) -> str:
+    """Resolve prompt constant dynamically based on current model family."""
+    from src.config import settings
+
+    if settings.model_family == "gpt-oss":
+        prompts = _gptoss_prompts
+    else:
+        prompts = _qwen_prompts
+
+    if name in prompts:
+        return prompts[name]
+
+    raise AttributeError(f"module 'src.prompts' has no attribute {name!r}")

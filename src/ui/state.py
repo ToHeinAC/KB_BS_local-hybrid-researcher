@@ -39,6 +39,7 @@ class SessionState:
     # Settings
     enable_web_search: bool = False
     enable_quality_checker: bool = True
+    research_depth: str = "standard (qwen3:14b)"
 
     # Results
     final_report: dict | None = None
@@ -52,6 +53,7 @@ class SessionState:
     # UI state
     show_debug: bool = False
     error: str | None = None
+    todo_approved: bool = False
 
 
 def get_session_state() -> SessionState:
@@ -176,6 +178,7 @@ def reset_hitl_conversation() -> None:
     session.conversation_ended = False
     session.input_counter = 0
     session.workflow_phase = "hitl"
+    session.todo_approved = False
 
 
 def get_selected_database() -> str:

@@ -17,14 +17,7 @@ from src.models.research import (
     PreservedQuote,
 )
 from src.models.results import VectorResult
-from src.prompts import (
-    INFO_EXTRACTION_PROMPT_HUMAN,
-    INFO_EXTRACTION_PROMPT_SYSTEM,
-    INFO_EXTRACTION_WITH_QUOTES_PROMPT_HUMAN,
-    INFO_EXTRACTION_WITH_QUOTES_PROMPT_SYSTEM,
-    REFERENCE_EXTRACTION_PROMPT_HUMAN,
-    REFERENCE_EXTRACTION_PROMPT_SYSTEM,
-)
+from src import prompts
 from src.services.chromadb_client import ChromaDBClient
 from src.services.ollama_client import OllamaClient
 
@@ -49,6 +42,12 @@ def get_ollama_client() -> OllamaClient:
     if _ollama_client is None:
         _ollama_client = OllamaClient()
     return _ollama_client
+
+
+def reset_ollama_client() -> None:
+    """Clear cached OllamaClient so next access picks up new model."""
+    global _ollama_client
+    _ollama_client = None
 
 
 def vector_search(
@@ -98,8 +97,8 @@ def extract_info(
     client = get_ollama_client()
     lang_label = "German" if language == "de" else "English"
 
-    system_prompt = INFO_EXTRACTION_PROMPT_SYSTEM.format(language=lang_label)
-    human_prompt = INFO_EXTRACTION_PROMPT_HUMAN.format(
+    system_prompt = prompts.INFO_EXTRACTION_PROMPT_SYSTEM.format(language=lang_label)
+    human_prompt = prompts.INFO_EXTRACTION_PROMPT_HUMAN.format(
         query=query, chunk_text=chunk_text, language=lang_label,
     )
 
@@ -136,8 +135,8 @@ def extract_info_with_quotes(
     key_entities = query_anchor.get("key_entities", [])
     lang_label = "German" if language == "de" else "English"
 
-    system_prompt = INFO_EXTRACTION_WITH_QUOTES_PROMPT_SYSTEM.format(language=lang_label)
-    human_prompt = INFO_EXTRACTION_WITH_QUOTES_PROMPT_HUMAN.format(
+    system_prompt = prompts.INFO_EXTRACTION_WITH_QUOTES_PROMPT_SYSTEM.format(language=lang_label)
+    human_prompt = prompts.INFO_EXTRACTION_WITH_QUOTES_PROMPT_HUMAN.format(
         query=query,
         key_entities=", ".join(key_entities) if key_entities else "none specified",
         chunk_text=chunk_text[:3000],  # Limit input
@@ -697,8 +696,8 @@ def extract_references_llm(text: str) -> list[DetectedReference]:
         List of DetectedReference objects with extraction_method="llm"
     """
     client = get_ollama_client()
-    system_prompt = REFERENCE_EXTRACTION_PROMPT_SYSTEM
-    human_prompt = REFERENCE_EXTRACTION_PROMPT_HUMAN.format(text=text[:3000])
+    system_prompt = prompts.REFERENCE_EXTRACTION_PROMPT_SYSTEM
+    human_prompt = prompts.REFERENCE_EXTRACTION_PROMPT_HUMAN.format(text=text[:3000])
 
     try:
         result = client.generate_structured_messages(

@@ -263,6 +263,27 @@ is now attached to each `NestedChunk` and propagated through the pipeline — ze
 
 **265 tests total, all passing.**
 
+### Phase 3.12: Runtime Model Selection (Research Depth Selector)
+- [x] **Dynamic prompt routing** (`src/prompts/__init__.py`): Rewrote from static wildcard imports to PEP 562 `__getattr__`:
+  - Both Qwen and gpt-oss prompt sets eagerly loaded into `_qwen_prompts` / `_gptoss_prompts` dicts
+  - `__getattr__(name)` checks `settings.model_family` **at access time**, enabling runtime model switching
+  - `__all__` lists union of all prompt constant names
+- [x] **Consumer migration** — replaced `from src.prompts import X` with `from src import prompts` + `prompts.X` at call sites:
+  - `src/agents/nodes.py`: 29 prompt constants, added `reset_ollama_client()` (clears `_ollama_client` + `_hitl_service`)
+  - `src/agents/tools.py`: 6 prompt constants, added `reset_ollama_client()`
+  - `src/services/hitl_service.py`: 14 prompt constants, added `reset_ollama_client()`
+- [x] **UI depth selector** (`src/ui/app.py`):
+  - `st.selectbox` in "Erweiterte Einstellungen" with 4 options: einfach (qwen3:8b), standard (qwen3:14b), erhöht (gpt-oss:20b), tief (qwen3:30b)
+  - Disabled during active research (`workflow_phase == "research"`)
+  - `_apply_research_depth()` coordinator: updates `settings.ollama_model`, calls `reset_ollama_client()` on all 3 modules, clears `@st.cache_resource` for HITLService and OllamaClient
+- [x] **Session state** (`src/ui/state.py`): Added `research_depth` field (default: `"standard (qwen3:14b)"`)
+
+### Phase 6.12: Todo Approval Multi-Task + UI Polish
+- [x] **Dynamic new-task list** (`src/ui/components/todo_approval.py`): Replaced single text input with dynamic list of pending tasks (add/remove rows)
+- [x] **HITL summary hiding**: Summary hidden during active task execution (`todo_approved` flag)
+- [x] **Streaming cleanup**: Activity log hidden during streaming; clean "Recherche-Ergebnisse" header shown instead
+- [x] **`todo_approved` flag** (`src/ui/state.py`): Tracks whether user has approved tasks, reset in `reset_hitl_conversation()`
+
 ### Phase 8: Testing Improvements
 - [x] `TestRouteEntryPoint` class for graph routing logic
   - `test_route_to_hitl_init_on_new_session`

@@ -10,22 +10,7 @@ from src.models.hitl import (
     HITLState,
 )
 from src.models.query import QueryAnalysis, ToDoList
-from src.prompts import (
-    ALTERNATIVE_QUERIES_INITIAL_PROMPT_HUMAN,
-    ALTERNATIVE_QUERIES_INITIAL_PROMPT_SYSTEM,
-    ALTERNATIVE_QUERIES_REFINED_PROMPT_HUMAN,
-    ALTERNATIVE_QUERIES_REFINED_PROMPT_SYSTEM,
-    FOLLOW_UP_QUESTIONS_PROMPT_HUMAN,
-    FOLLOW_UP_QUESTIONS_PROMPT_SYSTEM,
-    LANGUAGE_DETECTION_PROMPT_HUMAN,
-    LANGUAGE_DETECTION_PROMPT_SYSTEM,
-    REFINED_QUERIES_PROMPT_HUMAN,
-    REFINED_QUERIES_PROMPT_SYSTEM,
-    RETRIEVAL_ANALYSIS_PROMPT_HUMAN,
-    RETRIEVAL_ANALYSIS_PROMPT_SYSTEM,
-    USER_FEEDBACK_ANALYSIS_PROMPT_HUMAN,
-    USER_FEEDBACK_ANALYSIS_PROMPT_SYSTEM,
-)
+from src import prompts
 from src.services.ollama_client import OllamaClient
 
 logger = logging.getLogger(__name__)
@@ -40,6 +25,12 @@ def get_ollama_client() -> OllamaClient:
     if _ollama_client is None:
         _ollama_client = OllamaClient()
     return _ollama_client
+
+
+def reset_ollama_client() -> None:
+    """Clear cached OllamaClient so next access picks up new model."""
+    global _ollama_client
+    _ollama_client = None
 
 
 class HITLService:
@@ -341,8 +332,8 @@ def _detect_language_llm(user_query: str) -> str:
     """Detect query language using LLM."""
     client = get_ollama_client()
 
-    system_prompt = LANGUAGE_DETECTION_PROMPT_SYSTEM
-    human_prompt = LANGUAGE_DETECTION_PROMPT_HUMAN.format(user_query=user_query)
+    system_prompt = prompts.LANGUAGE_DETECTION_PROMPT_SYSTEM
+    human_prompt = prompts.LANGUAGE_DETECTION_PROMPT_HUMAN.format(user_query=user_query)
 
     try:
         response = client.generate_messages(system_prompt, human_prompt)
@@ -387,8 +378,8 @@ def _generate_follow_up_questions_llm(
     )
 
     lang_label = "German" if language == "de" else "English"
-    system_prompt = FOLLOW_UP_QUESTIONS_PROMPT_SYSTEM.format(language=lang_label)
-    human_prompt = FOLLOW_UP_QUESTIONS_PROMPT_HUMAN.format(
+    system_prompt = prompts.FOLLOW_UP_QUESTIONS_PROMPT_SYSTEM.format(language=lang_label)
+    human_prompt = prompts.FOLLOW_UP_QUESTIONS_PROMPT_HUMAN.format(
         user_query=user_query, context=context, retrieval=retrieval_text,
         language=lang_label,
     )
@@ -421,8 +412,8 @@ def _analyse_user_feedback_llm(state: dict) -> dict:
     language = state.get("detected_language", "de")
     lang_label = "German" if language == "de" else "English"
 
-    system_prompt = USER_FEEDBACK_ANALYSIS_PROMPT_SYSTEM.format(language=lang_label)
-    human_prompt = USER_FEEDBACK_ANALYSIS_PROMPT_HUMAN.format(
+    system_prompt = prompts.USER_FEEDBACK_ANALYSIS_PROMPT_SYSTEM.format(language=lang_label)
+    human_prompt = prompts.USER_FEEDBACK_ANALYSIS_PROMPT_HUMAN.format(
         user_query=user_query, context=context, language=lang_label,
     )
 
@@ -798,19 +789,19 @@ def generate_alternative_queries_llm(
     lang_label = "German" if language == "de" else "English"
 
     if iteration == 0 or not analysis:
-        system_prompt = ALTERNATIVE_QUERIES_INITIAL_PROMPT_SYSTEM.format(
+        system_prompt = prompts.ALTERNATIVE_QUERIES_INITIAL_PROMPT_SYSTEM.format(
             language=lang_label,
         )
-        human_prompt = ALTERNATIVE_QUERIES_INITIAL_PROMPT_HUMAN.format(
+        human_prompt = prompts.ALTERNATIVE_QUERIES_INITIAL_PROMPT_HUMAN.format(
             query=query, language=lang_label,
         )
     else:
         gaps = analysis.get("knowledge_gaps", [])
         entities = analysis.get("entities", [])
-        system_prompt = ALTERNATIVE_QUERIES_REFINED_PROMPT_SYSTEM.format(
+        system_prompt = prompts.ALTERNATIVE_QUERIES_REFINED_PROMPT_SYSTEM.format(
             language=lang_label,
         )
-        human_prompt = ALTERNATIVE_QUERIES_REFINED_PROMPT_HUMAN.format(
+        human_prompt = prompts.ALTERNATIVE_QUERIES_REFINED_PROMPT_HUMAN.format(
             query=query, entities=entities, gaps=gaps, language=lang_label,
         )
 
@@ -854,8 +845,8 @@ def analyze_retrieval_context_llm(
     max_chars = 3000
     truncated = retrieval_text[:max_chars] if len(retrieval_text) > max_chars else retrieval_text
 
-    system_prompt = RETRIEVAL_ANALYSIS_PROMPT_SYSTEM.format(language=lang_label)
-    human_prompt = RETRIEVAL_ANALYSIS_PROMPT_HUMAN.format(
+    system_prompt = prompts.RETRIEVAL_ANALYSIS_PROMPT_SYSTEM.format(language=lang_label)
+    human_prompt = prompts.RETRIEVAL_ANALYSIS_PROMPT_HUMAN.format(
         query=query, retrieval=truncated, language=lang_label,
     )
 
@@ -906,8 +897,8 @@ def generate_refined_queries_llm(
     client = get_ollama_client()
     lang_label = "German" if language == "de" else "English"
 
-    system_prompt = REFINED_QUERIES_PROMPT_SYSTEM.format(language=lang_label)
-    human_prompt = REFINED_QUERIES_PROMPT_HUMAN.format(
+    system_prompt = prompts.REFINED_QUERIES_PROMPT_SYSTEM.format(language=lang_label)
+    human_prompt = prompts.REFINED_QUERIES_PROMPT_HUMAN.format(
         query=query, user_response=user_response, gaps=gaps, language=lang_label,
     )
 

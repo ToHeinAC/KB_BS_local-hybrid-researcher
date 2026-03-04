@@ -45,35 +45,7 @@ from src.models.results import (
     SynthesisOutputEnhanced,
     TaskSummaryOutput,
 )
-from src.prompts import (
-    CHUNK_RERANKER_PROMPT_HUMAN,
-    CHUNK_RERANKER_PROMPT_SYSTEM,
-    HITL_SUMMARY_PROMPT_HUMAN,
-    RERANKER_PRECISION_PROMPT_HUMAN,
-    RERANKER_PRECISION_PROMPT_SYSTEM,
-    RERANKER_RECALL_PROMPT_HUMAN,
-    RERANKER_RECALL_PROMPT_SYSTEM,
-    HITL_SUMMARY_PROMPT_SYSTEM,
-    QUALITY_CHECK_PROMPT_HUMAN,
-    QUALITY_CHECK_PROMPT_SYSTEM,
-    QUALITY_REMEDIATION_PROMPT_HUMAN,
-    QUALITY_REMEDIATION_PROMPT_SYSTEM,
-    QUERY_ASSESSMENT_PROMPT_HUMAN,
-    QUERY_ASSESSMENT_PROMPT_SYSTEM,
-    REFERENCE_DECISION_PROMPT_HUMAN,
-    REFERENCE_DECISION_PROMPT_SYSTEM,
-    RELEVANCE_SCORING_PROMPT_SYSTEM,
-    SYNTHESIS_PROMPT_ENHANCED_HUMAN,
-    SYNTHESIS_PROMPT_ENHANCED_SYSTEM,
-    SYNTHESIS_PROMPT_HUMAN,
-    SYNTHESIS_PROMPT_SYSTEM,
-    TASK_SEARCH_QUERIES_PROMPT_HUMAN,
-    TASK_SEARCH_QUERIES_PROMPT_SYSTEM,
-    TASK_SUMMARY_PROMPT_HUMAN,
-    TASK_SUMMARY_PROMPT_SYSTEM,
-    TODO_GENERATION_PROMPT_HUMAN,
-    TODO_GENERATION_PROMPT_SYSTEM,
-)
+from src import prompts
 from src.services.hitl_service import HITLService
 from src.services.ollama_client import OllamaClient
 from src.utils.debug_state import dump_state_markdown
@@ -99,6 +71,13 @@ def get_hitl_service() -> HITLService:
     if _hitl_service is None:
         _hitl_service = HITLService(max_questions=settings.max_clarification_questions)
     return _hitl_service
+
+
+def reset_ollama_client() -> None:
+    """Clear cached OllamaClient and HITLService so next access picks up new model."""
+    global _ollama_client, _hitl_service
+    _ollama_client = None
+    _hitl_service = None
 
 
 # --- Phase 2.5: Query Assessment ---
@@ -128,8 +107,8 @@ def assess_query(state: AgentState) -> dict:
     lang_label = "German" if detected_language == "de" else "English"
 
     client = get_ollama_client()
-    system_prompt = QUERY_ASSESSMENT_PROMPT_SYSTEM.format(language=lang_label)
-    human_prompt = QUERY_ASSESSMENT_PROMPT_HUMAN.format(
+    system_prompt = prompts.QUERY_ASSESSMENT_PROMPT_SYSTEM.format(language=lang_label)
+    human_prompt = prompts.QUERY_ASSESSMENT_PROMPT_HUMAN.format(
         original_query=original_query,
         scope=scope,
         entities=entities,
@@ -220,8 +199,8 @@ def generate_todo(state: AgentState) -> dict:
 
     try:
         # PRIMARY: LLM generation using rich query analysis + hitl_smry
-        system_prompt = TODO_GENERATION_PROMPT_SYSTEM.format(language=lang_label)
-        human_prompt = TODO_GENERATION_PROMPT_HUMAN.format(
+        system_prompt = prompts.TODO_GENERATION_PROMPT_SYSTEM.format(language=lang_label)
+        human_prompt = prompts.TODO_GENERATION_PROMPT_HUMAN.format(
             original_query=analysis.original_query,
             key_concepts=analysis.key_concepts,
             entities=analysis.entities,
@@ -396,8 +375,8 @@ def execute_task(state: AgentState) -> dict:
     key_entities = query_anchor.get("key_entities", [])
     client = get_ollama_client()
 
-    system_prompt = TASK_SEARCH_QUERIES_PROMPT_SYSTEM.format(language=lang_label)
-    human_prompt = TASK_SEARCH_QUERIES_PROMPT_HUMAN.format(
+    system_prompt = prompts.TASK_SEARCH_QUERIES_PROMPT_SYSTEM.format(language=lang_label)
+    human_prompt = prompts.TASK_SEARCH_QUERIES_PROMPT_HUMAN.format(
         task=current_task.task,
         original_query=analysis.original_query,
         hitl_context=hitl_context or "None",
@@ -520,10 +499,10 @@ def execute_task(state: AgentState) -> dict:
                             window_size=3000
                         ) if chunk.extracted_info else "Context missing"
 
-                        ref_system = REFERENCE_DECISION_PROMPT_SYSTEM.format(
+                        ref_system = prompts.REFERENCE_DECISION_PROMPT_SYSTEM.format(
                             language=lang_label,
                         )
-                        ref_human = REFERENCE_DECISION_PROMPT_HUMAN.format(
+                        ref_human = prompts.REFERENCE_DECISION_PROMPT_HUMAN.format(
                             reference_type=ref.type,
                             reference_target=ref.target,
                             document_context=chunk.document,
@@ -984,8 +963,8 @@ def synthesize(state: AgentState) -> dict:
         max_synthesis_docs = settings.max_docs * 4
         info_text = json.dumps(all_info[:max_synthesis_docs], ensure_ascii=False, indent=2)
 
-        synth_system = SYNTHESIS_PROMPT_SYSTEM.format(language=language)
-        synth_human = SYNTHESIS_PROMPT_HUMAN.format(
+        synth_system = prompts.SYNTHESIS_PROMPT_SYSTEM.format(language=language)
+        synth_human = prompts.SYNTHESIS_PROMPT_HUMAN.format(
             original_query=analysis.original_query,
             hitl_findings=hitl_smry,
             research_findings=info_text,
@@ -1013,8 +992,8 @@ def synthesize(state: AgentState) -> dict:
         }
 
     # Use enhanced synthesis with pre-digested task summaries (Phase E)
-    synth_enh_system = SYNTHESIS_PROMPT_ENHANCED_SYSTEM.format(language=language)
-    synth_enh_human = SYNTHESIS_PROMPT_ENHANCED_HUMAN.format(
+    synth_enh_system = prompts.SYNTHESIS_PROMPT_ENHANCED_SYSTEM.format(language=language)
+    synth_enh_human = prompts.SYNTHESIS_PROMPT_ENHANCED_HUMAN.format(
         original_query=query_anchor.get("original_query", analysis.original_query),
         hitl_smry=hitl_smry or "No clarification conversation recorded",
         task_summaries=summaries_text,
@@ -1207,8 +1186,8 @@ def quality_check(state: AgentState) -> dict:
     language = query_anchor.get("detected_language", "de")
     lang_label = "German" if language == "de" else "English"
     hitl_smry = state.get("hitl_smry", "")
-    qc_system = QUALITY_CHECK_PROMPT_SYSTEM.format(language=lang_label)
-    qc_human = QUALITY_CHECK_PROMPT_HUMAN.format(
+    qc_system = prompts.QUALITY_CHECK_PROMPT_SYSTEM.format(language=lang_label)
+    qc_human = prompts.QUALITY_CHECK_PROMPT_HUMAN.format(
         summary=summary, hitl_findings=hitl_smry, original_query=original_query, language=lang_label,
     )
 
@@ -1252,10 +1231,10 @@ def quality_check(state: AgentState) -> dict:
     retry_count = state.get("synthesis_retry_count", 0)
     if not assessment.passes_quality and retry_count < 1:
         try:
-            rem_system = QUALITY_REMEDIATION_PROMPT_SYSTEM.format(
+            rem_system = prompts.QUALITY_REMEDIATION_PROMPT_SYSTEM.format(
                 language=lang_label,
             )
-            rem_human = QUALITY_REMEDIATION_PROMPT_HUMAN.format(
+            rem_human = prompts.QUALITY_REMEDIATION_PROMPT_HUMAN.format(
                 quality_scores=json.dumps({
                     "factual_accuracy": assessment.factual_accuracy,
                     "semantic_validity": assessment.semantic_validity,
@@ -1791,8 +1770,8 @@ def _rerank_batch(
     hitl_ctx = hitl_smry or "No prior HITL context"
 
     if strategy == "recall":
-        sys_prompt = RERANKER_RECALL_PROMPT_SYSTEM.format(language=lang_label)
-        human_prompt = RERANKER_RECALL_PROMPT_HUMAN.format(
+        sys_prompt = prompts.RERANKER_RECALL_PROMPT_SYSTEM.format(language=lang_label)
+        human_prompt = prompts.RERANKER_RECALL_PROMPT_HUMAN.format(
             query=query,
             known_info=hitl_ctx,
             additional_context=hitl_ctx,
@@ -1801,8 +1780,8 @@ def _rerank_batch(
         )
         model_cls = RerankerRecallBatchOutput
     else:
-        sys_prompt = RERANKER_PRECISION_PROMPT_SYSTEM.format(language=lang_label)
-        human_prompt = RERANKER_PRECISION_PROMPT_HUMAN.format(
+        sys_prompt = prompts.RERANKER_PRECISION_PROMPT_SYSTEM.format(language=lang_label)
+        human_prompt = prompts.RERANKER_PRECISION_PROMPT_HUMAN.format(
             query=query,
             additional_context=hitl_ctx,
             chunks=chunks_text,
@@ -1996,8 +1975,8 @@ def _generate_task_summary(
     # Format quotes
     quotes_text = json.dumps(preserved_quotes[:5], ensure_ascii=False) if preserved_quotes else "[]"
 
-    ts_system = TASK_SUMMARY_PROMPT_SYSTEM.format(language=language)
-    ts_human = TASK_SUMMARY_PROMPT_HUMAN.format(
+    ts_system = prompts.TASK_SUMMARY_PROMPT_SYSTEM.format(language=language)
+    ts_human = prompts.TASK_SUMMARY_PROMPT_HUMAN.format(
         task=task.task,
         original_query=original_query,
         ranked_findings=ranked_text or "No findings available",
@@ -2121,8 +2100,8 @@ def _generate_hitl_summary(
     retrieval_truncated = retrieval[:12000] if len(retrieval) > 12000 else retrieval
 
     lang_label = "German" if language == "de" else "English"
-    system_prompt = HITL_SUMMARY_PROMPT_SYSTEM.format(language=lang_label)
-    human_prompt = HITL_SUMMARY_PROMPT_HUMAN.format(
+    system_prompt = prompts.HITL_SUMMARY_PROMPT_SYSTEM.format(language=lang_label)
+    human_prompt = prompts.HITL_SUMMARY_PROMPT_HUMAN.format(
         query=query,
         conversation=conv_text or "No conversation recorded",
         retrieval=retrieval_truncated or "No retrieval performed",

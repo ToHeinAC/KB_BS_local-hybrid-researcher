@@ -124,24 +124,26 @@ Key differences from Format A/B:
 - **No `/no_think`** — gpt-oss models do not support Qwen3's thinking mode toggle
 - **Harmony preamble** injected at runtime by `OllamaClient._prepare_system_prompt()` (not in the prompt file itself)
 
-### Model-Conditional Routing
+### Dynamic Prompt Routing (PEP 562)
 
-`src/prompts/__init__.py` routes imports at module load time:
+`src/prompts/__init__.py` uses **PEP 562 `__getattr__`** for runtime-dynamic prompt resolution. Both prompt sets are eagerly loaded into dicts at import time; attribute access resolves dynamically based on the current `settings.model_family`:
 
 ```python
-from src.config import settings
+# At module load: build lookup dicts from both prompt sets
+_qwen_prompts = {name: value for ...}    # from hitl.py, research.py, synthesis.py
+_gptoss_prompts = {name: value for ...}  # from hitl_gpt.py, research_gpt.py, synthesis_gpt.py
 
-if settings.model_family == "gpt-oss":
-    from src.prompts.hitl_gpt import *
-    from src.prompts.research_gpt import *
-    from src.prompts.synthesis_gpt import *
-else:
-    from src.prompts.hitl import *
-    from src.prompts.research import *
-    from src.prompts.synthesis import *
+def __getattr__(name: str) -> str:
+    from src.config import settings
+    prompts = _gptoss_prompts if settings.model_family == "gpt-oss" else _qwen_prompts
+    if name in prompts:
+        return prompts[name]
+    raise AttributeError(...)
 ```
 
-All gpt-oss files export **identical constant names** as their Qwen counterparts, so consumer code (`nodes.py`, `hitl_service.py`, `tools.py`) requires zero changes.
+**Consumer pattern**: Consumers use `from src import prompts` then `prompts.X` (module-level attribute access), not `from src.prompts import X` (which would bind at import time and miss runtime model changes).
+
+All gpt-oss files export **identical constant names** as their Qwen counterparts (48 total).
 
 ### HITL Summary output sections (reference)
 
@@ -167,12 +169,15 @@ Downstream prompts (`SYNTHESIS_PROMPT_ENHANCED_SYSTEM`, `TASK_SUMMARY_PROMPT_SYS
 
 ## Invocation Pattern
 
-All callers use the message-based `OllamaClient` methods (NOT `generate()` / `generate_structured()`):
+All callers use the message-based `OllamaClient` methods (NOT `generate()` / `generate_structured()`).
+Prompt constants are accessed via module-level attribute access for dynamic routing:
 
 ```python
+from src import prompts
+
 # For plain text output:
-system_prompt = SOME_PROMPT_SYSTEM.format(language=lang_label)
-human_prompt = SOME_PROMPT_HUMAN.format(query=query, language=lang_label)
+system_prompt = prompts.SOME_PROMPT_SYSTEM.format(language=lang_label)
+human_prompt = prompts.SOME_PROMPT_HUMAN.format(query=query, language=lang_label)
 response = client.generate_messages(system_prompt, human_prompt)
 
 # For structured (Pydantic) output:
@@ -185,3 +190,5 @@ result = client.generate_structured_messages_with_language(
 ```
 
 These methods wrap the prompts as `SystemMessage` / `HumanMessage` objects from `langchain_core.messages`, ensuring the LLM receives them with proper role separation.
+
+**Important**: Never use `from src.prompts import X` — this binds at import time and misses runtime model changes. Always use `from src import prompts` + `prompts.X`.

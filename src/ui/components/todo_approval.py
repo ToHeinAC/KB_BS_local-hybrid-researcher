@@ -6,6 +6,12 @@ from src.models.hitl import HITLDecision
 from src.ui.state import clear_hitl_state, get_session_state
 
 
+def _init_pending_tasks() -> None:
+    """Ensure pending_new_tasks exists in session state."""
+    if "pending_new_tasks" not in st.session_state:
+        st.session_state.pending_new_tasks = []
+
+
 def render_todo_approval() -> HITLDecision | None:
     """Render the ToDo list approval panel.
 
@@ -13,6 +19,7 @@ def render_todo_approval() -> HITLDecision | None:
         HITLDecision if user submits, None otherwise
     """
     session = get_session_state()
+    _init_pending_tasks()
 
     if not session.hitl_pending or not session.hitl_checkpoint:
         return None
@@ -83,16 +90,42 @@ def render_todo_approval() -> HITLDecision | None:
             else:
                 removed_ids.append(task["id"])
 
-    # Add new task
-    with st.expander("Neue Aufgabe hinzufügen"):
-        new_task_text = st.text_input(
-            "Neue Aufgabenbeschreibung",
-            key="new_task_text",
-        )
-        new_task_context = st.text_input(
-            "Kontext (optional)",
-            key="new_task_context",
-        )
+    # Dynamic new tasks list
+    st.markdown("**Neue Aufgaben**")
+    pending = st.session_state.pending_new_tasks
+    indices_to_remove: list[int] = []
+
+    for idx, entry in enumerate(pending):
+        col_task, col_ctx, col_btn = st.columns([3, 2, 0.5])
+        with col_task:
+            pending[idx]["task"] = st.text_input(
+                "Aufgabe",
+                value=entry.get("task", ""),
+                key=f"new_task_{idx}",
+                label_visibility="collapsed",
+                placeholder="Aufgabenbeschreibung",
+            )
+        with col_ctx:
+            pending[idx]["context"] = st.text_input(
+                "Kontext",
+                value=entry.get("context", ""),
+                key=f"new_ctx_{idx}",
+                label_visibility="collapsed",
+                placeholder="Kontext (optional)",
+            )
+        with col_btn:
+            if st.button("\u2212", key=f"rm_task_{idx}"):
+                indices_to_remove.append(idx)
+
+    # Process removals (reverse order to keep indices valid)
+    if indices_to_remove:
+        for idx in sorted(indices_to_remove, reverse=True):
+            pending.pop(idx)
+        st.rerun()
+
+    if st.button("+ Aufgabe hinzufuegen"):
+        pending.append({"task": "", "context": ""})
+        st.rerun()
 
     # Action buttons
     if st.button("Aufgaben genehmigen", type="primary"):
@@ -101,12 +134,16 @@ def render_todo_approval() -> HITLDecision | None:
             "removed_ids": removed_ids,
         }
 
-        if new_task_text:
-            modifications["new_items"] = [{
-                "task": new_task_text,
-                "context": new_task_context or "",
-            }]
+        # Collect all non-empty pending new tasks
+        new_items = [
+            {"task": e["task"], "context": e.get("context", "")}
+            for e in pending
+            if e.get("task", "").strip()
+        ]
+        if new_items:
+            modifications["new_items"] = new_items
 
+        st.session_state.pending_new_tasks = []
         clear_hitl_state()
         return HITLDecision(
             approved=True,

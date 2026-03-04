@@ -7,7 +7,7 @@
 # OLLAMA CONFIGURATION
 # =============================================================================
 OLLAMA_BASE_URL=http://localhost:11434
-OLLAMA_MODEL=qwen3:14b              # or gpt-oss:20b for Harmony-format models
+OLLAMA_MODEL=qwen3:14b              # Default model (overridden at runtime by UI depth selector)
 OLLAMA_FALLBACK_MODEL=qwen3:8b
 OLLAMA_TEMPERATURE=0.0               # LLM sampling temperature (0.0 = greedy)
 DEFAULT_EMBEDDING_MODEL=Qwen/Qwen3-Embedding-0.6B

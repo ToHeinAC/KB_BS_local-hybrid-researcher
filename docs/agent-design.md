@@ -101,9 +101,10 @@ class QueryAnalysis(BaseModel):
 
 client = OllamaClient()
 
-# All prompts are split into SYSTEM/HUMAN pairs
-system_prompt = SOME_PROMPT_SYSTEM.format(language="German")
-human_prompt = SOME_PROMPT_HUMAN.format(query="...", language="German")
+# All prompts accessed via module-level attribute for dynamic routing
+from src import prompts
+system_prompt = prompts.SOME_PROMPT_SYSTEM.format(language="German")
+human_prompt = prompts.SOME_PROMPT_HUMAN.format(query="...", language="German")
 
 # Structured output via SystemMessage/HumanMessage
 result = client.generate_structured_messages(system_prompt, human_prompt, QueryAnalysis)
@@ -385,6 +386,7 @@ and is biased toward following when uncertain — skipping a relevant reference 
 than following a tangential one.
 
 ```python
+from src import prompts
 from src.models.research import ReferenceDecision
 
 # For each detected reference in execute_task():
@@ -394,8 +396,8 @@ anchor_text = json.dumps({
     "scope": query_anchor.get("scope", ""),
     "current_task": current_task.task,
 }, ensure_ascii=False)
-ref_system = REFERENCE_DECISION_PROMPT_SYSTEM.format(language=lang_label)
-ref_human = REFERENCE_DECISION_PROMPT_HUMAN.format(
+ref_system = prompts.REFERENCE_DECISION_PROMPT_SYSTEM.format(language=lang_label)
+ref_human = prompts.REFERENCE_DECISION_PROMPT_HUMAN.format(
     reference_type=ref.type,
     reference_target=ref.target,
     document_context=chunk.document,
@@ -417,11 +419,12 @@ if not decision.follow:
 After quality scoring, the LLM decides whether to accept or retry synthesis:
 
 ```python
+from src import prompts
 from src.models.research import QualityRemediationDecision
 
 # If quality < threshold and retry_count < 1:
-rem_system = QUALITY_REMEDIATION_PROMPT_SYSTEM.format(language=lang_label)
-rem_human = QUALITY_REMEDIATION_PROMPT_HUMAN.format(
+rem_system = prompts.QUALITY_REMEDIATION_PROMPT_SYSTEM.format(language=lang_label)
+rem_human = prompts.QUALITY_REMEDIATION_PROMPT_HUMAN.format(
     quality_scores=score_summary,
     issues_found="\n".join(issues),
     original_query=query,

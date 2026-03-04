@@ -10,6 +10,9 @@ import streamlit as st
 from src.agents.graph import create_research_graph
 from src.agents.nodes import _generate_hitl_summary
 from src.agents.state import create_initial_state
+from src.agents import nodes as _nodes_mod
+from src.agents import tools as _tools_mod
+from src.services import hitl_service as _hitl_mod
 from src.config import settings
 from src.services.chromadb_client import ChromaDBClient
 from src.ui.components import (
@@ -78,6 +81,20 @@ SUBTASK_LABELS = {
     "attribute_sources": "Generiere Zitationen",
 }
 
+# Research depth levels: label → model name
+DEPTH_OPTIONS = [
+    "einfach (qwen3:8b)",
+    "standard (qwen3:14b)",
+    "erhöht (gpt-oss:20b)",
+    "tief (qwen3:30b)",
+]
+_DEPTH_TO_MODEL = {
+    "einfach (qwen3:8b)": "qwen3:8b",
+    "standard (qwen3:14b)": "qwen3:14b",
+    "erhöht (gpt-oss:20b)": "gpt-oss:20b",
+    "tief (qwen3:30b)": "qwen3:30b",
+}
+
 LICENSE_FILE = Path(__file__).parent.parent.parent / "assets" / "LICENCE"
 
 
@@ -87,6 +104,31 @@ def get_license_content() -> str:
         return LICENSE_FILE.read_text(encoding="utf-8").strip()
     except Exception:
         return ""
+
+
+def _apply_research_depth(label: str) -> None:
+    """Apply research depth selection: update model + reset all cached clients.
+
+    Args:
+        label: Depth label like "standard (qwen3:14b)"
+    """
+    model_name = _DEPTH_TO_MODEL.get(label)
+    if not model_name or model_name == settings.ollama_model:
+        return
+
+    settings.ollama_model = model_name
+    logger.info(f"Research depth changed to {label} (model={model_name})")
+
+    # Reset all cached OllamaClient singletons so new instances pick up the model
+    _nodes_mod.reset_ollama_client()
+    _tools_mod.reset_ollama_client()
+    _hitl_mod.reset_ollama_client()
+
+    # Clear @st.cache_resource instances
+    from src.ui.components.hitl_panel import _get_hitl_service
+    _get_hitl_service.clear()
+    from src.ui.components.safe_exit import _get_ollama_client
+    _get_ollama_client.clear()
 
 
 def render_header():
@@ -367,6 +409,24 @@ def render_sidebar():
 
         # Settings expander
         with st.expander("Erweiterte Einstellungen"):
+            # Research depth selector
+            is_researching = session.workflow_phase == "research"
+            current_idx = (
+                DEPTH_OPTIONS.index(session.research_depth)
+                if session.research_depth in DEPTH_OPTIONS
+                else 1
+            )
+            depth = st.selectbox(
+                "Forschungstiefe",
+                options=DEPTH_OPTIONS,
+                index=current_idx,
+                key="depth_select",
+                disabled=is_researching,
+            )
+            if depth != session.research_depth:
+                session.research_depth = depth
+                _apply_research_depth(depth)
+
             session.enable_web_search = st.checkbox(
                 "Web Search aktivieren",
                 value=session.enable_web_search,
@@ -442,8 +502,8 @@ def main():
         main_col, todo_col = st.columns([2, 1])
 
         with main_col:
-            # Show HITL summary if available (after HITL phase completes)
-            if session.hitl_result:
+            # Show HITL summary if available (hide during active execution)
+            if session.hitl_result and not session.todo_approved:
                 render_hitl_summary()
 
             # HITL checkpoints during research
@@ -458,6 +518,7 @@ def main():
                     decision = render_todo_approval()
                     if decision:
                         _resume_with_decision(decision.model_dump())
+                        session.todo_approved = True
                         set_research_start()
                         st.rerun()
 
@@ -469,18 +530,21 @@ def main():
             results_container = st.container()
             is_streaming = session.pending_graph_input is not None
             if is_streaming:
+                # Clean header for execution phase
+                st.markdown("### Recherche-Ergebnisse")
                 # Main-column spinner placeholder for live updates during streaming
                 main_status_placeholder = st.empty()
             else:
                 # Progress status (spinner-based) — suppress during HITL checkpoints
                 if not session.hitl_pending:
                     render_research_status()
-                if phase not in ["idle", "analyze"]:
+                if phase not in ["idle", "analyze"] and not session.todo_approved:
                     with results_container:
                         render_preliminary_results()
 
-            # Activity log
-            render_messages()
+            # Activity log — hide during active streaming to keep panel clean
+            if not is_streaming:
+                render_messages()
 
         with todo_col:
             status_placeholder = st.empty()

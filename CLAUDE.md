@@ -184,7 +184,7 @@ The enhanced iterative HITL system provides intelligent query refinement through
 | Component | Technology |
 |-----------|------------|
 | Framework | LangChain v1.0+, LangGraph v1.0+ |
-| LLM | Ollama (qwen3:14b default, gpt-oss:20b supported; qwen3:8b fallback) |
+| LLM | Ollama (runtime-selectable via UI depth selector: qwen3:8b / qwen3:14b / gpt-oss:20b / qwen3:30b) |
 | Embeddings | Qwen/Qwen3-Embedding-0.6B via HuggingFace |
 | Vector DB | ChromaDB (local persistent) |
 | Orchestration | LangGraph StateGraph (TypedDict state) |
@@ -223,7 +223,7 @@ pytest tests/ -v
 ## Key Configuration
 
 Edit `.env` for your setup:
-- `OLLAMA_MODEL=qwen3:14b`: Primary LLM model (`gpt-oss:20b` also supported — prompts auto-adapt)
+- `OLLAMA_MODEL=qwen3:14b`: Default LLM model (overridden at runtime by the UI depth selector)
 - `OLLAMA_TEMPERATURE=0.0`: LLM sampling temperature
 - `OLLAMA_NUM_CTX=131072`: 128K context for dual 4090s (adjust if needed)
 - `OLLAMA_SAFE_LIMIT=0.9`: Stop at 90% to prevent OOM
@@ -276,6 +276,7 @@ KB_BS_local-hybrid-researcher/
 4. **Fully Local**: Ollama-only, no external API calls
 5. **Safe Exit**: Streamlit button to cleanly terminate (port-aware)
 6. **Reference Following**: Deep rabbithole traversal with hybrid detection (regex+LLM), document registry scoping, relevance filtering, and database-selection propagation (broad fallback searches respect `selected_database` from the UI)
+7. **Runtime Model Selection**: UI depth selector in sidebar ("Erweiterte Einstellungen") with 4 levels — prompts auto-adapt via dynamic routing, all cached clients reset on switch
 
 
 ## Prompt Management
@@ -283,13 +284,24 @@ KB_BS_local-hybrid-researcher/
 Every prompt is split into a `_SYSTEM` / `_HUMAN` pair (e.g. `TODO_GENERATION_PROMPT_SYSTEM` + `TODO_GENERATION_PROMPT_HUMAN`).
 All callers use `OllamaClient.generate_structured_messages()` or `generate_messages()` with separate system/human arguments.
 
-### Model-Conditional Prompt Routing
+### Dynamic Prompt Routing (Runtime Model Switching)
 
-The `src/prompts/__init__.py` routes imports based on `settings.model_family`:
-- **`model_family == "qwen"` (default)**: Loads `hitl.py`, `research.py`, `synthesis.py`
-- **`model_family == "gpt-oss"`**: Loads `hitl_gpt.py`, `research_gpt.py`, `synthesis_gpt.py`
+The `src/prompts/__init__.py` uses **PEP 562 `__getattr__`** for runtime-dynamic prompt resolution:
+- Both Qwen and gpt-oss prompt sets are eagerly loaded into `_qwen_prompts` / `_gptoss_prompts` dicts at import time
+- `__getattr__(name)` checks `settings.model_family` **at access time** and returns from the correct dict
+- Consumers use `from src import prompts` then `prompts.X` (module-level access, not `from src.prompts import X`)
+- This enables switching models at runtime (via the UI depth selector) without restarting
 
-Both variants export **identical constant names** (48 total), so consumers (`nodes.py`, `tools.py`, `hitl_service.py`) require zero changes. The `model_family` property returns `"gpt-oss"` when `ollama_model.startswith("gpt-oss")`, else `"qwen"`.
+The `model_family` property returns `"gpt-oss"` when `ollama_model.startswith("gpt-oss")`, else `"qwen"`.
+Both variants export **identical constant names** (48 total).
+
+**Consumer pattern** (used in `nodes.py`, `tools.py`, `hitl_service.py`):
+```python
+from src import prompts
+system = prompts.SYNTHESIS_PROMPT_ENHANCED_SYSTEM.format(language=lang)
+```
+
+**Singleton reset**: Each consumer module exposes `reset_ollama_client()` to clear cached `OllamaClient` instances when the model changes. Called by `_apply_research_depth()` in `app.py`.
 
 ### Qwen Prompt Format (hitl.py, research.py, synthesis.py)
 
