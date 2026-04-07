@@ -263,6 +263,14 @@ is now attached to each `NestedChunk` and propagated through the pipeline — ze
 
 **265 tests total, all passing.**
 
+### Phase 3.11 addendum: gemma4 Support
+- [x] **`src/config.py`**: `model_family` property extended — returns `"gemma4"` for `gemma4:*` models; both `"gemma4"` and `"qwen"` resolve to the Qwen prompt set
+- [x] **`src/prompts/__init__.py`**: `__getattr__` treats `"gemma4"` as alias for Qwen prompts (comment added)
+- [x] **`src/services/ollama_client.py`**: Added `is_gemma4` property; `_prepare_system_prompt()` strips `/no_think` tokens for gemma4 models (Qwen3-specific directive unsupported by Gemma)
+- [x] **`src/ui/app.py`**: `"simple (gemma4:e4b)"` added as first option in `DEPTH_OPTIONS`; `k_results` slider max raised 10→15
+- [x] **`src/ui/state.py`**: `k_results` default raised 3→6
+- [x] **Tests**: `tests/test_prompt_routing.py` — `TestGemma4Support` class (5 tests)
+
 ### Phase 3.12: Runtime Model Selection (Research Depth Selector)
 - [x] **Dynamic prompt routing** (`src/prompts/__init__.py`): Rewrote from static wildcard imports to PEP 562 `__getattr__`:
   - Both Qwen and gpt-oss prompt sets eagerly loaded into `_qwen_prompts` / `_gptoss_prompts` dicts
@@ -273,7 +281,7 @@ is now attached to each `NestedChunk` and propagated through the pipeline — ze
   - `src/agents/tools.py`: 6 prompt constants, added `reset_ollama_client()`
   - `src/services/hitl_service.py`: 14 prompt constants, added `reset_ollama_client()`
 - [x] **UI depth selector** (`src/ui/app.py`):
-  - `st.selectbox` in "Erweiterte Einstellungen" with 4 options: einfach (qwen3:8b), standard (qwen3:14b), erhöht (gpt-oss:20b), tief (qwen3:30b)
+  - `st.selectbox` in "Erweiterte Einstellungen" with 5 options: simple (gemma4:e4b), einfach (qwen3:8b), standard (qwen3:14b), erhöht (gpt-oss:20b), tief (qwen3:30b)
   - Disabled during active research (`workflow_phase == "research"`)
   - `_apply_research_depth()` coordinator: updates `settings.ollama_model`, calls `reset_ollama_client()` on all 3 modules, clears `@st.cache_resource` for HITLService and OllamaClient
 - [x] **Session state** (`src/ui/state.py`): Added `research_depth` field (default: `"standard (qwen3:14b)"`)

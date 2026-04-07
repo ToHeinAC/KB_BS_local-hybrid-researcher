@@ -34,7 +34,7 @@ class SessionState:
     # Database selection
     use_ext_database: bool = True
     selected_database: str = ""
-    k_results: int = 3
+    k_results: int = 6
 
     # Settings
     enable_web_search: bool = False

@@ -184,7 +184,7 @@ The enhanced iterative HITL system provides intelligent query refinement through
 | Component | Technology |
 |-----------|------------|
 | Framework | LangChain v1.0+, LangGraph v1.0+ |
-| LLM | Ollama (runtime-selectable via UI depth selector: qwen3:8b / qwen3:14b / gpt-oss:20b / qwen3:30b) |
+| LLM | Ollama (runtime-selectable via UI depth selector: gemma4:e4b / qwen3:8b / qwen3:14b / gpt-oss:20b / qwen3:30b) |
 | Embeddings | Qwen/Qwen3-Embedding-0.6B via HuggingFace |
 | Vector DB | ChromaDB (local persistent) |
 | Orchestration | LangGraph StateGraph (TypedDict state) |
@@ -276,7 +276,7 @@ KB_BS_local-hybrid-researcher/
 4. **Fully Local**: Ollama-only, no external API calls
 5. **Safe Exit**: Streamlit button to cleanly terminate (port-aware)
 6. **Reference Following**: Deep rabbithole traversal with hybrid detection (regex+LLM), document registry scoping, relevance filtering, and database-selection propagation (broad fallback searches respect `selected_database` from the UI)
-7. **Runtime Model Selection**: UI depth selector in sidebar ("Erweiterte Einstellungen") with 4 levels — prompts auto-adapt via dynamic routing, all cached clients reset on switch
+7. **Runtime Model Selection**: UI depth selector in sidebar ("Erweiterte Einstellungen") with 5 levels — prompts auto-adapt via dynamic routing, all cached clients reset on switch
 
 
 ## Prompt Management
@@ -292,7 +292,7 @@ The `src/prompts/__init__.py` uses **PEP 562 `__getattr__`** for runtime-dynamic
 - Consumers use `from src import prompts` then `prompts.X` (module-level access, not `from src.prompts import X`)
 - This enables switching models at runtime (via the UI depth selector) without restarting
 
-The `model_family` property returns `"gpt-oss"` when `ollama_model.startswith("gpt-oss")`, else `"qwen"`.
+The `model_family` property returns `"gpt-oss"` when `ollama_model.startswith("gpt-oss")`, `"gemma4"` when `ollama_model.startswith("gemma4")`, else `"qwen"`. Both `"gemma4"` and `"qwen"` resolve to the Qwen prompt set.
 Both variants export **identical constant names** (48 total).
 
 **Consumer pattern** (used in `nodes.py`, `tools.py`, `hitl_service.py`):
@@ -324,6 +324,11 @@ Adapted for Harmony format conventions:
 - **Harmony preamble**: `_prepare_system_prompt()` prepends `"You are a helpful assistant.\nReasoning: high\n---\n"` for gpt-oss models
 - **JSON tag extraction**: `_extract_json_from_tags()` regex-extracts content between `<json>` and `</json>` tags as fallback when structured output parsing fails
 - **Temperature**: `ChatOllama` instances use `settings.ollama_temperature` (configurable, default `0.0`)
+
+### OllamaClient Adaptations for gemma4
+
+- **`/no_think` stripping**: `_prepare_system_prompt()` removes `/no_think` tokens from system prompts for gemma4 models (Qwen3-specific directive not supported by Gemma)
+- Prompt set: uses the Qwen prompt set unchanged (no separate prompt files needed)
 
 For specific prompt rules, see @docs/prompts-design.md [docs/prompts-design.md](docs/prompts-design.md).
 

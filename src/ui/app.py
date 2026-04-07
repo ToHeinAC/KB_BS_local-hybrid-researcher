@@ -83,6 +83,7 @@ SUBTASK_LABELS = {
 
 # Research depth levels: label → model name
 DEPTH_OPTIONS = [
+    "simple (gemma4:e4b)",
     "einfach (qwen3:8b)",
     "standard (qwen3:14b)",
     "erhöht (gpt-oss:20b)",
@@ -92,6 +93,7 @@ _DEPTH_TO_MODEL = {
     "einfach (qwen3:8b)": "qwen3:8b",
     "standard (qwen3:14b)": "qwen3:14b",
     "erhöht (gpt-oss:20b)": "gpt-oss:20b",
+    "simple (gemma4:e4b)": "gemma4:e4b",
     "tief (qwen3:30b)": "qwen3:30b",
 }
 
@@ -387,7 +389,7 @@ def render_sidebar():
                     k_results = st.slider(
                         "Ergebnisse pro Abfrage",
                         min_value=1,
-                        max_value=10,
+                        max_value=15,
                         value=session.k_results,
                         key="k_results_slider",
                     )

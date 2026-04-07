@@ -185,9 +185,11 @@ class Settings(BaseSettings):
 
     @property
     def model_family(self) -> str:
-        """Return model family: 'gpt-oss' or 'qwen'."""
+        """Return model family: 'gpt-oss', 'gemma4', or 'qwen'."""
         if self.ollama_model.startswith("gpt-oss"):
             return "gpt-oss"
+        if self.ollama_model.startswith("gemma4"):
+            return "gemma4"
         return "qwen"
 
     # ChromaDB

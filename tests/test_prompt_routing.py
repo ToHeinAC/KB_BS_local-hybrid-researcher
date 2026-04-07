@@ -165,3 +165,53 @@ class TestConditionalRouting:
         else:
             # Qwen prompts use ### headers or XML tags
             assert "###" in prompt or "<role>" in prompt
+
+
+class TestGemma4Support:
+    """Verify gemma4 model family routing and /no_think stripping."""
+
+    def test_gemma4_model_family(self):
+        """gemma4 models return 'gemma4' family."""
+        from src.config import Settings
+
+        s = Settings(ollama_model="gemma4:26b")
+        assert s.model_family == "gemma4"
+
+    def test_gemma4_routes_to_qwen_prompts(self):
+        """gemma4 model family should resolve to Qwen prompt constants."""
+        with patch("src.config.settings") as mock_settings:
+            mock_settings.model_family = "gemma4"
+            import importlib
+            import src.prompts as prompts_mod
+            importlib.reload(prompts_mod)
+
+            # Access via the internal dict directly (bypass __getattr__ mock complexity)
+            from src.prompts import _qwen_prompts
+            assert "SYNTHESIS_PROMPT_ENHANCED_SYSTEM" in _qwen_prompts
+
+    def test_gemma4_strips_no_think(self):
+        """OllamaClient._prepare_system_prompt strips /no_think for gemma4."""
+        from src.services.ollama_client import OllamaClient
+
+        client = OllamaClient(model="gemma4:26b")
+        result = client._prepare_system_prompt("/no_think\nSome system instruction.")
+        assert not result.startswith("/no_think")
+        assert result == "Some system instruction."
+
+    def test_gemma4_no_think_not_stripped_for_qwen(self):
+        """OllamaClient._prepare_system_prompt does NOT strip /no_think for qwen."""
+        from src.services.ollama_client import OllamaClient
+
+        client = OllamaClient(model="qwen3:14b")
+        prompt = "/no_think\nSome system instruction."
+        result = client._prepare_system_prompt(prompt)
+        assert result == prompt
+
+    def test_gemma4_no_harmony_preamble(self):
+        """OllamaClient does NOT prepend Harmony preamble for gemma4."""
+        from src.services.ollama_client import OllamaClient, _HARMONY_PREAMBLE
+
+        client = OllamaClient(model="gemma4:26b")
+        result = client._prepare_system_prompt("Some prompt without /no_think.")
+        assert not result.startswith(_HARMONY_PREAMBLE)
+        assert result == "Some prompt without /no_think."
