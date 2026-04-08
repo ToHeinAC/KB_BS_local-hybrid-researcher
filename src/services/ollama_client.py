@@ -78,7 +78,7 @@ class OllamaClient:
     @property
     def is_gemma4(self) -> bool:
         """Check if the primary model is a gemma4 variant."""
-        return self.model.startswith("gemma4")
+        return "gemma4" in self.model
 
     @property
     def llm(self) -> ChatOllama:

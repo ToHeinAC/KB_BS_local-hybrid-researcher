@@ -17,6 +17,9 @@ from src.ui.state import get_session_state
 
 def render_results_view() -> None:
     """Render the final results view."""
+    from src.ui.components.pdf_route import ensure_pdf_route
+    ensure_pdf_route()
+
     session = get_session_state()
 
     if not session.final_report:

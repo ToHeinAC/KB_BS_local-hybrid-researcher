@@ -36,7 +36,7 @@ streamlit run src/ui/app.py --server.port 8511
 - **Graded Context Management**: Tiered classification (primary/secondary/tertiary) prevents query drift and ensures synthesis quality.
 - **Verbatim Quote Preservation**: Critical legal/technical quotes extracted and preserved for precision.
 - **Deep Report Synthesis**: Produces extensive, structured deep reports (not brief summaries) from pre-digested task summaries, with exact figures, verbatim quotes, and section references, anchored to original intent with HITL context.
-- **Runtime Research Depth Selector**: Switch LLM models at runtime via a sidebar dropdown (einfach/standard/erhöht/tief) — no restart required. Prompts auto-adapt via PEP 562 dynamic routing; all cached clients reset transparently.
+- **Runtime Research Depth Selector**: Switch LLM models at runtime via a sidebar dropdown (einfach/standard/ausgewogen/erhöht/tief) — no restart required. Prompts auto-adapt via PEP 562 dynamic routing; all cached clients reset transparently.
 - **Model-Conditional Prompt Routing**: Prompts automatically swap between Qwen (XML-tag/`###` formats) and Harmony-adapted gpt-oss variants (`# headers`, `<json>` tags, no `/no_think`) based on the active model — zero consumer-code changes.
 - **Optimized Prompt Architecture**: All prompts in `src/prompts/` package (split by phase: `hitl.py`, `research.py`, `synthesis.py` + `*_gpt.py` variants), each as SYSTEM/HUMAN pairs. The 5 key synthesis/summary prompts use an XML-tag format (`<role>`, `<output_format>`, `<constraints>`, `<content_rules>`, `<example>`) optimized for Qwen3:14b — output schema placed before rules so the LLM anchors on structure first, HARD CONSTRAINTS separated from writing rules, realistic domain examples replacing placeholders.
 - **Language Enforcement**: All 17 content-bearing prompts enforce `{language}`, with validation and retry on mismatch.
@@ -44,7 +44,7 @@ streamlit run src/ui/app.py --server.port 8511
 - **Transparent Chunk Filtering**: Guarantees minimum chunks per task (3 primary, 2 secondary) even if below relevance threshold; backfilled chunks marked with ⚠️ badge to maintain transparency while preventing silent suppression of retrieval results.
 - **Full Human-In-The-Loop**: Checkpoints for query refinement, task list approval, and final result verification.
 - **Privacy-First & Local**: Powered by Ollama and local ChromaDB, ensuring all research data stays on your machine.
-- **Source Attribution**: Detailed citations with clickable PDF links and page numbers.
+- **Numbered Citation Transformation**: Inline `[Document.pdf, Page N]` citations are post-processed into sequential `[1]`, `[2]`, … markers with an appended reference list. PDFs open directly in the browser via the `/_api/pdf` Tornado route (same injection pattern as the GPU widget).
 - **Persistent Results View**: Completed report page shows HITL conversation, task summaries with findings/gaps, and per-task tiered chunk expanders (primary/secondary/tertiary) with full original vector DB text + LLM extraction alongside the final answer.
 - **Retrieval History Panel**: Real-time display of vector search results during HITL with chunk details.
 - **Database Selection**: Choose specific knowledge base collections or search all.

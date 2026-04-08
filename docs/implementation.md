@@ -264,10 +264,10 @@ is now attached to each `NestedChunk` and propagated through the pipeline — ze
 **265 tests total, all passing.**
 
 ### Phase 3.11 addendum: gemma4 Support
-- [x] **`src/config.py`**: `model_family` property extended — returns `"gemma4"` for `gemma4:*` models; both `"gemma4"` and `"qwen"` resolve to the Qwen prompt set
+- [x] **`src/config.py`**: `model_family` property extended — returns `"gemma4"` when `"gemma4" in ollama_model` (substring, not prefix; supports `batiai/gemma4-26b:q3`); both `"gemma4"` and `"qwen"` resolve to the Qwen prompt set
 - [x] **`src/prompts/__init__.py`**: `__getattr__` treats `"gemma4"` as alias for Qwen prompts (comment added)
-- [x] **`src/services/ollama_client.py`**: Added `is_gemma4` property; `_prepare_system_prompt()` strips `/no_think` tokens for gemma4 models (Qwen3-specific directive unsupported by Gemma)
-- [x] **`src/ui/app.py`**: `"simple (gemma4:e4b)"` added as first option in `DEPTH_OPTIONS`; `k_results` slider max raised 10→15
+- [x] **`src/services/ollama_client.py`**: Added `is_gemma4` property (`"gemma4" in self.model`); `_prepare_system_prompt()` strips `/no_think` tokens for gemma4 models (Qwen3-specific directive unsupported by Gemma)
+- [x] **`src/ui/app.py`**: `"simple (gemma4:e4b)"` replaced by `"ausgewogen (batiai/gemma4-26b:q3)"` in `DEPTH_OPTIONS`; `k_results` slider max raised 10→15
 - [x] **`src/ui/state.py`**: `k_results` default raised 3→6
 - [x] **Tests**: `tests/test_prompt_routing.py` — `TestGemma4Support` class (5 tests)
 
@@ -281,7 +281,7 @@ is now attached to each `NestedChunk` and propagated through the pipeline — ze
   - `src/agents/tools.py`: 6 prompt constants, added `reset_ollama_client()`
   - `src/services/hitl_service.py`: 14 prompt constants, added `reset_ollama_client()`
 - [x] **UI depth selector** (`src/ui/app.py`):
-  - `st.selectbox` in "Erweiterte Einstellungen" with 5 options: simple (gemma4:e4b), einfach (qwen3:8b), standard (qwen3:14b), erhöht (gpt-oss:20b), tief (qwen3:30b)
+  - `st.selectbox` in "Erweiterte Einstellungen" with 5 options: einfach (qwen3:8b), standard (qwen3:14b), ausgewogen (batiai/gemma4-26b:q3), erhöht (gpt-oss:20b), tief (qwen3:30b)
   - Disabled during active research (`workflow_phase == "research"`)
   - `_apply_research_depth()` coordinator: updates `settings.ollama_model`, calls `reset_ollama_client()` on all 3 modules, clears `@st.cache_resource` for HITLService and OllamaClient
 - [x] **Session state** (`src/ui/state.py`): Added `research_depth` field (default: `"standard (qwen3:14b)"`)
@@ -291,6 +291,37 @@ is now attached to each `NestedChunk` and propagated through the pipeline — ze
 - [x] **HITL summary hiding**: Summary hidden during active task execution (`todo_approved` flag)
 - [x] **Streaming cleanup**: Activity log hidden during streaming; clean "Recherche-Ergebnisse" header shown instead
 - [x] **`todo_approved` flag** (`src/ui/state.py`): Tracks whether user has approved tasks, reset in `reset_hitl_conversation()`
+
+### Phase 6.13: Numbered Citation Transformation (Post-Processing)
+
+Replaces verbose inline `[Document.pdf, Page N]` citations with sequential `[1]`, `[2]`, … markers and appends a formatted reference list with clickable PDF links — zero LLM calls.
+
+- [x] **`numberify_citations(answer, language)`** (`src/agents/tools.py`):
+  - Regex `_CITATION_RE` matches `[*.pdf, Page N]`, `[*.pdf, Seite N]`, `[*.pdf]`; negative lookahead avoids markdown links
+  - Assigns numbers in reading order; same `(doc_name.lower(), page)` key reuses same number
+  - Replaces right-to-left (preserves string offsets)
+  - Appends `### Quellenverzeichnis` / `### References` block with `[N] Doc.pdf, Page X — [PDF öffnen](/_api/pdf?path=...)` lines
+- [x] **`resolve_pdf_path(doc_name)`** (`src/agents/tools.py`):
+  - Scans `kb/*__db_inserted/` folders (exact match, then case-insensitive fallback)
+  - Returns absolute path string or `None`; used by `numberify_citations()` to build PDF links
+- [x] **`attribute_sources()` integration** (`src/agents/nodes.py`):
+  - After extracting `answer` from `search_queries[0].summary`, calls `numberify_citations(answer, language)`
+  - Result stored in `final_report["answer"]`
+- [x] **`pdf_route.py`** (`src/ui/components/pdf_route.py`) — new file:
+  - `ensure_pdf_route()` (`@st.cache_resource`): one-time Tornado route injection, same gc-based discovery as `gpu_widget.py`
+  - `PDFHandler.get()`: validates path is within `kb/` (prevents traversal), serves PDF with `Content-Type: application/pdf`
+  - Double-injection guard checks `default_router.rules`
+- [x] **`render_results_view()`** (`src/ui/components/results_view.py`): calls `ensure_pdf_route()` on entry
+- [x] **Prompt updates** (`src/prompts/synthesis.py`, `src/prompts/synthesis_gpt.py`): citation rules now say "using the EXACT filename from task_summaries/research_findings" to reduce hallucinated filenames
+- [x] **Tests** (`tests/test_citations.py`): 14 tests covering `resolve_pdf_path`, `numberify_citations`, PDF handler security, and `attribute_sources` integration
+
+**295 tests total, all passing** (2 ChromaDB GPU-OOM failures unrelated to these changes).
+
+### Phase 6.14: Depth Selector — Replace gemma4:e4b with batiai/gemma4-26b:q3
+
+- [x] **`src/ui/app.py`**: `DEPTH_OPTIONS` updated — `"simple (gemma4:e4b)"` removed, `"ausgewogen (batiai/gemma4-26b:q3)"` added at index 2 (between standard and erhöht)
+- [x] **`src/config.py`**: `model_family` property uses `"gemma4" in self.ollama_model` (substring) instead of `startswith("gemma4")` — required because `batiai/gemma4-26b:q3` doesn't start with "gemma4"
+- [x] **`src/services/ollama_client.py`**: `is_gemma4` property likewise uses `"gemma4" in self.model`
 
 ### Phase 8: Testing Improvements
 - [x] `TestRouteEntryPoint` class for graph routing logic

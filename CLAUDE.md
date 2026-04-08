@@ -58,8 +58,9 @@ Classical RAG lacks deep contextual understanding and cannot follow inter-docume
 │  Language Enforcement → Quality Check → **Agentic Remediation** →   │
 │  Re-Synthesis (max 1 retry) OR Accept → Report                      │
 ├────────────────────────────────────────────────────────────────────┤
-│  Phase 5: Source Attribution                                        │
-│  Add citations → Resolve paths → Generate clickable links           │
+│  Phase 5: Source Attribution + Numbered Citations                   │
+│  Add citations → numberify_citations() → [N] references + PDF links │
+│  PDF served via /_api/pdf Tornado route (pdf_route.py)             │
 └────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -94,6 +95,7 @@ The system now uses **tiered context classification** to prevent query drift and
 - **Reference Provenance**: Nested chunks carry parent document + surrounding context of the reference; reranker penalises off-topic parent context; `[via ref "..."]` header in formatted findings for traceability
 - **Batch Chunk Reranking**: `_rerank_task_chunks()` uses batch LLM scoring (~3-4 calls for 20 chunks) with precision/recall strategies, cross-batch normalization, and hard-filtering below `reranker_min_score`
 - **Language Enforcement**: Strict single-language output with retry on mismatch
+- **Numbered Citations**: `numberify_citations()` replaces inline `[Doc.pdf, Page N]` with sequential `[1]`, `[2]`, … + appended reference list with PDF links served via `/_api/pdf` Tornado route
 
 ### Agentic Decision Points
 
@@ -184,7 +186,7 @@ The enhanced iterative HITL system provides intelligent query refinement through
 | Component | Technology |
 |-----------|------------|
 | Framework | LangChain v1.0+, LangGraph v1.0+ |
-| LLM | Ollama (runtime-selectable via UI depth selector: gemma4:e4b / qwen3:8b / qwen3:14b / gpt-oss:20b / qwen3:30b) |
+| LLM | Ollama (runtime-selectable via UI depth selector: qwen3:8b / qwen3:14b / batiai/gemma4-26b:q3 / gpt-oss:20b / qwen3:30b) |
 | Embeddings | Qwen/Qwen3-Embedding-0.6B via HuggingFace |
 | Vector DB | ChromaDB (local persistent) |
 | Orchestration | LangGraph StateGraph (TypedDict state) |
@@ -292,7 +294,7 @@ The `src/prompts/__init__.py` uses **PEP 562 `__getattr__`** for runtime-dynamic
 - Consumers use `from src import prompts` then `prompts.X` (module-level access, not `from src.prompts import X`)
 - This enables switching models at runtime (via the UI depth selector) without restarting
 
-The `model_family` property returns `"gpt-oss"` when `ollama_model.startswith("gpt-oss")`, `"gemma4"` when `ollama_model.startswith("gemma4")`, else `"qwen"`. Both `"gemma4"` and `"qwen"` resolve to the Qwen prompt set.
+The `model_family` property returns `"gpt-oss"` when `ollama_model.startswith("gpt-oss")`, `"gemma4"` when `"gemma4" in ollama_model` (substring match, so `batiai/gemma4-26b:q3` is detected correctly), else `"qwen"`. Both `"gemma4"` and `"qwen"` resolve to the Qwen prompt set.
 Both variants export **identical constant names** (48 total).
 
 **Consumer pattern** (used in `nodes.py`, `tools.py`, `hitl_service.py`):

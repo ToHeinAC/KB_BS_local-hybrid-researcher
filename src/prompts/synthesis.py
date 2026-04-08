@@ -231,7 +231,7 @@ WRITING RULES — apply in this order:
 2. Group findings by theme. Do not list research_findings in source order.
 3. Copy numbers, percentages, thresholds, and legal limits exactly as they appear. Never round or paraphrase.
 4. Use direct quotes (in quotation marks) for legal text, definitions, or critical formulations.
-5. Cite every factual claim as [Document.pdf]. Never omit citations.
+5. Cite every factual claim as [Document.pdf] using the EXACT filename from research_findings. Never omit citations.
 6. Reference specific legal sections (e.g., "§ 80 StrlSchV", "Anlage 4 Teil B") exactly as sources state them.
 7. When sources are insufficient or contradictory, state this explicitly in summary.
 </content_rules>
@@ -305,7 +305,7 @@ WRITING RULES — apply in this order:
 2. Go on with details.
 3. Copy numbers, percentages, thresholds, and legal limits exactly as they appear. Never round or paraphrase.
 4. Use direct quotes (in quotation marks) for legal text, definitions, or critical formulations.
-5. Cite every factual claim as [Document.pdf, Page N]. Never omit citations.
+5. Cite every factual claim as [Document.pdf, Page N] using the EXACT filename from task_summaries. Never omit citations.
 6. Reference specific legal sections (e.g., "§ 80 StrlSchV", "Anlage 4 Teil B") exactly as sources state them.
 7. End summary with a completeness assessment section.
 8. When sources are insufficient or contradictory, state this explicitly and add the topic to remaining_gaps.

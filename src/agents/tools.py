@@ -989,3 +989,122 @@ def detect_convergence(doc_history: list[str]) -> bool:
     counts = Counter(doc_history)
     threshold = settings.convergence_same_doc_threshold
     return any(count >= threshold for count in counts.values())
+
+
+# --- Citation Transformation (Post-Processing) ---
+
+# Regex: match [SomeFile.pdf, Page 12] or [SomeFile.pdf, Seite 12] or [SomeFile.pdf]
+# Negative lookahead (?!\() avoids matching markdown link text like [text](url)
+_CITATION_RE = re.compile(
+    r'\[([^\[\]]+\.pdf)(?:,\s*(?:Page|Seite)\s*(\d+))?\](?!\()',
+    re.IGNORECASE,
+)
+
+
+def resolve_pdf_path(doc_name: str) -> str | None:
+    """Resolve a document name to its absolute PDF path in kb/ folders.
+
+    Scans all 4 kb/*__db_inserted/ folders. Exact match first,
+    then case-insensitive fallback.
+
+    Args:
+        doc_name: PDF filename (e.g. "StrlSchV.pdf")
+
+    Returns:
+        Absolute path string or None if not found
+    """
+    kb_base = Path(settings.chromadb_path).parent  # ./kb/database → ./kb/
+    for folder in ChromaDBClient.PDF_FOLDERS.values():
+        candidate = kb_base / folder / doc_name
+        if candidate.exists():
+            return str(candidate.resolve())
+    # Fuzzy fallback: case-insensitive scan
+    for folder in ChromaDBClient.PDF_FOLDERS.values():
+        folder_path = kb_base / folder
+        if not folder_path.exists():
+            continue
+        for f in folder_path.iterdir():
+            if f.name.lower() == doc_name.lower():
+                return str(f.resolve())
+    return None
+
+
+def numberify_citations(
+    answer: str, language: str = "de",
+) -> tuple[str, list[dict]]:
+    """Replace inline [Document.pdf, Page N] citations with sequential [N] numbers.
+
+    Deduplicates by (doc_name, page) — same combo reuses the same number.
+    Appends a formatted reference list at the end.
+
+    Args:
+        answer: Report text with inline citations
+        language: "de" or "en" for reference list headers
+
+    Returns:
+        (transformed_answer, citation_list) where citation_list is a list of
+        dicts with keys: number, doc_name, page, pdf_path
+    """
+    if not answer:
+        return answer, []
+
+    # Collect all matches in reading order
+    matches = list(_CITATION_RE.finditer(answer))
+    if not matches:
+        return answer, []
+
+    # Assign sequential numbers; same (doc, page) → same number
+    seen: dict[tuple[str, str | None], int] = {}
+    citation_list: list[dict] = []
+    counter = 0
+
+    for m in matches:
+        doc_name = m.group(1).strip()
+        page = m.group(2)  # may be None
+        key = (doc_name.lower(), page)
+        if key not in seen:
+            counter += 1
+            seen[key] = counter
+            pdf_path = resolve_pdf_path(doc_name)
+            citation_list.append({
+                "number": counter,
+                "doc_name": doc_name,
+                "page": page,
+                "pdf_path": pdf_path,
+            })
+
+    # Replace citations right-to-left to preserve offsets
+    parts = list(answer)
+    for m in reversed(matches):
+        doc_name = m.group(1).strip()
+        page = m.group(2)
+        key = (doc_name.lower(), page)
+        num = seen[key]
+        parts[m.start():m.end()] = list(f"[{num}]")
+
+    transformed = "".join(parts)
+
+    # Build reference list
+    header = "Quellenverzeichnis" if language == "de" else "References"
+    page_label = "Seite" if language == "de" else "Page"
+    open_label = "PDF öffnen" if language == "de" else "Open PDF"
+
+    ref_lines = ["\n\n---\n", f"### {header}\n"]
+    for cite in citation_list:
+        num = cite["number"]
+        doc = cite["doc_name"]
+        page = cite["page"]
+        pdf_path = cite["pdf_path"]
+
+        page_str = f", {page_label} {page}" if page else ""
+        if pdf_path:
+            from urllib.parse import quote
+            encoded = quote(pdf_path, safe="")
+            link = f"[{num}] {doc}{page_str} — [{open_label}](/_api/pdf?path={encoded})"
+        else:
+            link = f"[{num}] {doc}{page_str}"
+        ref_lines.append(link)
+
+    transformed += "\n".join(ref_lines)
+
+    return transformed, citation_list

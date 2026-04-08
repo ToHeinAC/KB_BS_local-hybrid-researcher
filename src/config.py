@@ -83,7 +83,7 @@ class Settings(BaseSettings):
         """Return model family: 'gpt-oss', 'gemma4', or 'qwen'."""
         if self.ollama_model.startswith("gpt-oss"):
             return "gpt-oss"
-        if self.ollama_model.startswith("gemma4"):
+        if "gemma4" in self.ollama_model:
             return "gemma4"
         return "qwen"
 

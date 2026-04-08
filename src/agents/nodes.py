@@ -16,6 +16,7 @@ from src.agents.tools import (
     detect_references_hybrid,
     filter_by_relevance,
     get_context_window,
+    numberify_citations,
     resolve_reference,
     resolve_reference_enhanced,
     vector_search,
@@ -1326,6 +1327,11 @@ def attribute_sources(state: AgentState) -> dict:
         if sq.summary:
             answer = sq.summary
             break
+
+    # Transform inline citations to numbered references with PDF links
+    if answer and answer != "No synthesis available":
+        language = state.get("query_anchor", {}).get("detected_language", "de")
+        answer, _citation_list = numberify_citations(answer, language=language)
 
     # Create findings
     findings = []

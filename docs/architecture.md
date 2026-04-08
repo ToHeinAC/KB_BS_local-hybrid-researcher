@@ -419,10 +419,17 @@ Batch LLM scoring (~3-4 calls for 20 chunks) with precision/recall strategies. R
    - If `action == "accept"` or max retries reached: proceeds to source attribution
    - Max 1 retry to prevent infinite loops
 
-### Phase 5: Source Attribution
+### Phase 5: Source Attribution + Numbered Citations
 
 1. **Source List**: Collect sources from extracted chunks
 2. **Report Assembly**: Build `FinalReport` (answer, findings, sources, quality)
+3. **Numbered Citations**: `numberify_citations(answer, language)` post-processes the answer text:
+   - Scans for all `[Document.pdf, Page N]` / `[Document.pdf, Seite N]` / `[Document.pdf]` patterns
+   - Assigns sequential numbers in reading order; same `(doc, page)` pair reuses same number
+   - Replaces inline citations with `[N]` markers
+   - Appends a `### Quellenverzeichnis` / `### References` block with clickable PDF links
+   - PDF links use `/_api/pdf?path=<encoded>` served by the injected Tornado route
+4. **PDF Route**: `ensure_pdf_route()` (called from `render_results_view()`) injects `/_api/pdf` Tornado handler once; security validated to serve only files within `kb/` directory
 
 ## Streamlit Runtime Model
 
@@ -469,9 +476,9 @@ The "Erweiterte Einstellungen" expander in the sidebar contains a selectbox for 
 
 | Label | Model | Family |
 |-------|-------|--------|
-| simple (gemma4:e4b) | `gemma4:e4b` | gemma4 |
 | einfach (qwen3:8b) | `qwen3:8b` | qwen |
 | standard (qwen3:14b) | `qwen3:14b` | qwen |
+| ausgewogen (batiai/gemma4-26b:q3) | `batiai/gemma4-26b:q3` | gemma4 |
 | erhöht (gpt-oss:20b) | `gpt-oss:20b` | gpt-oss |
 | tief (qwen3:30b) | `qwen3:30b` | qwen |
 
