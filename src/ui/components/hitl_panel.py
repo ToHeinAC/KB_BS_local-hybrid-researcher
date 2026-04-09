@@ -184,7 +184,7 @@ def render_chat_hitl() -> dict | None:
     # Initial query (no history yet)
     if len(session.hitl_conversation_history) == 0:
         # Show initial prompt
-        st.info("Geben Sie Ihre Forschungsanfrage ein. Ich werde Ihnen Fragen stellen, um die Suche zu verfeinern. Tippen Sie `/end` wenn Sie bereit sind, die Recherche zu starten.")
+        st.info("Geben Sie Ihre Forschungsanfrage ein. Ich werde Ihnen Fragen stellen, um die Suche zu verfeinern. Tippen Sie `/end` wenn Sie bereit sind, die Nachfragen zu beenden und die Recherche zu starten.")
 
         user_query = st.chat_input(
             "Geben Sie Ihre Forschungsanfrage ein",
@@ -240,7 +240,7 @@ def render_chat_hitl() -> dict | None:
     # Feedback loop
     elif session.waiting_for_human_input and not session.conversation_ended:
         feedback = st.chat_input(
-            "Ihre Antwort (/end zum Fortfahren)",
+            "Ihre Antwort (/end zum Beenden der Nachfragen und Fortfahren mit der Nachforschung)",
             key=f"hitl_input_{session.input_counter}",
         )
 

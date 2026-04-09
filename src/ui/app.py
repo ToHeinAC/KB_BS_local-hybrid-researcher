@@ -816,7 +816,7 @@ def _render_iterative_hitl_checkpoint() -> None:
     # User input
     user_response = st.text_area(
         "Ihre Antwort",
-        placeholder="Beantworten Sie die Fragen oder tippen Sie /end um zur Recherche ueberzugehen...",
+        placeholder="Beantworten Sie die Fragen oder tippen Sie /end um zur Recherche überzugehen...",
         key=f"iterative_hitl_response_{iteration}",
     )
 
