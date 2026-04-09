@@ -264,12 +264,11 @@ is now attached to each `NestedChunk` and propagated through the pipeline — ze
 **265 tests total, all passing.**
 
 ### Phase 3.11 addendum: gemma4 Support
-- [x] **`src/config.py`**: `model_family` property extended — returns `"gemma4"` when `"gemma4" in ollama_model` (substring, not prefix; supports `batiai/gemma4-26b:q3`); both `"gemma4"` and `"qwen"` resolve to the Qwen prompt set
+- [x] **`src/config.py`**: `model_family` property extended — returns `"gemma4"` via case-insensitive substring match (`"gemma4"` or `"gemma-4"` in lowercased model string); both `"gemma4"` and `"qwen"` resolve to the Qwen prompt set
 - [x] **`src/prompts/__init__.py`**: `__getattr__` treats `"gemma4"` as alias for Qwen prompts (comment added)
-- [x] **`src/services/ollama_client.py`**: Added `is_gemma4` property (`"gemma4" in self.model`); `_prepare_system_prompt()` strips `/no_think` tokens for gemma4 models (Qwen3-specific directive unsupported by Gemma)
-- [x] **`src/ui/app.py`**: `"simple (gemma4:e4b)"` replaced by `"ausgewogen (batiai/gemma4-26b:q3)"` in `DEPTH_OPTIONS`; `k_results` slider max raised 10→15
+- [x] **`src/services/ollama_client.py`**: `is_gemma4` property uses case-insensitive check; `_prepare_system_prompt()` strips `/no_think` tokens for gemma4 models (Qwen3-specific directive unsupported by Gemma)
 - [x] **`src/ui/state.py`**: `k_results` default raised 3→6
-- [x] **Tests**: `tests/test_prompt_routing.py` — `TestGemma4Support` class (5 tests)
+- [x] **Tests**: `tests/test_prompt_routing.py` — `TestGemma4Support` + `TestGemma4E4BSupport` classes
 
 ### Phase 3.12: Runtime Model Selection (Research Depth Selector)
 - [x] **Dynamic prompt routing** (`src/prompts/__init__.py`): Rewrote from static wildcard imports to PEP 562 `__getattr__`:
@@ -281,10 +280,10 @@ is now attached to each `NestedChunk` and propagated through the pipeline — ze
   - `src/agents/tools.py`: 6 prompt constants, added `reset_ollama_client()`
   - `src/services/hitl_service.py`: 14 prompt constants, added `reset_ollama_client()`
 - [x] **UI depth selector** (`src/ui/app.py`):
-  - `st.selectbox` in "Erweiterte Einstellungen" with 5 options: einfach (qwen3:8b), standard (qwen3:14b), ausgewogen (batiai/gemma4-26b:q3), erhöht (gpt-oss:20b), tief (qwen3:30b)
+  - `st.selectbox` in "Erweiterte Einstellungen" with 5 options: basic (gemma4:e4b), einfach (qwen3:8b), standard (qwen3:14b), erhöht (gpt-oss:20b), tief (qwen3:30b)
   - Disabled during active research (`workflow_phase == "research"`)
   - `_apply_research_depth()` coordinator: updates `settings.ollama_model`, calls `reset_ollama_client()` on all 3 modules, clears `@st.cache_resource` for HITLService and OllamaClient
-- [x] **Session state** (`src/ui/state.py`): Added `research_depth` field (default: `"standard (qwen3:14b)"`)
+- [x] **Session state** (`src/ui/state.py`): Added `research_depth` field (default: `"basic (gemma4:e4b)"`)
 
 ### Phase 6.12: Todo Approval Multi-Task + UI Polish
 - [x] **Dynamic new-task list** (`src/ui/components/todo_approval.py`): Replaced single text input with dynamic list of pending tasks (add/remove rows)
@@ -317,11 +316,13 @@ Replaces verbose inline `[Document.pdf, Page N]` citations with sequential `[1]`
 
 **295 tests total, all passing** (2 ChromaDB GPU-OOM failures unrelated to these changes).
 
-### Phase 6.14: Depth Selector — Replace gemma4:e4b with batiai/gemma4-26b:q3
+### Phase 6.14: Depth Selector — gemma4:e4b as Default
 
-- [x] **`src/ui/app.py`**: `DEPTH_OPTIONS` updated — `"simple (gemma4:e4b)"` removed, `"ausgewogen (batiai/gemma4-26b:q3)"` added at index 2 (between standard and erhöht)
-- [x] **`src/config.py`**: `model_family` property uses `"gemma4" in self.ollama_model` (substring) instead of `startswith("gemma4")` — required because `batiai/gemma4-26b:q3` doesn't start with "gemma4"
-- [x] **`src/services/ollama_client.py`**: `is_gemma4` property likewise uses `"gemma4" in self.model`
+- [x] **`src/ui/app.py`**: `DEPTH_OPTIONS` updated — `"basic (gemma4:e4b)"` added at index 0 (first/default); old `batiai/gemma4-26b:q3` entry removed
+- [x] **`src/config.py`**: `ollama_model` default changed to `"gemma4:e4b"`; `model_family` uses case-insensitive match (`"gemma4"` or `"gemma-4"` in lowercased model string)
+- [x] **`src/services/ollama_client.py`**: `is_gemma4` property likewise uses case-insensitive check
+- [x] **`src/ui/state.py`**: `research_depth` default set to `"basic (gemma4:e4b)"`
+- [x] **Tests**: `TestGemma4E4BSupport` class (4 tests) in `tests/test_prompt_routing.py`
 
 ### Phase 8: Testing Improvements
 - [x] `TestRouteEntryPoint` class for graph routing logic

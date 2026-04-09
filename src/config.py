@@ -16,7 +16,7 @@ class Settings(BaseSettings):
 
     # Ollama Configuration
     ollama_base_url: str = "http://localhost:11434"
-    ollama_model: str = "qwen3:14b"
+    ollama_model: str = "gemma4:e4b"
     ollama_fallback_model: str = "qwen3:8b"
     default_embedding_model: str = "Qwen/Qwen3-Embedding-0.6B"
     ollama_temperature: float = 0.0
@@ -83,7 +83,8 @@ class Settings(BaseSettings):
         """Return model family: 'gpt-oss', 'gemma4', or 'qwen'."""
         if self.ollama_model.startswith("gpt-oss"):
             return "gpt-oss"
-        if "gemma4" in self.ollama_model:
+        model_lower = self.ollama_model.lower()
+        if "gemma4" in model_lower or "gemma-4" in model_lower:
             return "gemma4"
         return "qwen"
 

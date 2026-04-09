@@ -186,7 +186,7 @@ The enhanced iterative HITL system provides intelligent query refinement through
 | Component | Technology |
 |-----------|------------|
 | Framework | LangChain v1.0+, LangGraph v1.0+ |
-| LLM | Ollama (runtime-selectable via UI depth selector: qwen3:8b / qwen3:14b / batiai/gemma4-26b:q3 / gpt-oss:20b / qwen3:30b) |
+| LLM | Ollama (runtime-selectable via UI depth selector: gemma4:e4b / qwen3:8b / qwen3:14b / gpt-oss:20b / qwen3:30b; default: gemma4:e4b) |
 | Embeddings | Qwen/Qwen3-Embedding-0.6B via HuggingFace |
 | Vector DB | ChromaDB (local persistent) |
 | Orchestration | LangGraph StateGraph (TypedDict state) |
@@ -204,7 +204,7 @@ uv pip install -e ".[dev]"
 cp .env.example .env  # Edit .env if needed
 
 # Pull required Ollama models (for LLM generation)
-ollama pull qwen3:14b           # Primary model (14B)
+ollama pull gemma4:e4b          # Default model
 ollama pull qwen3:8b            # Fallback model
 # Note: Embeddings use Qwen/Qwen3-Embedding-0.6B via HuggingFace
 # (downloaded automatically on first run, requires GPU)
@@ -225,7 +225,7 @@ pytest tests/ -v
 ## Key Configuration
 
 Edit `.env` for your setup:
-- `OLLAMA_MODEL=qwen3:14b`: Default LLM model (overridden at runtime by the UI depth selector)
+- `OLLAMA_MODEL=gemma4:e4b`: Default LLM model (overridden at runtime by the UI depth selector)
 - `OLLAMA_TEMPERATURE=0.0`: LLM sampling temperature
 - `OLLAMA_NUM_CTX=131072`: 128K context for dual 4090s (adjust if needed)
 - `OLLAMA_SAFE_LIMIT=0.9`: Stop at 90% to prevent OOM
@@ -294,7 +294,7 @@ The `src/prompts/__init__.py` uses **PEP 562 `__getattr__`** for runtime-dynamic
 - Consumers use `from src import prompts` then `prompts.X` (module-level access, not `from src.prompts import X`)
 - This enables switching models at runtime (via the UI depth selector) without restarting
 
-The `model_family` property returns `"gpt-oss"` when `ollama_model.startswith("gpt-oss")`, `"gemma4"` when `"gemma4" in ollama_model` (substring match, so `batiai/gemma4-26b:q3` is detected correctly), else `"qwen"`. Both `"gemma4"` and `"qwen"` resolve to the Qwen prompt set.
+The `model_family` property returns `"gpt-oss"` when `ollama_model.startswith("gpt-oss")`, `"gemma4"` when `"gemma4"` or `"gemma-4"` is found in the lowercased model string (case-insensitive substring match, covers `gemma4:e4b`), else `"qwen"`. Both `"gemma4"` and `"qwen"` resolve to the Qwen prompt set.
 Both variants export **identical constant names** (48 total).
 
 **Consumer pattern** (used in `nodes.py`, `tools.py`, `hitl_service.py`):

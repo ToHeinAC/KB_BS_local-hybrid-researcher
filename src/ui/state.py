@@ -39,7 +39,7 @@ class SessionState:
     # Settings
     enable_web_search: bool = False
     enable_quality_checker: bool = True
-    research_depth: str = "standard (qwen3:14b)"
+    research_depth: str = "basic (gemma4:e4b)"
 
     # Results
     final_report: dict | None = None

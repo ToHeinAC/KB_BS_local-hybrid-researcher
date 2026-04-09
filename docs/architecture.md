@@ -474,13 +474,13 @@ This prevents re-loading the embedding model and reconnecting to services on eve
 
 The "Erweiterte Einstellungen" expander in the sidebar contains a selectbox for runtime model switching:
 
-| Label | Model | Family |
-|-------|-------|--------|
-| einfach (qwen3:8b) | `qwen3:8b` | qwen |
-| standard (qwen3:14b) | `qwen3:14b` | qwen |
-| ausgewogen (batiai/gemma4-26b:q3) | `batiai/gemma4-26b:q3` | gemma4 |
-| erhöht (gpt-oss:20b) | `gpt-oss:20b` | gpt-oss |
-| tief (qwen3:30b) | `qwen3:30b` | qwen |
+| Label | Model | Family | Default |
+|-------|-------|--------|---------|
+| basic (gemma4:e4b) | `gemma4:e4b` | gemma4 | ✓ |
+| einfach (qwen3:8b) | `qwen3:8b` | qwen | |
+| standard (qwen3:14b) | `qwen3:14b` | qwen | |
+| erhöht (gpt-oss:20b) | `gpt-oss:20b` | gpt-oss | |
+| tief (qwen3:30b) | `qwen3:30b` | qwen | |
 
 On change, `_apply_research_depth()`:
 1. Sets `settings.ollama_model` to the new model name

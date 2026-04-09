@@ -215,3 +215,37 @@ class TestGemma4Support:
         result = client._prepare_system_prompt("Some prompt without /no_think.")
         assert not result.startswith(_HARMONY_PREAMBLE)
         assert result == "Some prompt without /no_think."
+
+
+class TestGemma4E4BSupport:
+    """Verify gemma4:e4b integrates correctly as a gemma4 family model."""
+
+    def test_gemma4_e4b_model_family(self):
+        """gemma4:e4b should map to 'gemma4' model family."""
+        from src.config import Settings
+
+        s = Settings(ollama_model="gemma4:e4b")
+        assert s.model_family == "gemma4"
+
+    def test_gemma4_e4b_is_gemma4(self):
+        """OllamaClient.is_gemma4 returns True for gemma4:e4b."""
+        from src.services.ollama_client import OllamaClient
+
+        client = OllamaClient(model="gemma4:e4b")
+        assert client.is_gemma4 is True
+
+    def test_gemma4_e4b_strips_no_think(self):
+        """_prepare_system_prompt strips /no_think for gemma4:e4b."""
+        from src.services.ollama_client import OllamaClient
+
+        client = OllamaClient(model="gemma4:e4b")
+        result = client._prepare_system_prompt("/no_think\nSome instruction.")
+        assert result == "Some instruction."
+
+    def test_gemma4_e4b_no_harmony_preamble(self):
+        """_prepare_system_prompt does NOT inject Harmony preamble for gemma4:e4b."""
+        from src.services.ollama_client import OllamaClient, _HARMONY_PREAMBLE
+
+        client = OllamaClient(model="gemma4:e4b")
+        result = client._prepare_system_prompt("Some prompt.")
+        assert not result.startswith(_HARMONY_PREAMBLE)

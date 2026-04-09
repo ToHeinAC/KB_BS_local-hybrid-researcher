@@ -7,7 +7,7 @@
 # OLLAMA CONFIGURATION
 # =============================================================================
 OLLAMA_BASE_URL=http://localhost:11434
-OLLAMA_MODEL=qwen3:14b              # Default model (overridden at runtime by UI depth selector)
+OLLAMA_MODEL=gemma4:e4b             # Default model (overridden at runtime by UI depth selector)
 OLLAMA_FALLBACK_MODEL=qwen3:8b
 OLLAMA_TEMPERATURE=0.0               # LLM sampling temperature (0.0 = greedy)
 DEFAULT_EMBEDDING_MODEL=Qwen/Qwen3-Embedding-0.6B
@@ -176,7 +176,7 @@ class Settings(BaseSettings):
 
     # Ollama
     ollama_base_url: str = "http://localhost:11434"
-    ollama_model: str = "qwen3:14b"
+    ollama_model: str = "gemma4:e4b"
     ollama_fallback_model: str = "qwen3:8b"
     ollama_temperature: float = 0.0
     default_embedding_model: str = "Qwen/Qwen3-Embedding-0.6B"
