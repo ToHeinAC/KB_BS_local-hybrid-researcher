@@ -492,34 +492,43 @@ The selectbox is disabled during active research (`workflow_phase == "research"`
 
 ### GPU Widget (Sidebar)
 
-Live GPU temperature, fan speed, and utilization — plus elapsed research time — are displayed in the sidebar via a Tornado route injection pattern:
+Live GPU temp/fan/load + elapsed research time via Tornado route injection (`/_api/gpu`), updating every 1s independently of Streamlit's script-runner thread.
 
-1. **`_ensure_gpu_route()`** (`@st.cache_resource`): One-time injection that:
-   - Checks `nvidia-smi` availability; returns `False` if no GPU
-   - Discovers the live `tornado.web.Application` via `gc.get_objects()` (Streamlit ≥1.53 removed `Server.get_current()`)
-   - Registers a `GPUStatsHandler` at `/_api/gpu` via `tornado_app.add_handlers()`
-   - Double-injection guard checks `default_router.rules` (where `add_handlers` writes)
-2. **`render_gpu_sidebar()`**: Renders a `components.v1.html()` snippet in the sidebar whose JS fetches `/_api/gpu` every 1s
-3. **Why Tornado**: Tornado's I/O loop runs independently of Streamlit's script-runner thread, so GPU stats keep updating even while `graph.stream()` blocks for 30s+. `@st.fragment(run_every=...)` is not viable because fragments queue on the same single thread.
+- **`_ensure_gpu_route()`**: One-time injection via `gc.get_objects()` → `tornado_app.add_handlers()` with double-injection guard
+- **`render_gpu_sidebar()`**: `components.v1.html()` with JS polling; color-coded thresholds (temp 70/80°C, load 50/80%)
+- **Elapsed time**: `set_research_start()` on todo approval, `set_research_end()` on report, `reset_research_timer()` on new session
+- **Response**: `{"gpus": [...], "elapsed": int|null, "is_running": bool}`
+- **Why Tornado**: I/O loop is independent — `@st.fragment(run_every=...)` blocks during `graph.stream()`
 
-**Response format** (as of Phase 6.11):
-```json
-{"gpus": [{"name": "...", "fan": "33", "temp": "48", "util": "88"}], "elapsed": 42, "is_running": true}
+### Remote Access (Cloudflare Tunnel)
+
+The `login/` directory provides remote access via Cloudflare quick tunnels:
+
 ```
-`elapsed` is `null` until the user approves the todo list; `is_running` turns `false` when the report is generated.
-
-**Elapsed research time** (`gpu_widget.py` module-level globals, three public setters):
-- `set_research_start()` — called in `app.py` immediately after todo approval
-- `set_research_end()` — called when `session.final_report` is detected
-- `reset_research_timer()` — called on "Neue Recherche starten"
-
-Display format: two GPU lines + `llm: <model>` + optional `t: Xs...` (green, running) / `t: Xs` (grey, done):
+┌──────────────────────────────────────────────────────────────────┐
+│  Remote User                                                      │
+│  ↓ (HTTPS via *.trycloudflare.com)                               │
+├──────────────────────────────────────────────────────────────────┤
+│  cloudflared tunnel (port 8522)    cloudflared tunnel (port 8511)│
+│  ↓                                  ↓                            │
+│  Launcher App (login/launcher_app.py)  Main Streamlit App        │
+│  Port 8522                              Port 8511                │
+│  ├─ Password gate (LAUNCHER_PASSWORD)                            │
+│  ├─ Start/Stop/Restart controls                                  │
+│  ├─ Process monitoring (psutil)                                  │
+│  └─ Log viewer                                                   │
+└──────────────────────────────────────────────────────────────────┘
 ```
-RTX 4090    48°C|Fan:33%|Load: 88%
-llm: qwen3:14b
-t: 127s
-```
-Color coding: temp green/orange/red at 70/80°C; load green/orange/red at 50/80%; elapsed green while running, grey when complete.
+
+**Key files:**
+- `login/launcher_app.py` — password-gated Streamlit control panel
+- `login/start-quick-tunnels.sh` — creates two quick tunnels (temporary URLs)
+- `login/start-launcher.sh` — starts the launcher via `uv run`
+- `login/cloudflared-config.yml` — template for persistent tunnel (requires domain)
+
+**Tunnel coexistence:** Scripts use targeted `pkill` by port URL to avoid killing other tunnels (e.g., `brain-nw1`). URL files are project-specific (`/tmp/hybrid-*-url.txt`).
+
+**Quick tunnels vs. persistent:** Quick tunnels generate temporary `*.trycloudflare.com` URLs. For permanent URLs, a Cloudflare-managed domain is required (see `login/README.md` for upgrade path).
 
 ### Graph Entry Point Routing
 

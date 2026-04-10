@@ -99,35 +99,13 @@ The system now uses **tiered context classification** to prevent query drift and
 
 ### Agentic Decision Points
 
-Three LLM-driven decision points where the orchestrator is no longer deterministic:
+Three LLM-driven gates where the orchestrator is non-deterministic:
 
-0. **Query Assessment Gate** (Phase 2.5, `assess_query`):
-   - After HITL finalization, LLM evaluates: "Is this query answerable from the knowledge base?"
-   - Uses `QUERY_ASSESSMENT_PROMPT` → `QueryAssessmentDecision(proceed, num_tasks, reason, explanation)`
-   - Rejection reasons: `no_live_data`, `out_of_context`, `no_clear_conversation_steering`
-   - If `proceed=False` → writes rejection `FinalReport` and routes to `__end__` (no research run)
-   - If `proceed=True` → sets `num_tasks` (3-6) used by `generate_todo` for task sizing
-   - Fallback on LLM error: `proceed=True, num_tasks=5`
+0. **Query Assessment Gate** (Phase 2.5): `assess_query` → `QueryAssessmentDecision(proceed, num_tasks, reason, explanation)`. Reject → `__end__` with FinalReport; approve → `generate_todo` with `num_tasks` (3-6). Fallback: `proceed=True, num_tasks=5`.
 
-1. **Reference Following Gate** (Phase 3, `execute_task`):
-   - Before following each detected reference, LLM evaluates: "Is this reference worth following given the query?"
-   - Uses `REFERENCE_DECISION_PROMPT` → `ReferenceDecision(follow: bool, reason: str)`
-   - Gate receives full context: `original_query`, `key_entities`, `scope`, `current_task`
-   - Bias toward following: "when uncertain, FOLLOW" (skipping relevant refs is costlier)
-   - Prevents tangential references from wasting token budget and diluting context
-   - Falls back to following on LLM error (safe default)
+1. **Reference Following Gate** (Phase 3): Per-reference LLM evaluation via `REFERENCE_DECISION_PROMPT` → `ReferenceDecision(follow, reason)`. Context: `original_query`, `key_entities`, `scope`, `current_task`. Biased toward following when uncertain. Falls back to follow on error.
 
-2. **Quality Remediation Loop** (Phase 4, `quality_check`):
-   - If quality score < threshold (375), LLM decides: accept as-is or retry synthesis with focused instructions
-   - Uses `QUALITY_REMEDIATION_PROMPT` → `QualityRemediationDecision(action: "accept"|"retry", focus_instructions: str)`
-   - Max 1 retry to prevent infinite loops (tracked via `synthesis_retry_count`)
-   - On retry, `quality_remediation_focus` is appended to the synthesis prompt
-   - `route_after_quality` routes to `synthesize` (retry) or `attribute_sources` (accept)
-
-**Agentic State Fields:**
-- `query_assessment`: dict | None — `{proceed, num_tasks, reason, explanation}` from `assess_query`
-- `synthesis_retry_count`: int (default 0, max 1)
-- `quality_remediation_focus`: str (cleared after use)
+2. **Quality Remediation Loop** (Phase 4): If quality < 375, LLM decides accept/retry via `QualityRemediationDecision`. Max 1 retry; `quality_remediation_focus` appended to synthesis prompt on retry.
 
 ### Enhanced Phase 1: Iterative HITL with Multi-Vector Retrieval
 
@@ -209,7 +187,7 @@ ollama pull qwen3:8b            # Fallback model
 # Note: Embeddings use Qwen/Qwen3-Embedding-0.6B via HuggingFace
 # (downloaded automatically on first run, requires GPU)
 
-# Run Streamlit UI
+# Run Streamlit UI (local access)
 uv run streamlit run src/ui/app.py --server.port 8511 --server.headless false
 
 # Or run via CLI
@@ -220,6 +198,11 @@ python -m src.main --query "Was sind die Grenzwerte für Strahlenexposition?"
 
 # Run tests
 pytest tests/ -v
+
+# Remote access via Cloudflare Tunnel (see login/README.md)
+export LAUNCHER_PASSWORD="your-password"
+./login/start-quick-tunnels.sh   # Terminal 1: creates temporary public URLs
+./login/start-launcher.sh        # Terminal 2: password-gated launcher on port 8522
 ```
 
 ## Key Configuration
@@ -254,6 +237,12 @@ KB_BS_local-hybrid-researcher/
 │   ├── rabbithole-magic.md # Deep reference-following algorithm
 │   ├── references.md      # External resources
 │   └── prompts-design.md  # Prompt design and management
+├── login/                 # Remote access via Cloudflare Tunnel
+│   ├── launcher_app.py    # Password-gated Streamlit control panel (port 8522)
+│   ├── start-launcher.sh  # Start launcher
+│   ├── start-quick-tunnels.sh  # Create temporary Cloudflare quick tunnels
+│   ├── cloudflared-config.yml  # Template for persistent tunnel (requires domain)
+│   └── README.md          # Setup & usage docs
 ├── src/                   # Source code
 │   ├── agents/            # LangGraph agents + tools
 │   ├── models/            # Pydantic data models
@@ -348,6 +337,7 @@ For specific prompt rules, see @docs/prompts-design.md [docs/prompts-design.md](
 | [docs/references.md](docs/references.md) | @docs/references.md External repos, LangGraph docs, examples |
 | [docs/prompts-design.md](docs/prompts-design.md) | @docs/prompts-design.md Prompt design and management |
 | [docs/prompt-opt-guide.md](docs/prompt-opt-guide.md) | @docs/prompt-opt-guide.md 12-principle optimization guide for ≤32B local LLMs |
+| [login/README.md](login/README.md) | Remote access setup via Cloudflare Tunnel (launcher + quick tunnels) |
 
 ## Implementation Status
 

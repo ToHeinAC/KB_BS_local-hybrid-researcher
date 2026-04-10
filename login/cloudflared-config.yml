@@ -1,0 +1,25 @@
+# Persistent Cloudflare Tunnel config template for Hybrid Researcher
+#
+# To use this (requires a Cloudflare-managed domain):
+#   1. cloudflared tunnel create hybrid-researcher
+#   2. Replace YOUR_TUNNEL_ID_HERE with the tunnel ID
+#   3. Replace your-domain.com with your actual domain
+#   4. cloudflared tunnel route dns hybrid-researcher hybrid-launcher.your-domain.com
+#   5. cloudflared tunnel route dns hybrid-researcher hybrid-app.your-domain.com
+#   6. Copy this file to ~/.cloudflared/config.yml
+#   7. cloudflared tunnel run hybrid-researcher
+
+tunnel: YOUR_TUNNEL_ID_HERE
+credentials-file: /home/he/.cloudflared/YOUR_TUNNEL_ID_HERE.json
+
+ingress:
+  # Launcher (control panel) on port 8522
+  - hostname: hybrid-launcher.your-domain.com
+    service: http://localhost:8522
+
+  # Main Hybrid Researcher app on port 8511
+  - hostname: hybrid-app.your-domain.com
+    service: http://localhost:8511
+
+  # Catch-all rule (required)
+  - service: http_status:404

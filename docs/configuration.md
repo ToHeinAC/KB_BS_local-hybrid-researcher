@@ -88,6 +88,11 @@ MAX_REFLECTIONS=1                # Max regeneration attempts
 ENABLE_WEB_SEARCH=false
 TAVILY_API_KEY=                  # Required if web search enabled
 WEB_RESULTS_PER_QUERY=2
+
+# =============================================================================
+# REMOTE ACCESS (Cloudflare Tunnel Launcher)
+# =============================================================================
+LAUNCHER_PASSWORD=changeme123    # Password for the launcher app (login/)
 ```
 
 ---
@@ -122,6 +127,8 @@ dependencies = [
     "streamlit>=1.28.0",
     "pymupdf>=1.24.0",
     "python-dotenv>=1.0.0",
+    # Process monitoring (for launcher)
+    "psutil>=5.9.0",
     # Retry logic
     "tenacity>=8.2.0",
 ]

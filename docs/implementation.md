@@ -324,6 +324,29 @@ Replaces verbose inline `[Document.pdf, Page N]` citations with sequential `[1]`
 - [x] **`src/ui/state.py`**: `research_depth` default set to `"basic (gemma4:e4b)"`
 - [x] **Tests**: `TestGemma4E4BSupport` class (4 tests) in `tests/test_prompt_routing.py`
 
+### Phase 9: Remote Access via Cloudflare Tunnel
+
+- [x] **`login/launcher_app.py`** (new): Password-gated Streamlit control panel on port 8522
+  - `LAUNCHER_PASSWORD` env var (default: `changeme123`)
+  - Start/stop/restart controls for the main app (port 8511)
+  - Process monitoring via `psutil` (CPU, memory metrics)
+  - Tunnel URL display (reads from `/tmp/hybrid-*-url.txt`)
+  - Log viewer (`/tmp/hybrid_researcher_app.log`, last 50 lines)
+  - Safe exit guard: refuses to kill ports < 1024 or the launcher port
+- [x] **`login/start-launcher.sh`** (new): Starts launcher via `uv run streamlit run`
+  - Password prompt if `LAUNCHER_PASSWORD` not set
+  - Port 8522 availability check with optional kill
+- [x] **`login/start-quick-tunnels.sh`** (new): Creates two Cloudflare quick tunnels
+  - Targeted `pkill` by port URL (preserves `brain-nw1` and other tunnels)
+  - Backup/restore `~/.cloudflared/config.yml` to force quick tunnel mode
+  - Extracts `*.trycloudflare.com` URLs from logs, saves to `/tmp/hybrid-*-url.txt`
+  - Separate log files: `/tmp/hybrid-launcher-tunnel.log`, `/tmp/hybrid-app-tunnel.log`
+- [x] **`login/cloudflared-config.yml`** (new): Template for future persistent tunnel setup (requires Cloudflare-managed domain)
+- [x] **`login/README.md`** (new): Quick start, port assignments, coexistence with `brain-nw1`, upgrade path to permanent URLs
+- [x] **`pyproject.toml`**: Added `psutil>=5.9.0` dependency
+
+**Port assignments:** Launcher 8522, Main app 8511. Quick tunnel URLs are temporary (`*.trycloudflare.com`).
+
 ### Phase 8: Testing Improvements
 - [x] `TestRouteEntryPoint` class for graph routing logic
   - `test_route_to_hitl_init_on_new_session`

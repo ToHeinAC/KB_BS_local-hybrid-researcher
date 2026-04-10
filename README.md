@@ -18,8 +18,13 @@ ollama pull qwen3:8b             # Fallback model
 # Note: Embeddings use HuggingFace Qwen/Qwen3-Embedding-0.6B
 # (downloaded automatically on first run)
 
-# Run UI
+# Run UI (local)
 streamlit run src/ui/app.py --server.port 8511
+
+# Remote access via Cloudflare Tunnel
+export LAUNCHER_PASSWORD="your-password"
+./login/start-quick-tunnels.sh   # Creates temporary public HTTPS URLs
+./login/start-launcher.sh        # Password-gated launcher on port 8522
 ```
 
 ## Features
@@ -47,6 +52,7 @@ streamlit run src/ui/app.py --server.port 8511
 - **Numbered Citation Transformation**: Inline `[Document.pdf, Page N]` citations are post-processed into sequential `[1]`, `[2]`, … markers with an appended reference list. PDFs open directly in the browser via the `/_api/pdf` Tornado route (same injection pattern as the GPU widget).
 - **Persistent Results View**: Completed report page shows HITL conversation, task summaries with findings/gaps, and per-task tiered chunk expanders (primary/secondary/tertiary) with full original vector DB text + LLM extraction alongside the final answer.
 - **Retrieval History Panel**: Real-time display of vector search results during HITL with chunk details.
+- **Remote Access via Cloudflare Tunnel**: Password-protected launcher app (`login/`) with start/stop/restart controls, accessible via temporary `*.trycloudflare.com` quick tunnel URLs. Coexists safely with other tunnels. See `login/README.md`.
 - **Database Selection**: Choose specific knowledge base collections or search all.
 - **Cached Service Clients**: Fast UI reloads via `@st.cache_resource` for ChromaDB/Ollama clients.
 - **Live GPU Widget**: Sidebar shows real-time GPU temp/fan/load + elapsed research time via Tornado route injection (`/_api/gpu`), updating every 1s even during blocking `graph.stream()` calls. Timer starts at todo approval, freezes on report completion, resets on new session. Color-coded thresholds for temp, load, and elapsed time. Graceful degradation when no GPU is available.
