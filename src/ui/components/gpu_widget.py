@@ -24,27 +24,26 @@ import streamlit.components.v1 as components
 
 logger = logging.getLogger(__name__)
 
-# Module-level timing state (safe for single-user local app)
-_research_start_time: float | None = None
-_research_end_time: float | None = None
+# Module-level timing state (safe for single-user local app).
+# Use a mutable dict so all readers — including the Tornado handler defined
+# inside _inject_gpu_route() — always see the current values without relying
+# on global-variable rebinding, which can be stale across closure boundaries.
+_timer: dict = {"start": None, "end": None}
 
 
 def set_research_start() -> None:
-    global _research_start_time, _research_end_time
-    _research_start_time = time.monotonic()
-    _research_end_time = None
+    _timer["start"] = time.monotonic()
+    _timer["end"] = None
 
 
 def set_research_end() -> None:
-    global _research_end_time
-    if _research_start_time is not None:
-        _research_end_time = time.monotonic()
+    if _timer["start"] is not None:
+        _timer["end"] = time.monotonic()
 
 
 def reset_research_timer() -> None:
-    global _research_start_time, _research_end_time
-    _research_start_time = None
-    _research_end_time = None
+    _timer["start"] = None
+    _timer["end"] = None
 
 
 # ---------------------------------------------------------------------------
@@ -127,10 +126,11 @@ def _inject_gpu_route() -> bool:
                 gpus = _get_gpu_stats()
                 elapsed = None
                 is_running = False
-                if _research_start_time is not None:
-                    end = _research_end_time if _research_end_time is not None else time.monotonic()
-                    elapsed = int(end - _research_start_time)
-                    is_running = _research_end_time is None
+                start = _timer["start"]
+                if start is not None:
+                    end = _timer["end"] if _timer["end"] is not None else time.monotonic()
+                    elapsed = int(end - start)
+                    is_running = _timer["end"] is None
                 self.write(json.dumps({"gpus": gpus, "elapsed": elapsed, "is_running": is_running}))
 
         tornado_app.add_handlers(".*", [(r"/_api/gpu", GPUStatsHandler)])
