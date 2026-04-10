@@ -245,6 +245,27 @@ class FinalReport(BaseModel):
         default_factory=dict,
         description="Additional metadata",
     )
+    # Web search (supplementary, strictly separated from KB results)
+    web_search_section: str = Field(
+        default="",
+        description="Separate web search results section (markdown)",
+    )
+    web_sources: list[WebResult] = Field(
+        default_factory=list,
+        description="Web search source entries",
+    )
+
+
+class WebSearchSummaryOutput(BaseModel):
+    """LLM output for web search result summarization."""
+
+    web_summary: str = Field(
+        description="Markdown summary of web results with [Title](URL) citations",
+    )
+    contradictions: list[str] = Field(
+        default_factory=list,
+        description="Contradictions found between web and KB findings",
+    )
 
 
 class SynthesisOutputEnhanced(BaseModel):

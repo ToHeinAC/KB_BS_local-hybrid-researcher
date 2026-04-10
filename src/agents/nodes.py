@@ -45,6 +45,7 @@ from src.models.results import (
     Source,
     SynthesisOutputEnhanced,
     TaskSummaryOutput,
+    WebSearchSummaryOutput,
 )
 from src import prompts
 from src.services.hitl_service import HITLService
@@ -872,6 +873,124 @@ def _score_and_filter_context(
     return scored_items
 
 
+# --- Phase 3.10: Web Search (optional, between rerank and synthesize) ---
+
+
+def web_search(state: AgentState) -> dict:
+    """Run supplementary web search via Tavily API.
+
+    Generates an optimal search query from KB gaps, calls Tavily,
+    and summarizes results with [Title](URL) citations. Results are
+    stored separately and never mixed into KB synthesis.
+
+    Args:
+        state: Current agent state
+
+    Returns:
+        State update with web_search_results and web_search_summary
+    """
+    if not state.get("enable_web_search", False):
+        return {}
+
+    from src.services.tavily_client import (
+        format_results_for_prompt,
+        format_tavily_results,
+        tavily_search,
+    )
+
+    client = get_ollama_client()
+    query_anchor = state.get("query_anchor", {})
+    language = query_anchor.get("detected_language", "de")
+    original_query = query_anchor.get("original_query", state.get("query", ""))
+
+    # Collect key findings and gaps from task summaries for search query generation
+    task_summaries = state.get("task_summaries", [])
+    key_findings_items = []
+    gap_items = []
+    for ts in task_summaries[:5]:
+        key_findings_items.extend(ts.get("key_findings", [])[:2])
+        gap_items.extend(ts.get("gaps", []))
+    key_findings_brief = "; ".join(key_findings_items[:5]) or "None"
+    remaining_gaps = "; ".join(gap_items[:5]) or "None"
+
+    # Step 1: Generate optimal search query via LLM
+    try:
+        query_system = prompts.WEB_SEARCH_QUERY_PROMPT_SYSTEM.format(language=language)
+        query_human = prompts.WEB_SEARCH_QUERY_PROMPT_HUMAN.format(
+            original_query=original_query,
+            key_findings_brief=key_findings_brief,
+            remaining_gaps=remaining_gaps,
+            language=language,
+        )
+        search_term = client.generate_messages(query_system, query_human).strip()
+        # Strip quotes and prefixes the LLM might add
+        search_term = search_term.strip('"\'').strip()
+        if not search_term:
+            search_term = original_query
+        logger.info("Web search query generated: %s", search_term[:80])
+    except Exception as e:
+        logger.warning("Web search query generation failed: %s", e)
+        search_term = original_query
+
+    # Step 2: Call Tavily API
+    raw_results = tavily_search(search_term)
+    if not raw_results:
+        logger.info("Web search returned no results")
+        return {
+            "web_search_results": [],
+            "web_search_summary": "",
+            "messages": ["Web search: no results found"],
+        }
+
+    web_results = format_tavily_results(raw_results, search_term)
+    results_text = format_results_for_prompt(web_results)
+
+    # Step 3: Summarize results with contradiction detection
+    try:
+        summarize_system = prompts.WEB_SEARCH_SUMMARIZE_PROMPT_SYSTEM.format(
+            language=language,
+        )
+        summarize_human = prompts.WEB_SEARCH_SUMMARIZE_PROMPT_HUMAN.format(
+            original_query=original_query,
+            web_results=results_text,
+            kb_key_findings=key_findings_brief,
+            language=language,
+        )
+        summary_result = client.generate_structured_messages(
+            summarize_system, summarize_human, WebSearchSummaryOutput,
+        )
+        web_summary = summary_result.web_summary
+        contradictions = summary_result.contradictions
+    except Exception as e:
+        logger.warning("Web search summarization failed: %s — using raw results", e)
+        web_summary = results_text
+        contradictions = []
+
+    # Build the final web search summary text (with contradiction notice)
+    if contradictions:
+        contradiction_text = "\n".join(f"- {c}" for c in contradictions)
+        lang_de = language.lower().startswith("de") or language.lower() == "de"
+        notice_header = (
+            "**Hinweis: Widersprüche zwischen Wissensdatenbank und Webrecherche:**"
+            if lang_de
+            else "**Note: Contradictions between knowledge base and web research:**"
+        )
+        web_summary = f"{notice_header}\n{contradiction_text}\n\n{web_summary}"
+
+    logger.info(
+        "Web search complete: %d results, %d contradictions",
+        len(web_results), len(contradictions),
+    )
+
+    return {
+        "web_search_results": [r.model_dump() for r in web_results],
+        "web_search_summary": web_summary,
+        "messages": [
+            f"Web search: {len(web_results)} results for '{search_term[:50]}'"
+        ],
+    }
+
+
 # --- Phase 4: Synthesis ---
 
 
@@ -1329,9 +1448,22 @@ def attribute_sources(state: AgentState) -> dict:
             break
 
     # Transform inline citations to numbered references with PDF links
+    language = state.get("query_anchor", {}).get("detected_language", "de")
     if answer and answer != "No synthesis available":
-        language = state.get("query_anchor", {}).get("detected_language", "de")
         answer, _citation_list = numberify_citations(answer, language=language)
+
+    # Append web search section (strictly separated from KB results)
+    web_search_summary = state.get("web_search_summary", "")
+    web_search_section = ""
+    if web_search_summary:
+        lang_de = language.lower().startswith("de") or language.lower() == "de"
+        section_header = (
+            "### Ergänzende Webrecherche"
+            if lang_de
+            else "### Supplementary Web Research"
+        )
+        web_search_section = f"\n\n---\n{section_header}\n\n{web_search_summary}"
+        answer = (answer or "") + web_search_section
 
     # Create findings
     findings = []
@@ -1380,6 +1512,11 @@ def attribute_sources(state: AgentState) -> dict:
             "query_relevance": 0,
         }
 
+    # Build web sources list
+    from src.models.results import WebResult
+    web_results_raw = state.get("web_search_results", [])
+    web_sources = [WebResult.model_validate(r) for r in web_results_raw] if web_results_raw else []
+
     report = FinalReport(
         query=analysis.original_query,
         answer=answer or "No synthesis available",
@@ -1392,7 +1529,10 @@ def attribute_sources(state: AgentState) -> dict:
         metadata={
             "documents_referenced": context.metadata.documents_referenced,
             "timestamp": datetime.now().isoformat(),
+            "web_search_used": bool(web_search_summary),
         },
+        web_search_section=web_search_section,
+        web_sources=web_sources,
     )
 
     return {

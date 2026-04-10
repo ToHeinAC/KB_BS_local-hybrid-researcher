@@ -55,6 +55,12 @@ def render_results_view() -> None:
         st.markdown("### Sources")
         _render_sources(report)
 
+    # Web sources (separate from KB sources)
+    if report.web_sources:
+        st.markdown("### Web Sources")
+        for ws in report.web_sources:
+            st.markdown(f"- [{ws.title}]({ws.url})")
+
     st.divider()
 
     # Quality breakdown
@@ -230,6 +236,11 @@ def _generate_markdown(report: FinalReport) -> str:
             f"- **{source.doc_name}** (p. {source.page_number or 'N/A'}): "
             f"Relevance {source.relevance_score:.2f}"
         )
+
+    if report.web_sources:
+        lines.extend(["", "## Web Sources", ""])
+        for ws in report.web_sources:
+            lines.append(f"- [{ws.title}]({ws.url})")
 
     lines.extend([
         "",

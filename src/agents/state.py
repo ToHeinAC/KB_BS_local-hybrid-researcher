@@ -103,6 +103,11 @@ class AgentState(TypedDict, total=False):
     # Structure: {"quote": str, "source": str, "page": int,
     #             "relevance_reason": str}
 
+    # Web search (supplementary, runs between rerank and synthesize)
+    enable_web_search: bool  # Whether web search is enabled for this session
+    web_search_results: list[dict]  # Serialized WebResult dicts from Tavily
+    web_search_summary: str  # LLM-summarized web findings with [Title](URL) citations
+
 
 def create_initial_state(query: str) -> AgentState:
     """Create initial agent state for a new research session.
@@ -178,6 +183,10 @@ def create_initial_state(query: str) -> AgentState:
         tertiary_context=[],
         task_summaries=[],
         preserved_quotes=[],
+        # Web search
+        enable_web_search=False,
+        web_search_results=[],
+        web_search_summary="",
     )
 
 

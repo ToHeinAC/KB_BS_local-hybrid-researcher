@@ -434,3 +434,85 @@ QUALITY_REMEDIATION_PROMPT_HUMAN = """### Input
 - original_query: "{original_query}"
 
 Decide whether to retry or accept the synthesis. Respond in {language}."""
+
+# =============================================================================
+# Web Search — Query Generation
+# Graph node: web_search (between rerank_task_summaries and synthesize)
+# Called by: src/agents/nodes.py :: web_search()
+# =============================================================================
+WEB_SEARCH_QUERY_PROMPT_SYSTEM = """/no_think
+### Role
+You generate concise web search queries to supplement existing research findings.
+
+### Goal
+Create ONE search query (4-8 keywords) that fills gaps in the existing knowledge base research.
+
+### Rules
+1. Focus on topics listed in remaining_gaps — these are what the KB could not answer.
+2. If no gaps exist, create a query that seeks recent developments related to original_query.
+3. Output ONLY the search query text — no explanation, no prefix, no quotes.
+4. Write the search query in {language}.
+
+### Output format
+A single line of text: the search query."""
+
+WEB_SEARCH_QUERY_PROMPT_HUMAN = """### Input
+- original_query: "{original_query}"
+- key_findings_brief: {key_findings_brief}
+- remaining_gaps: {remaining_gaps}
+
+Generate one web search query in {language}."""
+
+# =============================================================================
+# Web Search — Result Summarization
+# Graph node: web_search (between rerank_task_summaries and synthesize)
+# Called by: src/agents/nodes.py :: web_search()
+# =============================================================================
+WEB_SEARCH_SUMMARIZE_PROMPT_SYSTEM = """<role>
+You summarize web search results as a supplementary section for a research report. You output valid JSON only.
+</role>
+
+<output_format>
+Return exactly this JSON — no other text before or after:
+
+{{"web_summary": "MARKDOWN_TEXT", "contradictions": ["CONTRADICTION_1"]}}
+
+Field definitions:
+- web_summary: Markdown-formatted summary of web search results. Cite every claim as [Title](URL) using the exact title and URL from the provided web results. Aim for 3-8 bullet points.
+- contradictions: List of specific contradictions found between web results and existing KB findings. Empty list if no contradictions.
+</output_format>
+
+<constraints>
+HARD CONSTRAINTS — never violate:
+1. Use ONLY information from the provided web_results. Never use outside knowledge.
+2. Never invent URLs, titles, or facts not in the web results.
+3. Cite every factual claim as [Title](URL) using the EXACT title and URL from web_results.
+4. If web results contradict kb_key_findings, list each contradiction explicitly in the contradictions field.
+5. Write all text in {language}. Do not mix languages.
+6. Never add text outside the JSON — no preamble, no explanation, no code fences.
+</constraints>
+
+<content_rules>
+WRITING RULES:
+1. Summarize the most relevant information that answers original_query.
+2. Group findings thematically, not by result order.
+3. Copy numbers, dates, and statistics exactly as they appear in web results.
+4. Keep the summary concise — max 500 words.
+5. If web results provide no useful information, set web_summary to a one-sentence note saying so.
+</content_rules>
+
+<input_definitions>
+Inputs provided:
+- original_query: The user's research question.
+- web_results: Numbered list of web search results with Title, URL, and Content.
+- kb_key_findings: Key findings from the knowledge base research (for contradiction detection).
+- language: Target output language.
+</input_definitions>"""
+
+WEB_SEARCH_SUMMARIZE_PROMPT_HUMAN = """### Input
+- original_query: "{original_query}"
+- web_results:
+{web_results}
+- kb_key_findings: {kb_key_findings}
+
+Summarize the web results. Respond in {language}."""

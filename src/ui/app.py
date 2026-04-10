@@ -66,6 +66,7 @@ VERSION = "V2.2"
 PHASE_LABELS = {
     "generate_todo": "Erstelle Aufgaben",
     "execute_tasks": "Führe Recherche durch",
+    "web_search": "Web-Recherche",
     "synthesize": "Synthesisiere Ergebnisse",
     "quality_check": "Prüfe Qualität",
     "attribute_sources": "Füge Quellen hinzu",
@@ -76,6 +77,7 @@ PHASE_LABELS = {
 SUBTASK_LABELS = {
     "generate_todo": "Plane Forschungsschritte",
     "execute_tasks": "Vektorsuche & Referenzverfolgung",
+    "web_search": "Internet-Suche via Tavily",
     "synthesize": "Erstelle Zusammenfassung",
     "quality_check": "Validiere Ergebnisse",
     "attribute_sources": "Generiere Zitationen",
@@ -433,7 +435,7 @@ def render_sidebar():
                 "Web Search aktivieren",
                 value=session.enable_web_search,
                 key="enable_web",
-                disabled=True,  # Not yet implemented
+                disabled=is_researching,
             )
 
             session.enable_quality_checker = st.checkbox(
@@ -709,10 +711,11 @@ def _start_research_from_hitl(hitl_result: dict) -> None:
         initial_state["phase"] = "generate_todo"
         initial_state["hitl_active"] = False  # Chat-based HITL already done
 
-        # Add database selection to state
+        # Add database selection and web search flag to state
         if session.selected_database:
             initial_state["selected_database"] = session.selected_database
         initial_state["k_results"] = session.k_results
+        initial_state["enable_web_search"] = session.enable_web_search
 
         config = {"configurable": {"thread_id": thread_id}}
 
@@ -746,10 +749,11 @@ def _start_research(query: str) -> None:
         graph = create_research_graph()
         initial_state = create_initial_state(query)
 
-        # Add database selection to state
+        # Add database selection and web search flag to state
         if session.selected_database:
             initial_state["selected_database"] = session.selected_database
         initial_state["k_results"] = session.k_results
+        initial_state["enable_web_search"] = session.enable_web_search
 
         config = {"configurable": {"thread_id": thread_id}}
 

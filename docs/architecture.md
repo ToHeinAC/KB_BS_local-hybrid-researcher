@@ -62,6 +62,14 @@
 │     ├─ Hard-filter below reranker_min_score (default 4)                  │
 │     └─ Raw 1-5 → 0-100 mapping (SCORE_TO_100) for downstream compat     │
 │                                                                          │
+│  Phase 3.10: Optional Web Search (Tavily API)                            │
+│  └─ web_search node (runs only when user enables per session)            │
+│     ├─ LLM generates search query from key_findings + gaps               │
+│     ├─ Tavily REST API call → web results                                │
+│     ├─ LLM summarizes with [Title](URL) citations                        │
+│     ├─ Contradiction detection against KB findings                        │
+│     └─ Strictly separated: appended in attribute_sources, not synthesize │
+│                                                                          │
 │  Phase 4: Query-Anchored Synthesis & Quality Assurance                   │
 │  ├─ synthesize: pre-digested task summaries + HITL summary               │
 │  ├─ Language enforcement (generate_structured_with_language)             │
@@ -401,6 +409,21 @@ Output: Sorted task_summaries with rank metadata, ready for synthesis
 ### Phase 3.9: Batch Chunk Reranking
 
 Batch LLM scoring (~3-4 calls for 20 chunks) with precision/recall strategies. Round-robin batching (`reranker_batch_size=6`) → cross-batch zero-mean normalization → hard-filter below `reranker_min_score` (default 4) → raw 1-5 mapped to 0-100 via `SCORE_TO_100`. Fallback on LLM error: `raw_score = round(relevance_score * 5)`.
+
+### Phase 3.10: Optional Web Search (Tavily API)
+
+Runs only when user enables web search via the GUI checkbox. Inserted between `rerank_task_summaries` and `synthesize` in the graph.
+
+1. **Guard**: Returns `{}` immediately if `enable_web_search` is `False`
+2. **Query generation**: LLM generates one concise search query (4-8 keywords) from `key_findings` + `gaps` across task summaries via `WEB_SEARCH_QUERY_PROMPT`
+3. **Tavily API call**: `tavily_search(query)` POSTs to `https://api.tavily.com/search`, returns raw result dicts
+4. **Result formatting**: `format_tavily_results()` converts to `WebResult` instances; `format_results_for_prompt()` builds numbered text blocks
+5. **LLM summarization**: `WEB_SEARCH_SUMMARIZE_PROMPT` → `WebSearchSummaryOutput` with `[Title](URL)` citations and contradiction detection against KB `key_findings`
+6. **Contradiction notice**: If contradictions found, prepended as `**Widersprüche**` (de) / `**Contradictions**` (en) block
+
+**Strict separation**: Web summary is stored in `web_search_summary` state field and appended in `attribute_sources()` as a distinct markdown section (`### Ergänzende Webrecherche` / `### Supplementary Web Research`). It is **never** passed into the `synthesize()` prompt.
+
+Output: `web_search_results` (list of WebResult dicts), `web_search_summary` (formatted markdown)
 
 ### Phase 4: Query-Anchored Synthesis + Quality Assurance
 

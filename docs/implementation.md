@@ -347,6 +347,28 @@ Replaces verbose inline `[Document.pdf, Page N]` citations with sequential `[1]`
 
 **Port assignments:** Launcher 8522, Main app 8511. Quick tunnel URLs are temporary (`*.trycloudflare.com`).
 
+### Phase 3.10: Tavily Web Search Integration (Optional)
+
+Adds an optional web search step between `rerank_task_summaries` and `synthesize`. KB results and web results are **strictly separated** — web summary is appended in `attribute_sources()`, never passed into `synthesize()`.
+
+- [x] **`src/services/tavily_client.py`** (new): Tavily REST API client
+  - `tavily_search(query, max_results)`: POST to `https://api.tavily.com/search`, returns raw dicts; `[]` on failure
+  - `format_tavily_results(results, query)`: converts raw dicts to `WebResult` instances
+  - `format_results_for_prompt(web_results)`: numbered text blocks for LLM prompt
+- [x] **`src/models/results.py`**: Added `WebSearchSummaryOutput` model (`web_summary`, `contradictions`); extended `FinalReport` with `web_search_section` and `web_sources`
+- [x] **`src/agents/state.py`**: Added `enable_web_search`, `web_search_results`, `web_search_summary` to `AgentState`; initialized in `create_initial_state()`
+- [x] **`src/prompts/synthesis.py`**: 4 new constants — `WEB_SEARCH_QUERY_PROMPT_{SYSTEM,HUMAN}` (generates search term from gaps) + `WEB_SEARCH_SUMMARIZE_PROMPT_{SYSTEM,HUMAN}` (summarizes with `[Title](URL)` citations + contradiction detection)
+- [x] **`src/prompts/synthesis_gpt.py`**: Same 4 constants in Harmony format
+- [x] **`src/agents/nodes.py`**:
+  - `web_search(state)` node: guard on `enable_web_search`, LLM query generation, Tavily API call, LLM summarization with `WebSearchSummaryOutput`, contradiction notice prepending
+  - `attribute_sources()` modified: appends web section with language-appropriate header (`### Ergänzende Webrecherche` / `### Supplementary Web Research`), populates `FinalReport.web_search_section` and `web_sources`
+- [x] **`src/agents/graph.py`**: `web_search` node added; `route_after_rerank()` routes to `web_search` if enabled, else `synthesize`; `route_after_web_search()` always → `synthesize`
+- [x] **`src/ui/app.py`**: Checkbox `disabled=is_researching` (was `disabled=True`); `initial_state["enable_web_search"]` set in both research paths; phase/subtask labels added
+- [x] **`src/ui/components/results_view.py`**: Web sources rendering + markdown export inclusion
+- [x] **`tests/test_web_search.py`** (new): 23 tests covering models, Tavily client, graph routing, web_search node, attribute_sources integration, state defaults
+
+**315 tests total, all passing.**
+
 ### Phase 8: Testing Improvements
 - [x] `TestRouteEntryPoint` class for graph routing logic
   - `test_route_to_hitl_init_on_new_session`

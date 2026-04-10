@@ -265,3 +265,58 @@ hitl_findings: {hitl_findings}
 original_query: "{original_query}"
 
 Decide whether to retry or accept the synthesis. Respond in {language}."""
+
+# =============================================================================
+# Web Search — Query Generation
+# =============================================================================
+WEB_SEARCH_QUERY_PROMPT_SYSTEM = """# Role
+You generate concise web search queries to supplement existing research findings.
+
+# Goal
+Create ONE search query (4-8 keywords) that fills gaps in the existing knowledge base research.
+
+# Rules
+1. Focus on topics listed in remaining_gaps — these are what the KB could not answer.
+2. If no gaps exist, create a query that seeks recent developments related to original_query.
+3. Output ONLY the search query text — no explanation, no prefix, no quotes.
+4. Write the search query in {language}."""
+
+WEB_SEARCH_QUERY_PROMPT_HUMAN = """# Input
+original_query: "{original_query}"
+key_findings_brief: {key_findings_brief}
+remaining_gaps: {remaining_gaps}
+
+Generate one web search query in {language}."""
+
+# =============================================================================
+# Web Search — Result Summarization
+# =============================================================================
+WEB_SEARCH_SUMMARIZE_PROMPT_SYSTEM = """# Role
+You summarize web search results as a supplementary section for a research report. You output valid JSON only.
+
+# Output format
+Wrap your JSON output between <json> and </json> tags:
+<json>{{"web_summary": "MARKDOWN_TEXT", "contradictions": ["CONTRADICTION_1"]}}</json>
+
+Field definitions:
+- web_summary: Markdown summary of web search results. Cite every claim as [Title](URL) using exact title and URL from web_results. Aim for 3-8 bullet points.
+- contradictions: List of contradictions between web results and existing KB findings. Empty list if none.
+
+# Rules
+1. Use ONLY information from the provided web_results. Never use outside knowledge.
+2. Never invent URLs, titles, or facts not in the web results.
+3. Cite every factual claim as [Title](URL) using the EXACT title and URL from web_results.
+4. If web results contradict kb_key_findings, list each contradiction explicitly.
+5. Write all text in {language}. Do not mix languages.
+6. Do not add text outside the JSON tags.
+7. Summarize the most relevant information that answers original_query.
+8. Keep the summary concise — max 500 words.
+9. If web results provide no useful information, set web_summary to a one-sentence note."""
+
+WEB_SEARCH_SUMMARIZE_PROMPT_HUMAN = """# Input
+original_query: "{original_query}"
+web_results:
+{web_results}
+kb_key_findings: {kb_key_findings}
+
+Summarize the web results. Respond in {language}."""

@@ -17,6 +17,7 @@ from src.agents.nodes import (
     rerank_task_summaries,
     synthesize,
     validate_relevance,
+    web_search,
     # Enhanced Phase 1: Iterative HITL nodes
     hitl_init,
     hitl_generate_questions,
@@ -188,8 +189,17 @@ def route_after_validate_relevance(
 
 def route_after_rerank(
     state: AgentState,
+) -> Literal["web_search", "synthesize"]:
+    """Route after task summary reranking — web search if enabled, else synthesis."""
+    if state.get("enable_web_search", False):
+        return "web_search"
+    return "synthesize"
+
+
+def route_after_web_search(
+    state: AgentState,
 ) -> Literal["synthesize"]:
-    """Route after task summary reranking — always go to synthesis."""
+    """Route after web search — always go to synthesis."""
     return "synthesize"
 
 
@@ -248,6 +258,7 @@ def create_research_graph() -> StateGraph:
     graph.add_node("execute_task", execute_task)
     graph.add_node("validate_relevance", validate_relevance)  # Phase G
     graph.add_node("rerank_task_summaries", rerank_task_summaries)  # Phase 3.6
+    graph.add_node("web_search", web_search)  # Phase 3.10 (optional)
     graph.add_node("synthesize", synthesize)
     graph.add_node("quality_check", quality_check)
     graph.add_node("attribute_sources", attribute_sources)
@@ -386,10 +397,20 @@ def create_research_graph() -> StateGraph:
         },
     )
 
-    # Phase 3.6: Task Summary Reranking
+    # Phase 3.6: Task Summary Reranking → web search (if enabled) or synthesis
     graph.add_conditional_edges(
         "rerank_task_summaries",
         route_after_rerank,
+        {
+            "web_search": "web_search",
+            "synthesize": "synthesize",
+        },
+    )
+
+    # Phase 3.10: Web Search → Synthesis
+    graph.add_conditional_edges(
+        "web_search",
+        route_after_web_search,
         {
             "synthesize": "synthesize",
         },

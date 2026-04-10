@@ -53,6 +53,12 @@ Classical RAG lacks deep contextual understanding and cannot follow inter-docume
 │  Precision/recall strategies; raw 1-5 → 0-100 mapping               │
 │  Hard-filter below reranker_min_score; cross-batch normalization    │
 ├────────────────────────────────────────────────────────────────────┤
+│  Phase 3.10: Optional Web Search (Tavily API)                       │
+│  web_search node: LLM generates query → Tavily REST API → LLM      │
+│  summarizes with [Title](URL) citations + contradiction detection   │
+│  Strictly separated from KB results; appended in attribute_sources  │
+│  Disabled by default; user enables per session via GUI checkbox     │
+├────────────────────────────────────────────────────────────────────┤
 │  Phase 4: Deep Report Synthesis + Quality Assurance                   │
 │  Pre-Digested Task Summaries + HITL Summary → Deep Report            │
 │  Language Enforcement → Quality Check → **Agentic Remediation** →   │
@@ -94,6 +100,7 @@ The system now uses **tiered context classification** to prevent query drift and
 - **Task Summary Reranking**: Deterministic sort by `relevance_to_query` before synthesis; `[Rank: N/total]` / `[Relevance: N/100]` headers visible in formatted summaries
 - **Reference Provenance**: Nested chunks carry parent document + surrounding context of the reference; reranker penalises off-topic parent context; `[via ref "..."]` header in formatted findings for traceability
 - **Batch Chunk Reranking**: `_rerank_task_chunks()` uses batch LLM scoring (~3-4 calls for 20 chunks) with precision/recall strategies, cross-batch normalization, and hard-filtering below `reranker_min_score`
+- **Optional Web Search**: Tavily API integration (Phase 3.10) — LLM generates search query from gaps, summarizes results with `[Title](URL)` citations, detects contradictions against KB findings; strictly separated from KB synthesis; disabled by default, user-enabled per session
 - **Language Enforcement**: Strict single-language output with retry on mismatch
 - **Numbered Citations**: `numberify_citations()` replaces inline `[Doc.pdf, Page N]` with sequential `[1]`, `[2]`, … + appended reference list with PDF links served via `/_api/pdf` Tornado route
 
@@ -264,7 +271,7 @@ KB_BS_local-hybrid-researcher/
 1. **Human-In-The-Loop**: User validation at query refinement and task approval
 2. **ToDoList Tracking**: Visible task progress with dynamic updates
 3. **Structured JSON Outputs**: All LLM responses via Pydantic + `json_mode`
-4. **Fully Local**: Ollama-only, no external API calls
+4. **Fully Local**: Ollama-only, no external API calls (exception: optional Tavily web search, disabled by default)
 5. **Safe Exit**: Streamlit button to cleanly terminate (port-aware)
 6. **Reference Following**: Deep rabbithole traversal with hybrid detection (regex+LLM), document registry scoping, relevance filtering, and database-selection propagation (broad fallback searches respect `selected_database` from the UI)
 7. **Runtime Model Selection**: UI depth selector in sidebar ("Erweiterte Einstellungen") with 5 levels — prompts auto-adapt via dynamic routing, all cached clients reset on switch
