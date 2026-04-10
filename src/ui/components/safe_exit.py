@@ -1,11 +1,14 @@
 """Safe exit button component."""
 
-import subprocess
-import sys
+import gc
+import logging
 
+import requests
 import streamlit as st
 
 from src.config import settings
+
+logger = logging.getLogger(__name__)
 
 
 @st.cache_resource
@@ -27,40 +30,97 @@ def render_safe_exit() -> None:
     st.sidebar.divider()
     st.sidebar.subheader("Session Control")
 
-    if st.sidebar.button("Safe Exit", type="secondary", help="Cleanly terminate the application"):
+    if st.sidebar.button(
+        "Free GPU & Reset",
+        type="secondary",
+        help="Unload models from GPU and reset session. Server stays running.",
+    ):
         _perform_safe_exit()
 
 
 def _perform_safe_exit() -> None:
-    """Perform safe exit by killing the Streamlit process on the current port."""
-    port = settings.streamlit_port
+    """Free GPU VRAM and reset session without stopping the server.
 
-    st.sidebar.warning(f"Terminating application on port {port}...")
+    Steps:
+    1. Unload Ollama model from GPU via keep_alive=0 API call
+    2. Clear all @st.cache_resource caches (releases Python refs to embedding model)
+    3. Run GC + torch.cuda.empty_cache() to release CUDA memory
+    4. Reset OllamaClient module singletons
+    5. Reset Streamlit session state
+    6. Rerun to fresh state (server stays alive)
+    """
+    st.sidebar.info("Freeing GPU memory...")
 
+    # Step 1: Unload Ollama model from VRAM
+    _unload_ollama_model()
+
+    # Step 2: Clear all cached resource functions
+    _clear_all_caches()
+
+    # Step 3: Release CUDA allocator cache
     try:
-        # Find and kill process on the port
-        # Uses lsof to find the process and xargs to kill it
-        # -r flag ensures xargs doesn't fail if no PIDs are found
-        cmd = f"lsof -ti:{port} | xargs -r kill -9"
-        result = subprocess.run(
-            cmd,
-            shell=True,
-            capture_output=True,
-            text=True,
-        )
+        import torch
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+            logger.info("CUDA cache cleared")
+    except ImportError:
+        pass
 
-        if result.returncode == 0:
-            st.sidebar.success("Application terminated")
-        else:
-            # Alternative: just exit Python
-            st.sidebar.info("Exiting application...")
-            st.stop()
-            sys.exit(0)
+    gc.collect()
 
+    # Step 4: Reset module-level OllamaClient singletons
+    try:
+        from src.agents import nodes as _nodes_mod
+        from src.agents import tools as _tools_mod
+        from src.services import hitl_service as _hitl_mod
+        _nodes_mod.reset_ollama_client()
+        _tools_mod.reset_ollama_client()
+        _hitl_mod.reset_ollama_client()
     except Exception as e:
-        st.sidebar.error(f"Error during exit: {e}")
-        # Fallback: exit Python directly
-        sys.exit(0)
+        logger.warning(f"Could not reset OllamaClient singletons: {e}")
+
+    # Step 5: Reset session state
+    from src.ui.state import reset_session_state
+    from src.ui.components.gpu_widget import reset_research_timer
+    reset_session_state()
+    reset_research_timer()
+
+    st.sidebar.success("GPU freed. Session reset. Server still running.")
+    st.rerun()
+
+
+def _unload_ollama_model() -> None:
+    """Tell Ollama to evict the current model from VRAM (keep_alive=0)."""
+    try:
+        url = f"{settings.ollama_base_url}/api/generate"
+        payload = {"model": settings.ollama_model, "keep_alive": 0}
+        requests.post(url, json=payload, timeout=5)
+        logger.info(f"Requested Ollama to unload model: {settings.ollama_model}")
+    except Exception as e:
+        logger.warning(f"Ollama model unload request failed (non-critical): {e}")
+
+
+def _clear_all_caches() -> None:
+    """Clear all @st.cache_resource caches to release GPU-holding Python objects."""
+    # Local caches in this module
+    _get_ollama_client.clear()
+    _get_chromadb_client.clear()
+
+    # ChromaDB client in app.py (holds the HuggingFace embedding model)
+    try:
+        from src.ui.app import get_chromadb_client
+        get_chromadb_client.clear()
+    except Exception as e:
+        logger.warning(f"Could not clear app.py chromadb cache: {e}")
+
+    # HITL service cache
+    try:
+        from src.ui.components.hitl_panel import _get_hitl_service
+        _get_hitl_service.clear()
+    except Exception as e:
+        logger.warning(f"Could not clear hitl_service cache: {e}")
+
+    logger.info("All @st.cache_resource caches cleared")
 
 
 def render_connection_status() -> None:

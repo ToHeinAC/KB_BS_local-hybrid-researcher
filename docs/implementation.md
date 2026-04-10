@@ -116,7 +116,7 @@ Bug fix: the user-selected database was respected for initial vector searches bu
 - [x] Live progress updates via LangGraph streaming
 - [x] Results view with linked sources
 - [x] Session state management
-- [x] Safe exit button (port-aware kill)
+- [x] "Free GPU & Reset" button: Ollama `keep_alive=0` unload + clear all `@st.cache_resource` caches + `torch.cuda.empty_cache()` + session reset; server stays alive (Cloudflare tunnel preserved)
 - [x] Source inspection view
 
 ### Phase 6.5: UI Enhancements

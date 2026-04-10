@@ -126,38 +126,11 @@ The enhanced iterative HITL system provides intelligent query refinement through
 └──────────────────────────────────────────────────────────────────┘
 ```
 
-**Node Descriptions:**
+**Nodes**: `hitl_init` → `hitl_generate_queries` (3/iteration) → `hitl_retrieve_chunks` (deduplicated) → `hitl_analyze_retrieval` (coverage_score, gaps) → `hitl_generate_questions` → `hitl_process_response` → `hitl_finalize`. Full node specs in [docs/architecture.md](docs/architecture.md).
 
-1. **hitl_init**: Initialize conversation, detect language (de/en)
-2. **hitl_generate_queries** (NEW): Generate 3 search queries per iteration
-   - Iteration 0: original + broader_scope + alternative_angle
-   - Iteration N>0: refined based on user feedback + knowledge gaps
-3. **hitl_retrieve_chunks** (NEW): Execute vector search with deduplication
-   - 3 chunks per query (~9 total per iteration)
-   - Deduplicates against accumulated `query_retrieval`
-4. **hitl_analyze_retrieval** (NEW): LLM analysis of retrieval context
-   - Extracts: key_concepts, entities, scope, knowledge_gaps, coverage_score
-5. **hitl_generate_questions**: Generate 2-3 contextual follow-up questions
-   - Now informed by retrieval analysis and identified gaps
-   - **Uses `query_retrieval` from state** to provide retrieval context to LLM
-6. **hitl_process_response**: Analyze user response, check termination conditions
-7. **hitl_finalize**: Build query_anchor/hitl_smry, generate supplementary research_queries → routes to `assess_query`
+**Termination**: `/end` → `user_end`; max 5 iterations → `max_iterations`; coverage ≥ 0.8 AND dedup ≥ 0.7 AND gaps ≤ 2 → `convergence`.
 
-**Termination Conditions** (all paths sync `hitl_conversation_history` to agent state):
-- User types `/end` → `user_end`
-- Max iterations reached (default: 5) → `max_iterations`
-- **Convergence** (coverage ≥ 0.8 AND dedup_ratio ≥ 0.7 AND gaps ≤ 2) → `convergence`
-
-**State Tracking**:
-- `hitl_iteration`: Current iteration count (0-indexed)
-- `coverage_score`: 0-1 estimate of information coverage
-- `iteration_queries`: List of query triples per iteration
-- `knowledge_gaps`: Identified gaps from retrieval analysis
-- `retrieval_dedup_ratios`: Dedup ratio per iteration for convergence detection
-- `hitl_conversation_history`: Full conversation for context
-- `query_retrieval`: Accumulated retrieval text (converted to tertiary_context in finalize)
-
-**Graded Context State Fields** (NEW):
+**Graded Context State Fields**:
 - `query_anchor`: Immutable reference to original intent (created in `hitl_finalize` for graph-based HITL, or in `_start_research_from_hitl` for chat-based HITL)
 - `hitl_smry`: Citation-aware HITL summary (generated in `hitl_finalize` or `_start_research_from_hitl`)
 - `primary_context`: Tier 1 high-confidence findings (list of dicts)
@@ -272,7 +245,7 @@ KB_BS_local-hybrid-researcher/
 2. **ToDoList Tracking**: Visible task progress with dynamic updates
 3. **Structured JSON Outputs**: All LLM responses via Pydantic + `json_mode`
 4. **Fully Local**: Ollama-only, no external API calls (exception: optional Tavily web search, disabled by default)
-5. **Safe Exit**: Streamlit button to cleanly terminate (port-aware)
+5. **Free GPU & Reset**: Unloads Ollama model (`keep_alive=0`), clears all `@st.cache_resource` caches, runs `torch.cuda.empty_cache()`, resets session — server stays alive (Cloudflare tunnel preserved)
 6. **Reference Following**: Deep rabbithole traversal with hybrid detection (regex+LLM), document registry scoping, relevance filtering, and database-selection propagation (broad fallback searches respect `selected_database` from the UI)
 7. **Runtime Model Selection**: UI depth selector in sidebar ("Erweiterte Einstellungen") with 5 levels — prompts auto-adapt via dynamic routing, all cached clients reset on switch
 

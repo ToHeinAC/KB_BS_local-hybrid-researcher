@@ -323,60 +323,21 @@ Accumulates all research findings. Top-level keys: `search_queries` (list of `Se
 
 ### Phase 1: Enhanced Query Analysis + Iterative HITL
 
-1. **User Query** → Streamlit UI captures research question
-2. **hitl_init**: Detect language (de/en), initialize conversation state
-3. **hitl_generate_queries**: Generate 3 search queries (original + 2 alternatives)
-4. **hitl_retrieve_chunks**: Search ChromaDB, deduplicate, append to `query_retrieval`
-5. **hitl_analyze_retrieval**: LLM analysis for concepts, gaps, and coverage score
-6. **hitl_generate_questions**: Generate 2-3 contextual follow-ups based on knowledge gaps
-7. **Graph interrupts** (→ END), awaits user response
-8. **hitl_process_response**: Analyze user response, check termination:
-   - `/end` typed → terminate with `user_end`
-   - Max iterations reached → terminate with `max_iterations`
-   - Convergence criteria met (coverage ≥ 0.8, dedup ≥ 0.7, gaps ≤ 2) → terminate with `convergence`
-   - Otherwise → loop back to `hitl_generate_queries`
-9. **hitl_finalize**: Build query_analysis, query_anchor, hitl_smry; generate supplementary research_queries via `_build_diverse_queries()` (question-shaped, excludes original query since Task 0 covers it)
-10. **Output**: `research_queries[]` (supplementary only), `query_analysis`, `query_anchor`, `hitl_smry`, `coverage_score`, `query_retrieval`
+`hitl_init` → `hitl_generate_queries` (3/iteration) → `hitl_retrieve_chunks` → `hitl_analyze_retrieval` → `hitl_generate_questions` → `hitl_process_response` [loop or terminate] → `hitl_finalize`. Termination: `/end`, max 5 iterations, or convergence (coverage ≥ 0.8, dedup ≥ 0.7, gaps ≤ 2). Output: `query_anchor`, `hitl_smry`, supplementary `research_queries[]`.
 
 ### Phase 2.5: Query Assessment
 
-1. **Input**: `query_analysis`, `hitl_smry`, `knowledge_gaps`, `detected_language`
-2. **LLM Assessment** via `QUERY_ASSESSMENT_PROMPT` → `QueryAssessmentDecision`:
-   - `proceed: bool` — whether to run deep research
-   - `num_tasks: int` (3-6) — how many ToDo tasks to generate
-   - `reason` — rejection code if `proceed=False`: `no_live_data` | `out_of_context` | `no_clear_conversation_steering`
-   - `explanation` — human-readable explanation
-3. **Rejection path** (`proceed=False`): writes `FinalReport` with apology + reason → `__end__`
-4. **Approval path** (`proceed=True`): passes `query_assessment` (with `num_tasks`) to `generate_todo`
-5. **Fallback** on LLM error: `proceed=True, num_tasks=5`
+`QUERY_ASSESSMENT_PROMPT` → `QueryAssessmentDecision(proceed, num_tasks 3-6, reason, explanation)`. `proceed=False` → `__end__` with rejection FinalReport. `proceed=True` → `generate_todo(num_tasks)`. Rejection reasons: `no_live_data | out_of_context | no_clear_conversation_steering`. Fallback: `proceed=True, num_tasks=5`.
 
 ### Phase 2: Research Planning
 
-1. **Input**: `QueryAnalysis`, `query_assessment` (with `num_tasks`), `hitl_smry`
-2. **ToDoList Generation** (LLM primary):
-   - Generates exactly `num_tasks` items (clamped 3-6) using rich query analysis + hitl_smry
-   - Fallback 1: `research_queries[:num_tasks]` from HITL if LLM fails
-   - Fallback 2: single task from `original_query` as last resort
-   - Each item: specific, measurable task anchored to query entities
-   - Constraints: max TODO_MAX_ITEMS (15)
-3. **HITL Checkpoint**: User approves/modifies tasks
-4. **Output**: Approved ToDoList
+LLM generates `num_tasks` ToDoItems from `QueryAnalysis` + `hitl_smry` (clamped 3–6). Fallback 1: `research_queries[:num_tasks]`. Fallback 2: single task from `original_query`. HITL checkpoint for user approval/modification.
 
 ### Phase 3: Deep Context Extraction (with Graded Classification)
 
-For each ToDoList item (starting from Task 0 = original query):
+For each task: multi-query (3) → vector search → dedup → extract info + quotes → classify Tier 1/2/3 → reference detection → agentic gate (`ReferenceDecision`) → scoped resolution → classify nested chunks → convergence check → task summary (0-100 relevance score).
 
-1. **Multi-Query Generation**: LLM generates 2 targeted queries via `TASK_SEARCH_QUERIES_PROMPT` + 1 base concatenation query
-2. **Vector Search**: Execute all 3 queries against ChromaDB, deduplicate by chunk identity
-3. **Information Extraction**: Condense relevant passages into `extracted_info` + preserve critical quotes (language-aware)
-4. **Context Classification**: Classify each chunk into Tier 1/2/3 based on relevance, depth, entity match
-4. **Reference Detection**: Identify section/document/external refs
-5. **Agentic Reference Gate**: LLM decides per-reference whether to follow (`ReferenceDecision` model). Skips tangential refs to preserve token budget.
-6. **Reference Following**: Resolve and retrieve nested chunks (classified into Tier 2/3)
-7. **Task Summary**: Generate structured summary with key findings and LLM-scored relevance (0-100)
-7. **ToDoList Update**: Mark task complete and continue to next task
-
-Output: Fully populated ResearchContext + tiered context (primary/secondary/tertiary) + task_summaries (with per-task tiered evidence) + preserved_quotes
+Output: ResearchContext + tiered context (primary/secondary/tertiary) + task_summaries + preserved_quotes.
 
 ### Phase 3.5: Pre-Synthesis Relevance Validation + Backfill
 
@@ -427,32 +388,11 @@ Output: `web_search_results` (list of WebResult dicts), `web_search_summary` (fo
 
 ### Phase 4: Query-Anchored Synthesis + Quality Assurance
 
-1. **Deep Report Synthesis**: Uses `SYNTHESIS_PROMPT_ENHANCED` to produce extensive, structured deep reports:
-   - LLM acts as "expert report writer" — no sentence cap, markdown-formatted output
-   - Task summaries (sole evidence source, formatted with key_findings, gaps, preserved quotes via `_format_task_summaries()`)
-   - HITL context summary
-   - Preserves exact figures, verbatim quotes, section/paragraph references from sources
-   - Tiered evidence is resolved at the task summary level, not at synthesis level
-2. **Language Enforcement**: `generate_structured_with_language()` validates output language
-3. **Quality Check** (optional): Score 0-500 across 5 dimensions (factual accuracy, semantic validity, structural integrity, citation correctness, query relevance)
-4. **Agentic Quality Remediation**: If score < `quality_threshold` (375) and `synthesis_retry_count < 1`:
-   - LLM evaluates quality scores via `QUALITY_REMEDIATION_PROMPT` → `QualityRemediationDecision`
-   - If `action == "retry"`: sets `phase="retry_synthesis"`, increments `synthesis_retry_count`, stores `quality_remediation_focus` (specific improvement instructions)
-   - Graph routes back to `synthesize` node, which appends focus instructions to prompt
-   - If `action == "accept"` or max retries reached: proceeds to source attribution
-   - Max 1 retry to prevent infinite loops
+`SYNTHESIS_PROMPT_ENHANCED` → markdown deep report from task summaries + hitl_smry. Language enforcement via `generate_structured_with_language()`. Optional quality check (0-500, 5 dimensions). Agentic remediation: if score < 375 and `synthesis_retry_count < 1`, `QUALITY_REMEDIATION_PROMPT` → `QualityRemediationDecision(accept|retry)` → retry appends `quality_remediation_focus` to prompt (max 1 retry).
 
 ### Phase 5: Source Attribution + Numbered Citations
 
-1. **Source List**: Collect sources from extracted chunks
-2. **Report Assembly**: Build `FinalReport` (answer, findings, sources, quality)
-3. **Numbered Citations**: `numberify_citations(answer, language)` post-processes the answer text:
-   - Scans for all `[Document.pdf, Page N]` / `[Document.pdf, Seite N]` / `[Document.pdf]` patterns
-   - Assigns sequential numbers in reading order; same `(doc, page)` pair reuses same number
-   - Replaces inline citations with `[N]` markers
-   - Appends a `### Quellenverzeichnis` / `### References` block with clickable PDF links
-   - PDF links use `/_api/pdf?path=<encoded>` served by the injected Tornado route
-4. **PDF Route**: `ensure_pdf_route()` (called from `render_results_view()`) injects `/_api/pdf` Tornado handler once; security validated to serve only files within `kb/` directory
+`attribute_sources()` builds `FinalReport`. `numberify_citations(answer, language)` replaces `[Doc.pdf, Page N]` patterns with sequential `[N]` markers + appended `### Quellenverzeichnis/References` block with `/_api/pdf` links. `ensure_pdf_route()` injects the Tornado PDF handler once (path validated to `kb/` dir).
 
 ## Streamlit Runtime Model
 
@@ -492,6 +432,14 @@ def _ensure_gpu_route():       # gpu_widget.py (one-time Tornado route injection
 This prevents re-loading the embedding model and reconnecting to services on every UI interaction.
 
 **Runtime reset on model switch**: When the user changes the research depth selector, `_apply_research_depth()` calls `reset_ollama_client()` on all 3 consumer modules (`nodes.py`, `tools.py`, `hitl_service.py`) and clears the `@st.cache_resource` for `_get_hitl_service` and `_get_ollama_client`. This ensures new `OllamaClient` instances pick up the changed `settings.ollama_model`.
+
+**"Free GPU & Reset" button** (`safe_exit.py`): Graceful GPU release without stopping the server — keeps Cloudflare tunnel alive.
+1. `POST /api/generate` with `keep_alive: 0` → Ollama evicts current model from VRAM
+2. `.clear()` on all four cached resource functions → releases Python refs to HuggingFace embedding model
+3. `torch.cuda.empty_cache()` + `gc.collect()` → frees CUDA allocator fragment cache
+4. `reset_ollama_client()` on `nodes`, `tools`, `hitl_service` modules
+5. `reset_session_state()` + `reset_research_timer()` → fresh UI state
+6. `st.rerun()` → app reloads to HITL screen; port process untouched
 
 ### Research Depth Selector (Sidebar)
 
