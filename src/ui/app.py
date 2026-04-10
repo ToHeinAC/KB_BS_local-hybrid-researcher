@@ -110,6 +110,18 @@ def get_license_content() -> str:
         return ""
 
 
+@st.dialog("Dokumente in der Wissensdatenbank", width="large")
+def _show_documents_dialog(db_name: str, doc_names: list[str]) -> None:
+    """Modal dialog listing all unique document names in the selected database."""
+    st.caption(f"Datenbank: **{db_name}**")
+    if not doc_names:
+        st.info("Keine Dokumente gefunden.")
+        return
+    st.write(f"**{len(doc_names)} Dokumente**")
+    for name in doc_names:
+        st.text(name)
+
+
 def _apply_research_depth(label: str) -> None:
     """Apply research depth selection: update model + reset all cached clients.
 
@@ -388,6 +400,10 @@ def render_sidebar():
                     if embedding_model:
                         st.caption(f"Embedding: {embedding_model}")
 
+                    if st.button("Dokumente anzeigen", key="show_docs_btn", use_container_width=True):
+                        doc_names = chromadb_client.get_document_names(selected)
+                        _show_documents_dialog(selected, doc_names)
+
                     k_results = st.slider(
                         "Ergebnisse pro Abfrage",
                         min_value=1,
@@ -429,7 +445,8 @@ def render_sidebar():
             )
             if depth != session.research_depth:
                 session.research_depth = depth
-                _apply_research_depth(depth)
+            # Always sync settings.ollama_model with UI selection (handles .env mismatch on first load)
+            _apply_research_depth(depth)
 
             session.enable_web_search = st.checkbox(
                 "Web Search aktivieren",

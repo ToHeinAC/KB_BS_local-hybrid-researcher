@@ -369,6 +369,19 @@ Adds an optional web search step between `rerank_task_summaries` and `synthesize
 
 **315 tests total, all passing.**
 
+### Phase 6.15: Wissensdatenbank Document Browser + Model Sync Fix
+
+Two sidebar improvements in `src/ui/app.py` and `src/services/chromadb_client.py`.
+
+**Document Browser:**
+- [x] **`ChromaDBClient.get_document_names(db_name)`** (`src/services/chromadb_client.py`): metadata-only query via raw `chromadb.PersistentClient` (no embeddings); calls `collection.get(include=["metadatas"])`, extracts `original_filename` / `source` / `filename`, deduplicates, returns sorted `list[str]`.
+- [x] **`@st.dialog` modal** (`src/ui/app.py`): `_show_documents_dialog(db_name, doc_names)` — native Streamlit modal showing DB name, document count, and one filename per line; closes via ✕ without affecting app state.
+- [x] **"Dokumente anzeigen" button** added to "Wissensdatenbank" expander after the embedding caption; only visible when a specific database is selected.
+
+**Model Sync Fix (GPU widget showed stale `.env` model):**
+- [x] **Root cause**: `_apply_research_depth()` was only called when `depth != session.research_depth`, so on first page load (where both equal the session default `"basic (gemma4:e4b)"`), `settings.ollama_model` was never synced from the UI default — it kept the `.env` value (e.g., `qwen3:14b`), which the GPU widget displayed.
+- [x] **Fix**: `_apply_research_depth(depth)` is now called unconditionally after the selectbox on every render. Its guard (`if model_name == settings.ollama_model: return`) makes it a no-op when already in sync.
+
 ### Phase 8: Testing Improvements
 - [x] `TestRouteEntryPoint` class for graph routing logic
   - `test_route_to_hitl_init_on_new_session`

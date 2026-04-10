@@ -461,6 +461,15 @@ On change, `_apply_research_depth()`:
 
 The selectbox is disabled during active research (`workflow_phase == "research"`) and persists across reruns via `session.research_depth`.
 
+**Model sync on first load**: `_apply_research_depth(depth)` is now called unconditionally on every sidebar render. Its guard (`if model_name == settings.ollama_model: return`) keeps repeated calls cheap. This ensures `settings.ollama_model` is always aligned with the UI selection even on first page load (when `.env` may carry a different model than the session default `gemma4:e4b`).
+
+### Wissensdatenbank Panel (Sidebar)
+
+A **"Dokumente anzeigen"** button below the embedding caption opens a native `@st.dialog` modal listing all unique document filenames in the selected database. Closes via ✕; no app state affected.
+
+- `ChromaDBClient.get_document_names(db_name)` — raw `chromadb.PersistentClient` metadata-only query (no embeddings); extracts `original_filename` / `source` / `filename`, deduplicates, returns sorted list.
+- Button visible only when a specific database is selected (`use_ext_db=True`).
+
 ### GPU Widget (Sidebar)
 
 Live GPU temp/fan/load + elapsed research time via Tornado route injection (`/_api/gpu`), updating every 1s independently of Streamlit's script-runner thread.

@@ -349,6 +349,42 @@ class ChromaDBClient:
         logger.info(f"Found {len(directories)} database directories")
         return directories
 
+    def get_document_names(self, db_name: str) -> list[str]:
+        """Return sorted unique document names stored in a database.
+
+        Uses the raw ChromaDB client (no embeddings) for fast metadata-only access.
+
+        Args:
+            db_name: Database directory name (e.g., 'GLageKon__Qwen--...')
+
+        Returns:
+            Sorted list of unique document filenames
+        """
+        db_path = self.base_path / db_name
+        if not db_path.exists():
+            return []
+        actual_path = db_path / "default" if (db_path / "default").exists() else db_path
+        try:
+            raw_client = chromadb.PersistentClient(path=str(actual_path))
+            collections = raw_client.list_collections()
+            if not collections:
+                return []
+            collection = collections[0]
+            result = collection.get(include=["metadatas"])
+            names: set[str] = set()
+            for meta in result.get("metadatas") or []:
+                name = (
+                    meta.get("original_filename")
+                    or meta.get("source")
+                    or meta.get("filename")
+                )
+                if name:
+                    names.add(name)
+            return sorted(names)
+        except Exception as e:
+            logger.warning(f"Failed to get document names for {db_name}: {e}")
+            return []
+
     def extract_embedding_model(self, db_name: str) -> str | None:
         """Extract embedding model from database name pattern.
 
