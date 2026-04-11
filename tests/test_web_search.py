@@ -360,6 +360,161 @@ class TestAttributeSourcesWebSearch:
         assert "Supplementary Web Research" in report["answer"]
 
 
+# --- _extract_things_to_avoid Tests ---
+
+
+class TestExtractThingsToAvoid:
+    """Tests for the _extract_things_to_avoid helper."""
+
+    def test_empty_string(self):
+        from src.agents.nodes import _extract_things_to_avoid
+        assert _extract_things_to_avoid("") == ""
+
+    def test_no_things_to_avoid_section(self):
+        from src.agents.nodes import _extract_things_to_avoid
+        hitl = "PRIMARY INFORMATION\nSome fact.\n\nGAPS\nUnknown."
+        assert _extract_things_to_avoid(hitl) == ""
+
+    def test_inline_value(self):
+        from src.agents.nodes import _extract_things_to_avoid
+        hitl = (
+            "PRIMARY INFORMATION\nFact.\n\nRULES\n"
+            "Recommended practices: do this\n"
+            "Things to avoid: medical exposure limits, patient doses\n\n"
+            "GAPS\nSomething missing."
+        )
+        result = _extract_things_to_avoid(hitl)
+        assert "medical exposure limits" in result
+        assert "patient doses" in result
+
+    def test_bullet_list_form(self):
+        from src.agents.nodes import _extract_things_to_avoid
+        hitl = (
+            "RULES\n"
+            "Recommended practices: measure often\n"
+            "Things to avoid:\n"
+            "- environmental monitoring\n"
+            "- non-occupational exposure\n\n"
+            "GAPS\nNothing more."
+        )
+        result = _extract_things_to_avoid(hitl)
+        assert "environmental monitoring" in result
+        assert "non-occupational exposure" in result
+
+    def test_stops_at_next_section(self):
+        from src.agents.nodes import _extract_things_to_avoid
+        hitl = (
+            "RULES\n"
+            "Things to avoid: topic_x\n\n"
+            "GAPS\ngap_y"
+        )
+        result = _extract_things_to_avoid(hitl)
+        assert "topic_x" in result
+        assert "gap_y" not in result
+
+    def test_returns_semicolon_separated(self):
+        from src.agents.nodes import _extract_things_to_avoid
+        hitl = (
+            "RULES\nThings to avoid:\n- alpha\n- beta\n\nGAPS\n"
+        )
+        result = _extract_things_to_avoid(hitl)
+        assert result == "alpha; beta"
+
+
+class TestWebSearchDoNtsPropagation:
+    """Verify things_to_avoid is passed to both prompt format calls."""
+
+    @patch("src.agents.nodes.get_ollama_client")
+    @patch("src.services.tavily_client.requests.post")
+    @patch("src.services.tavily_client.settings")
+    def test_things_to_avoid_passed_to_query_prompt(
+        self, mock_settings, mock_post, mock_get_client
+    ):
+        mock_settings.tavily_api_key = "test-key"
+        mock_settings.web_results_per_query = 2
+
+        mock_resp = MagicMock()
+        mock_resp.json.return_value = {
+            "results": [{"title": "T", "url": "https://t.com", "content": "C"}]
+        }
+        mock_resp.raise_for_status = MagicMock()
+        mock_post.return_value = mock_resp
+
+        mock_client = MagicMock()
+        mock_client.generate_messages.return_value = "Was sind die Grenzwerte?"
+        mock_client.generate_structured_messages.return_value = WebSearchSummaryOutput(
+            web_summary="Some info [T](https://t.com)", contradictions=[]
+        )
+        mock_get_client.return_value = mock_client
+
+        from src.agents.nodes import web_search
+        hitl_smry = (
+            "PRIMARY INFORMATION\nFact.\n\n"
+            "RULES\nRecommended practices: always measure\n"
+            "Things to avoid: medical patient exposure, nuclear weapons\n\n"
+            "GAPS\nNothing."
+        )
+        state = {
+            "enable_web_search": True,
+            "query_anchor": {"original_query": "Strahlenschutz", "detected_language": "de"},
+            "task_summaries": [],
+            "hitl_smry": hitl_smry,
+        }
+        web_search(state)
+
+        # Verify generate_messages was called with things_to_avoid in the human prompt
+        call_args = mock_client.generate_messages.call_args
+        human_prompt = call_args[0][1]  # second positional arg
+        assert "medical patient exposure" in human_prompt
+        assert "nuclear weapons" in human_prompt
+
+    @patch("src.agents.nodes.get_ollama_client")
+    @patch("src.services.tavily_client.requests.post")
+    @patch("src.services.tavily_client.settings")
+    def test_things_to_avoid_passed_to_summarize_prompt(
+        self, mock_settings, mock_post, mock_get_client
+    ):
+        mock_settings.tavily_api_key = "test-key"
+        mock_settings.web_results_per_query = 2
+
+        mock_resp = MagicMock()
+        mock_resp.json.return_value = {
+            "results": [{"title": "T", "url": "https://t.com", "content": "C"}]
+        }
+        mock_resp.raise_for_status = MagicMock()
+        mock_post.return_value = mock_resp
+
+        mock_client = MagicMock()
+        mock_client.generate_messages.return_value = "search question"
+        mock_client.generate_structured_messages.return_value = WebSearchSummaryOutput(
+            web_summary="info [T](https://t.com)", contradictions=[]
+        )
+        mock_get_client.return_value = mock_client
+
+        from src.agents.nodes import web_search
+        hitl_smry = "RULES\nThings to avoid: patient_dose_limits\n\nGAPS\n"
+        state = {
+            "enable_web_search": True,
+            "query_anchor": {"original_query": "test", "detected_language": "en"},
+            "task_summaries": [],
+            "hitl_smry": hitl_smry,
+        }
+        web_search(state)
+
+        # Verify generate_structured_messages was called with things_to_avoid in both args
+        call_args = mock_client.generate_structured_messages.call_args
+        system_prompt = call_args[0][0]
+        human_prompt = call_args[0][1]
+        assert "patient_dose_limits" in system_prompt
+        assert "patient_dose_limits" in human_prompt
+
+    def test_no_hitl_smry_uses_none_placeholder(self):
+        """When hitl_smry is absent, things_to_avoid should be 'None' (safe placeholder)."""
+        from src.agents.nodes import _extract_things_to_avoid
+        result = _extract_things_to_avoid("") or "None"
+        assert result == "None"
+
+
 # --- State Tests ---
 
 

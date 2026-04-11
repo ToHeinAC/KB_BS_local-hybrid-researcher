@@ -876,6 +876,40 @@ def _score_and_filter_context(
 # --- Phase 3.10: Web Search (optional, between rerank and synthesize) ---
 
 
+def _extract_things_to_avoid(hitl_smry: str) -> str:
+    """Extract 'Things to avoid' lines from hitl_smry RULES section.
+
+    The hitl_smry has a fixed structure with a RULES section containing:
+        Things to avoid: topic1, topic2
+    or bullet lines after that header.
+
+    Returns a semicolon-separated string of excluded topics, or "" if none.
+    """
+    if not hitl_smry:
+        return ""
+    lines = hitl_smry.splitlines()
+    collecting = False
+    items: list[str] = []
+    for line in lines:
+        stripped = line.strip()
+        if stripped.lower().startswith("things to avoid"):
+            # Inline form: "Things to avoid: topic1, topic2"
+            after_colon = stripped.split(":", 1)[-1].strip()
+            if after_colon:
+                items.append(after_colon)
+            collecting = True
+            continue
+        if collecting:
+            # Stop at blank line or next all-caps section header (e.g. "GAPS")
+            if not stripped or (stripped.isupper() and len(stripped) > 3):
+                break
+            if stripped.startswith("-"):
+                items.append(stripped.lstrip("- ").strip())
+            elif stripped:
+                items.append(stripped)
+    return "; ".join(items) if items else ""
+
+
 def web_search(state: AgentState) -> dict:
     """Run supplementary web search via Tavily API.
 
@@ -903,7 +937,7 @@ def web_search(state: AgentState) -> dict:
     language = query_anchor.get("detected_language", "de")
     original_query = query_anchor.get("original_query", state.get("query", ""))
 
-    # Collect key findings and gaps from task summaries for search query generation
+    # Collect gaps from task summaries and extract HITL exclusions
     task_summaries = state.get("task_summaries", [])
     key_findings_items = []
     gap_items = []
@@ -912,14 +946,15 @@ def web_search(state: AgentState) -> dict:
         gap_items.extend(ts.get("gaps", []))
     key_findings_brief = "; ".join(key_findings_items[:5]) or "None"
     remaining_gaps = "; ".join(gap_items[:5]) or "None"
+    things_to_avoid = _extract_things_to_avoid(state.get("hitl_smry", "")) or "None"
 
-    # Step 1: Generate optimal search query via LLM
+    # Step 1: Generate natural-language search question via LLM
     try:
         query_system = prompts.WEB_SEARCH_QUERY_PROMPT_SYSTEM.format(language=language)
         query_human = prompts.WEB_SEARCH_QUERY_PROMPT_HUMAN.format(
             original_query=original_query,
-            key_findings_brief=key_findings_brief,
             remaining_gaps=remaining_gaps,
+            things_to_avoid=things_to_avoid,
             language=language,
         )
         search_term = client.generate_messages(query_system, query_human).strip()
@@ -945,13 +980,15 @@ def web_search(state: AgentState) -> dict:
     web_results = format_tavily_results(raw_results, search_term)
     results_text = format_results_for_prompt(web_results)
 
-    # Step 3: Summarize results with contradiction detection
+    # Step 3: Summarize results with contradiction detection and DONTs enforcement
     try:
         summarize_system = prompts.WEB_SEARCH_SUMMARIZE_PROMPT_SYSTEM.format(
             language=language,
+            things_to_avoid=things_to_avoid,
         )
         summarize_human = prompts.WEB_SEARCH_SUMMARIZE_PROMPT_HUMAN.format(
             original_query=original_query,
+            things_to_avoid=things_to_avoid,
             web_results=results_text,
             kb_key_findings=key_findings_brief,
             language=language,

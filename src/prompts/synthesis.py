@@ -465,26 +465,28 @@ Decide whether to retry or accept the synthesis. Respond in {language}."""
 # =============================================================================
 WEB_SEARCH_QUERY_PROMPT_SYSTEM = """/no_think
 ### Role
-You generate concise web search queries to supplement existing research findings.
+You generate a web search query to supplement existing research findings.
 
 ### Goal
-Create ONE search query (4-8 keywords) that fills gaps in the existing knowledge base research.
+Write ONE natural-language question (a complete sentence) that targets the most
+critical unanswered gap. Modern search engines handle full questions better than
+keyword strings.
 
 ### Rules
-1. Focus on topics listed in remaining_gaps — these are what the KB could not answer.
-2. If no gaps exist, create a query that seeks recent developments related to original_query.
-3. Output ONLY the search query text — no explanation, no prefix, no quotes.
-4. Write the search query in {language}.
+1. Write the question in {language}.
+2. Do NOT address any topic listed in things_to_avoid.
+3. Base the question on remaining_gaps; fall back to original_query if no gaps exist.
+4. Output one line only — the question itself, no preamble, no quotes.
 
 ### Output format
-A single line of text: the search query."""
+A single line: the search question."""
 
 WEB_SEARCH_QUERY_PROMPT_HUMAN = """### Input
 - original_query: "{original_query}"
-- key_findings_brief: {key_findings_brief}
 - remaining_gaps: {remaining_gaps}
+- things_to_avoid: {things_to_avoid}
 
-Generate one web search query in {language}."""
+Generate one natural-language search question in {language}."""
 
 # =============================================================================
 # Web Search — Result Summarization
@@ -509,10 +511,11 @@ Field definitions:
 HARD CONSTRAINTS — never violate:
 1. Use ONLY information from the provided web_results. Never use outside knowledge.
 2. Never invent URLs, titles, or facts not in the web results.
-3. Cite every factual claim as [Title](URL) using the EXACT title and URL from web_results.
-4. If web results contradict kb_key_findings, list each contradiction explicitly in the contradictions field.
-5. Write all text in {language}. Do not mix languages.
-6. Never add text outside the JSON — no preamble, no explanation, no code fences.
+3. Never include content about: {things_to_avoid}. If a web result discusses these topics, skip it silently.
+4. Cite every factual claim as [Title](URL) using the EXACT title and URL from web_results.
+5. If web results contradict kb_key_findings, list each contradiction explicitly in the contradictions field.
+6. Write all text in {language}. Do not mix languages.
+7. Never add text outside the JSON — no preamble, no explanation, no code fences.
 </constraints>
 
 <content_rules>
@@ -529,11 +532,13 @@ Inputs provided:
 - original_query: The user's research question.
 - web_results: Numbered list of web search results with Title, URL, and Content.
 - kb_key_findings: Key findings from the knowledge base research (for contradiction detection).
+- things_to_avoid: Topics explicitly excluded by the user — never include these.
 - language: Target output language.
 </input_definitions>"""
 
 WEB_SEARCH_SUMMARIZE_PROMPT_HUMAN = """### Input
 - original_query: "{original_query}"
+- things_to_avoid: "{things_to_avoid}"
 - web_results:
 {web_results}
 - kb_key_findings: {kb_key_findings}
