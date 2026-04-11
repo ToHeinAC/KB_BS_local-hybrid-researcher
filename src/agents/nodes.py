@@ -1210,11 +1210,14 @@ def _format_tiered_findings(context_items: list[dict], max_chars: int = 8000) ->
 def _format_task_summaries(task_summaries: list[dict]) -> str:
     """Format task summaries with key findings and gaps for synthesis.
 
+    Task summaries are pre-sorted by relevance (highest first via rerank_task_summaries).
+    The Rank and Relevance headers tell the synthesis LLM how much weight to give each task.
+
     Args:
-        task_summaries: List of task summary dicts from Phase D
+        task_summaries: List of task summary dicts from Phase D (pre-sorted by relevance)
 
     Returns:
-        Formatted string with summaries, findings, gaps, and quotes
+        Formatted string with summaries, findings, gaps, excluded content, and quotes
     """
     parts = []
     for ts in task_summaries:
@@ -1223,6 +1226,7 @@ def _format_task_summaries(task_summaries: list[dict]) -> str:
         summary = ts.get("summary", "No summary")
         key_findings = ts.get("key_findings", [])
         gaps = ts.get("gaps", [])
+        irrelevant = ts.get("irrelevant_findings", [])
         quotes = ts.get("preserved_quotes", [])
 
         relevance = ts.get("relevance_to_query", None)
@@ -1245,6 +1249,11 @@ def _format_task_summaries(task_summaries: list[dict]) -> str:
             lines.append("Gaps:")
             for g in gaps:
                 lines.append(f"  - {g}")
+
+        if irrelevant:
+            lines.append("EXCLUDED (do NOT use in final report):")
+            for ir in irrelevant:
+                lines.append(f"  - {ir}")
 
         if quotes:
             lines.append("Preserved quotes:")
@@ -2142,6 +2151,7 @@ def _generate_task_summary(
             "summary": result.summary,
             "key_findings": result.key_findings,
             "gaps": result.gaps,
+            "irrelevant_findings": result.irrelevant_findings,
             "preserved_quotes": preserved_quotes,
             "sources": list(set(sources)),
             "relevance_to_query": result.relevance_score / 100.0,

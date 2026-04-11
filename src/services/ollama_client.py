@@ -89,8 +89,9 @@ class OllamaClient:
                 model=self.model,
                 base_url=self.base_url,
                 num_ctx=self.num_ctx,
+                num_predict=settings.ollama_num_predict,
                 temperature=settings.ollama_temperature,
-                timeout=60,  # 60 second timeout to prevent UI hangs
+                timeout=180,  # long enough for 8K token generation
             )
         return self._llm
 
@@ -102,8 +103,9 @@ class OllamaClient:
                 model=self.fallback_model,
                 base_url=self.base_url,
                 num_ctx=self.num_ctx,
+                num_predict=settings.ollama_num_predict,
                 temperature=settings.ollama_temperature,
-                timeout=60,  # 60 second timeout to prevent UI hangs
+                timeout=180,  # long enough for 8K token generation
             )
         return self._fallback_llm
 

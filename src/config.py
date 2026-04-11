@@ -24,6 +24,9 @@ class Settings(BaseSettings):
     ollama_num_ctx: int = 131072
     # Safety: stop at 90% of max context to prevent OOM
     ollama_safe_limit: float = 0.9
+    # Max output tokens — Ollama defaults to model-specific limit (often 2048)
+    # which truncates long synthesis reports. 8192 allows ~6000 words.
+    ollama_num_predict: int = 8192
 
     # ChromaDB Configuration
     chromadb_path: str = "./kb/database"
