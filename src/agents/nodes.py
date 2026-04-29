@@ -1131,6 +1131,7 @@ def synthesize(state: AgentState) -> dict:
         try:
             result = client.generate_structured_messages(
                 synth_system, synth_human, SynthesisOutput,
+                num_predict_override=settings.ollama_num_predict_synthesis,
             )
             for i, sq in enumerate(context.search_queries):
                 if i == 0:
@@ -1166,6 +1167,13 @@ def synthesize(state: AgentState) -> dict:
             f"Address the above quality issues specifically."
         )
 
+    # Citation reminder at end of human prompt — counteracts attention degradation
+    # on long task_summaries for smaller models (qwen3:14b loses § refs otherwise)
+    synth_enh_human += (
+        "\n\nREMINDER: Cite EVERY claim as [Document.pdf, Page N]. "
+        "Include § references exactly as they appear in sources."
+    )
+
     try:
         # Use language-enforced generation (Phase F)
         result = client.generate_structured_messages_with_language(
@@ -1173,6 +1181,7 @@ def synthesize(state: AgentState) -> dict:
             synth_enh_human,
             SynthesisOutputEnhanced,
             target_language=language,
+            num_predict_override=settings.ollama_num_predict_synthesis,
         )
 
         # Update search queries with summary

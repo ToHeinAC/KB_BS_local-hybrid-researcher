@@ -27,6 +27,10 @@ class Settings(BaseSettings):
     # Max output tokens — Ollama defaults to model-specific limit (often 2048)
     # which truncates long synthesis reports. 8192 allows ~6000 words.
     ollama_num_predict: int = 8192
+    # Synthesis needs far more output tokens than reranking/extraction.
+    # gemma4 tokenizer is less efficient (~3000 words at 8192 tokens), so 16384
+    # ensures full reports without raising the global default for short calls.
+    ollama_num_predict_synthesis: int = 16384
 
     # ChromaDB Configuration
     chromadb_path: str = "./kb/database"

@@ -23,9 +23,25 @@ def render_results_view() -> None:
     session = get_session_state()
 
     if not session.final_report:
+        st.warning(
+            "Der Abschlussbericht konnte nicht erstellt werden. "
+            "Mögliche Ursachen: Modell-Timeout, Synthesefehler oder "
+            "unzureichende Daten in der Wissensdatenbank."
+        )
         return
 
     report = FinalReport.model_validate(session.final_report)
+
+    # Detect sentinel failure strings from synthesis errors
+    _FAILURE_SENTINELS = (
+        "Synthesis failed. Please review individual findings.",
+        "No synthesis available",
+    )
+    if report.answer in _FAILURE_SENTINELS:
+        st.error(
+            "Die Synthese ist fehlgeschlagen. "
+            "Einzelne Aufgaben-Ergebnisse sind unten verfügbar."
+        )
 
     st.subheader("Research Results")
 

@@ -131,6 +131,93 @@ class OllamaClient:
             return match.group(1)
         return text
 
+    @staticmethod
+    def _repair_truncated_json(text: str) -> str:
+        """Attempt to repair truncated JSON from incomplete LLM output.
+
+        When models hit the num_predict limit, JSON may be cut mid-value.
+        Strategy:
+        1. If truncated mid-string, close the string with a quote
+        2. When inside an object, remove dangling key-without-value (e.g. `,"key_fin"`)
+        3. Append closing `}`/`]` for unmatched openers
+
+        Returns repaired JSON string or the original text if repair fails.
+        """
+        if not text or not text.strip():
+            return text
+
+        cleaned = text.strip()
+
+        def _compute_stack(s: str) -> list[str]:
+            """Return the stack of unmatched openers in s."""
+            stk: list[str] = []
+            in_s = False
+            esc = False
+            for ch in s:
+                if esc:
+                    esc = False
+                    continue
+                if ch == "\\":
+                    esc = True
+                    continue
+                if ch == '"':
+                    in_s = not in_s
+                    continue
+                if in_s:
+                    continue
+                if ch in ("{", "["):
+                    stk.append(ch)
+                elif ch == "}" and stk and stk[-1] == "{":
+                    stk.pop()
+                elif ch == "]" and stk and stk[-1] == "[":
+                    stk.pop()
+            return stk
+
+        # --- Pass 1: detect whether we ended inside a string ---
+        in_str = False
+        esc = False
+        for ch in cleaned:
+            if esc:
+                esc = False
+                continue
+            if ch == "\\":
+                esc = True
+                continue
+            if ch == '"':
+                in_str = not in_str
+
+        # If inside a string, close it
+        if in_str:
+            cleaned += '"'
+
+        # --- Pass 2: remove dangling key-without-value (objects only) ---
+        # After closing a truncated string, the last item may be an object key
+        # with no `:value` pair, e.g. `{"done": "x", "incomplete_key"`.
+        # Only strip it when the current container is an object `{`, NOT
+        # an array `[` (where the trailing string IS a valid element).
+        stack = _compute_stack(cleaned)
+        if stack and stack[-1] == "{":
+            cleaned = re.sub(r',\s*"[^"]*"\s*$', "", cleaned)
+            cleaned = re.sub(r',\s*$', "", cleaned)
+            stack = _compute_stack(cleaned)
+
+        # --- Pass 3: append missing closing brackets/braces ---
+        closers = {"[": "]", "{": "}"}
+        for opener in reversed(stack):
+            cleaned += closers[opener]
+
+        return cleaned
+
+    def _log_truncation(self, response) -> None:
+        """Log a warning if the LLM output was truncated (hit num_predict limit)."""
+        if hasattr(response, "response_metadata"):
+            done_reason = response.response_metadata.get("done_reason", "")
+            if done_reason == "length":
+                logger.warning(
+                    "LLM output truncated (hit num_predict limit). Model: %s",
+                    self.model,
+                )
+
     def estimate_tokens(self, text: str) -> int:
         """Estimate token count for text (rough approximation).
 
@@ -314,6 +401,7 @@ JSON response:"""
         human_prompt: str,
         response_model: type[T],
         use_fallback: bool = False,
+        num_predict_override: int | None = None,
     ) -> T:
         """Generate structured output using separate system/human messages.
 
@@ -322,16 +410,26 @@ JSON response:"""
             human_prompt: Human message with input data
             response_model: Pydantic model for response
             use_fallback: Whether to use fallback model
+            num_predict_override: If set, use this num_predict instead of the
+                default. Useful for synthesis calls that need more output tokens.
 
         Returns:
             Parsed response as Pydantic model instance
         """
         self.check_context_limit(system_prompt + human_prompt)
 
-        llm = self.fallback_llm if use_fallback else self.llm
-        structured_llm = llm.with_structured_output(
-            response_model, method="json_mode",
-        )
+        active_llm = self.fallback_llm if use_fallback else self.llm
+
+        # Create a temporary LLM with overridden num_predict if requested
+        if num_predict_override is not None:
+            active_llm = ChatOllama(
+                model=active_llm.model,
+                base_url=self.base_url,
+                num_ctx=self.num_ctx,
+                num_predict=num_predict_override,
+                temperature=settings.ollama_temperature,
+                timeout=300,  # longer timeout for large output
+            )
 
         prepared_system = self._prepare_system_prompt(system_prompt)
         schema_hint = response_model.model_json_schema()
@@ -347,21 +445,56 @@ JSON response:"""
             HumanMessage(content=human_with_cue),
         ]
 
+        # gpt-oss primary strategy: raw invoke + <json> tag extraction
+        # (Harmony-tuned models produce <json>...</json> tagged output, not raw JSON)
+        if self.is_gpt_oss:
+            try:
+                raw_response = active_llm.invoke(messages)
+                self._log_truncation(raw_response)
+                raw_text = self._extract_json_from_tags(raw_response.content)
+                parsed = json.loads(raw_text)
+                return response_model.model_validate(parsed)
+            except (json.JSONDecodeError, ValidationError) as gpt_e:
+                # Try JSON repair before falling through to structured_llm
+                if hasattr(raw_response, "content"):
+                    try:
+                        tag_text = self._extract_json_from_tags(raw_response.content)
+                        repaired = self._repair_truncated_json(tag_text)
+                        parsed = json.loads(repaired)
+                        logger.info("gpt-oss: recovered via truncated JSON repair")
+                        return response_model.model_validate(parsed)
+                    except Exception:
+                        pass
+                logger.warning(
+                    "gpt-oss primary (raw invoke + tags) failed: %s. "
+                    "Falling back to structured_llm.",
+                    gpt_e,
+                )
+                # Fall through to structured_llm as secondary strategy
+
+        structured_llm = active_llm.with_structured_output(
+            response_model, method="json_mode",
+        )
+
         try:
             result = structured_llm.invoke(messages)
             if isinstance(result, response_model):
                 return result
             return response_model.model_validate(result)
         except (json.JSONDecodeError, ValidationError) as e:
-            # For gpt-oss: try raw invoke + JSON tag extraction before retrying
-            if self.is_gpt_oss:
-                try:
-                    raw_response = llm.invoke(messages)
-                    raw_text = self._extract_json_from_tags(raw_response.content)
-                    parsed = json.loads(raw_text)
-                    return response_model.model_validate(parsed)
-                except Exception:
-                    pass  # Fall through to normal retry
+            # Try JSON repair on raw output before retrying
+            try:
+                raw_response = active_llm.invoke(messages)
+                self._log_truncation(raw_response)
+                raw_text = raw_response.content
+                if self.is_gpt_oss:
+                    raw_text = self._extract_json_from_tags(raw_text)
+                repaired = self._repair_truncated_json(raw_text)
+                parsed = json.loads(repaired)
+                logger.info("Recovered via truncated JSON repair")
+                return response_model.model_validate(parsed)
+            except Exception:
+                pass  # Fall through to normal retry
             logger.warning(f"Structured messages output failed, retrying: {e}")
             raise
 
@@ -403,6 +536,7 @@ JSON response:"""
         response_model: type[T],
         target_language: str,
         max_retries: int = 2,
+        num_predict_override: int | None = None,
     ) -> T:
         """Generate structured output with messages and language enforcement.
 
@@ -412,12 +546,14 @@ JSON response:"""
             response_model: Pydantic model for response
             target_language: Target language code ('de' or 'en')
             max_retries: Number of retries for language validation
+            num_predict_override: If set, use this num_predict instead of default
 
         Returns:
             Parsed response as Pydantic model instance
         """
         result = self.generate_structured_messages(
             system_prompt, human_prompt, response_model,
+            num_predict_override=num_predict_override,
         )
 
         if not self._validate_language(result, target_language):
@@ -433,6 +569,7 @@ JSON response:"""
             )
             result = self.generate_structured_messages(
                 enforced_system, human_prompt, response_model,
+                num_predict_override=num_predict_override,
             )
 
         return result
