@@ -150,7 +150,7 @@ results = collection.query(
 ```bash
 # Pull models
 ollama pull qwen3:14b
-ollama pull granite4.1:8b
+ollama pull nemotron-3-nano:4b
 
 # List models
 ollama list

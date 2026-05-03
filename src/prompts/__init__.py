@@ -55,8 +55,8 @@ def __getattr__(name: str) -> str:
     if settings.model_family == "gpt-oss":
         prompts = _gptoss_prompts
     else:
-        # "gemma4", "granite", and "qwen" all use the Qwen prompt set;
-        # /no_think prefix is stripped at OllamaClient level for gemma4/granite
+        # "gemma4" and "qwen" all use the Qwen prompt set;
+        # /no_think prefix is stripped at OllamaClient level for gemma4
         prompts = _qwen_prompts
 
     if name in prompts:

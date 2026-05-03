@@ -448,7 +448,7 @@ The "Erweiterte Einstellungen" expander in the sidebar contains a selectbox for 
 | Label | Model | Family | Default |
 |-------|-------|--------|---------|
 | basic (gemma4:e4b) | `gemma4:e4b` | gemma4 | ✓ |
-| einfach (granite4.1:8b) | `granite4.1:8b` | granite | |
+| einfach (nemotron-3-nano:4b) | `nemotron-3-nano:4b` | qwen | |
 | standard (qwen3:14b) | `qwen3:14b` | qwen | |
 | erhöht (gpt-oss:20b) | `gpt-oss:20b` | gpt-oss | |
 | tief (qwen3:30b) | `qwen3:30b` | qwen | |

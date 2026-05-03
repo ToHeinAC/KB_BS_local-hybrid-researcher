@@ -17,7 +17,7 @@ class Settings(BaseSettings):
     # Ollama Configuration
     ollama_base_url: str = "http://localhost:11434"
     ollama_model: str = "gemma4:e4b"
-    ollama_fallback_model: str = "granite4.1:8b"
+    ollama_fallback_model: str = "nemotron-3-nano:4b"
     default_embedding_model: str = "Qwen/Qwen3-Embedding-0.6B"
     ollama_temperature: float = 0.0
     # Critical: 128K context for dual 4090s
@@ -87,14 +87,12 @@ class Settings(BaseSettings):
 
     @property
     def model_family(self) -> str:
-        """Return model family: 'gpt-oss', 'gemma4', 'granite', or 'qwen'."""
+        """Return model family: 'gpt-oss', 'gemma4', or 'qwen'."""
         if self.ollama_model.startswith("gpt-oss"):
             return "gpt-oss"
         model_lower = self.ollama_model.lower()
         if "gemma4" in model_lower or "gemma-4" in model_lower:
             return "gemma4"
-        if "granite" in model_lower:
-            return "granite"
         return "qwen"
 
     @property
