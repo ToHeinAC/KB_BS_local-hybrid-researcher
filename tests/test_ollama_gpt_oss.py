@@ -92,7 +92,7 @@ class TestTemperatureFromConfig:
     @patch("src.services.ollama_client.settings")
     def test_temperature_from_config(self, mock_settings):
         mock_settings.ollama_model = "qwen3:14b"
-        mock_settings.ollama_fallback_model = "qwen3:8b"
+        mock_settings.ollama_fallback_model = "granite4.1:8b"
         mock_settings.ollama_base_url = "http://localhost:11434"
         mock_settings.ollama_num_ctx = 8192
         mock_settings.safe_context_limit = 7372

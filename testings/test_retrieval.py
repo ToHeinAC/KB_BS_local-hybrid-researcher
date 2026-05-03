@@ -42,7 +42,7 @@ logger = logging.getLogger(__name__)
 
 RERANKER_MODELS = [
     "qwen3:1.7b",
-    "qwen3:8b",
+    "granite4.1:8b",
     "ministral-3:8b",
     "qwen3:14b",
     "ministral-3:14b",

@@ -708,7 +708,7 @@ class FinalReport:
 │  ┌─────────────────────────────────────────────────────────────────┐│
 │  │  LLM Timeout:                                                    ││
 │  │    • Retry with exponential backoff (tenacity)                   ││
-│  │    • Fall back to qwen3:8b if qwen3:14b fails                    ││
+│  │    • Fall back to granite4.1:8b if qwen3:14b fails                    ││
 │  │    • Add warning to state.warnings                               ││
 │  │                                                                  ││
 │  │  JSON Parse Error:                                               ││
@@ -756,7 +756,7 @@ class FinalReport:
 | Modell | Verwendung | Kontext |
 |--------|------------|---------|
 | qwen3:14b | Primär | 128K Token (OLLAMA_NUM_CTX) |
-| qwen3:8b | Fallback | 128K Token |
+| granite4.1:8b | Fallback | 128K Token |
 | Qwen3-Embedding-0.6B | Embeddings | 1024 Dimensionen |
 
 **Structured Output:**
@@ -809,7 +809,7 @@ Vollständige Konfigurationsdetails in [docs/configuration.md](docs/configuratio
 | **Ollama** |||
 | `OLLAMA_BASE_URL` | `http://localhost:11434` | Ollama Service URL |
 | `OLLAMA_MODEL` | `qwen3:14b` | Primäres LLM |
-| `OLLAMA_FALLBACK_MODEL` | `qwen3:8b` | Fallback LLM |
+| `OLLAMA_FALLBACK_MODEL` | `granite4.1:8b` | Fallback LLM |
 | `OLLAMA_NUM_CTX` | `131072` | Kontextfenster (128K) |
 | `OLLAMA_SAFE_LIMIT` | `0.9` | Token-Limit (90%) |
 | **ChromaDB** |||

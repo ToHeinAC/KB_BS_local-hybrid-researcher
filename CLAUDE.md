@@ -144,7 +144,7 @@ The enhanced iterative HITL system provides intelligent query refinement through
 | Component | Technology |
 |-----------|------------|
 | Framework | LangChain v1.0+, LangGraph v1.0+ |
-| LLM | Ollama (runtime-selectable via UI depth selector: gemma4:e4b / qwen3:8b / qwen3:14b / gpt-oss:20b / qwen3:30b; default: gemma4:e4b) |
+| LLM | Ollama (runtime-selectable via UI depth selector: gemma4:e4b / granite4.1:8b / qwen3:14b / gpt-oss:20b / qwen3:30b; default: gemma4:e4b) |
 | Embeddings | Qwen/Qwen3-Embedding-0.6B via HuggingFace |
 | Vector DB | ChromaDB (local persistent) |
 | Orchestration | LangGraph StateGraph (TypedDict state) |
@@ -163,7 +163,7 @@ cp .env.example .env  # Edit .env if needed
 
 # Pull required Ollama models (for LLM generation)
 ollama pull gemma4:e4b          # Default model
-ollama pull qwen3:8b            # Fallback model
+ollama pull granite4.1:8b       # Fallback model
 # Note: Embeddings use Qwen/Qwen3-Embedding-0.6B via HuggingFace
 # (downloaded automatically on first run, requires GPU)
 

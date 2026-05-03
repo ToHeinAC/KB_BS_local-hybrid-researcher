@@ -12,7 +12,7 @@ cp .env.example .env
 
 # Pull Ollama models (for LLM generation)
 ollama pull qwen3:14b            # Default model
-ollama pull qwen3:8b             # Fallback model
+ollama pull granite4.1:8b        # Fallback model
 # Optional: ollama pull gpt-oss:20b  # Alternative model (auto-detected)
 
 # Note: Embeddings use HuggingFace Qwen/Qwen3-Embedding-0.6B
