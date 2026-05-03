@@ -280,7 +280,7 @@ is now attached to each `NestedChunk` and propagated through the pipeline — ze
   - `src/agents/tools.py`: 6 prompt constants, added `reset_ollama_client()`
   - `src/services/hitl_service.py`: 14 prompt constants, added `reset_ollama_client()`
 - [x] **UI depth selector** (`src/ui/app.py`):
-  - `st.selectbox` in "Erweiterte Einstellungen" with 5 options: basic (gemma4:e4b), einfach (nemotron-3-nano:4b), standard (qwen3:14b), erhöht (gpt-oss:20b), tief (qwen3:30b)
+  - `st.selectbox` in "Erweiterte Einstellungen" with 5 options: basic (gemma4:e4b), einfach (gemma4:e2b), standard (qwen3:14b), erhöht (gpt-oss:20b), tief (qwen3:30b)
   - Disabled during active research (`workflow_phase == "research"`)
   - `_apply_research_depth()` coordinator: updates `settings.ollama_model`, calls `reset_ollama_client()` on all 3 modules, clears `@st.cache_resource` for HITLService and OllamaClient
 - [x] **Session state** (`src/ui/state.py`): Added `research_depth` field (default: `"basic (gemma4:e4b)"`)

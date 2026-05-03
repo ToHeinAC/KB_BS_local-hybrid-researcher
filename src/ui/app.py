@@ -86,14 +86,14 @@ SUBTASK_LABELS = {
 # Research depth levels: label → model name
 DEPTH_OPTIONS = [
     "basic (gemma4:e4b)",
-    "einfach (nemotron-3-nano:4b)",
+    "einfach (gemma4:e2b)",
     "standard (qwen3:14b)",
     "erhöht (gpt-oss:20b)",
     "tief (qwen3:30b)",
 ]
 _DEPTH_TO_MODEL = {
     "basic (gemma4:e4b)": "gemma4:e4b",
-    "einfach (nemotron-3-nano:4b)": "nemotron-3-nano:4b",
+    "einfach (gemma4:e2b)": "gemma4:e2b",
     "standard (qwen3:14b)": "qwen3:14b",
     "erhöht (gpt-oss:20b)": "gpt-oss:20b",
     "tief (qwen3:30b)": "qwen3:30b",

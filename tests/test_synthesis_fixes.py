@@ -98,7 +98,7 @@ class TestNumPredictOverride:
 
         client = OllamaClient.__new__(OllamaClient)
         client.model = "qwen3:14b"
-        client.fallback_model = "nemotron-3-nano:4b"
+        client.fallback_model = "gemma4:e2b"
         client.base_url = "http://localhost:11434"
         client.num_ctx = 131072
         client.safe_limit = 117964
@@ -129,7 +129,7 @@ class TestNumPredictOverride:
 
         client = OllamaClient.__new__(OllamaClient)
         client.model = "qwen3:14b"
-        client.fallback_model = "nemotron-3-nano:4b"
+        client.fallback_model = "gemma4:e2b"
         client.base_url = "http://localhost:11434"
         client.num_ctx = 131072
         client.safe_limit = 117964
@@ -161,7 +161,7 @@ class TestGptOssPrimaryStrategy:
 
         client = OllamaClient.__new__(OllamaClient)
         client.model = "gpt-oss:20b"
-        client.fallback_model = "nemotron-3-nano:4b"
+        client.fallback_model = "gemma4:e2b"
         client.base_url = "http://localhost:11434"
         client.num_ctx = 131072
         client.safe_limit = 117964

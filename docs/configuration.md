@@ -8,7 +8,7 @@
 # =============================================================================
 OLLAMA_BASE_URL=http://localhost:11434
 OLLAMA_MODEL=gemma4:e4b             # Default model (overridden at runtime by UI depth selector)
-OLLAMA_FALLBACK_MODEL=nemotron-3-nano:4b
+OLLAMA_FALLBACK_MODEL=gemma4:e2b
 OLLAMA_TEMPERATURE=0.0               # LLM sampling temperature (0.0 = greedy)
 DEFAULT_EMBEDDING_MODEL=Qwen/Qwen3-Embedding-0.6B
 
@@ -184,7 +184,7 @@ class Settings(BaseSettings):
     # Ollama
     ollama_base_url: str = "http://localhost:11434"
     ollama_model: str = "gemma4:e4b"
-    ollama_fallback_model: str = "nemotron-3-nano:4b"
+    ollama_fallback_model: str = "gemma4:e2b"
     ollama_temperature: float = 0.0
     default_embedding_model: str = "Qwen/Qwen3-Embedding-0.6B"
     ollama_num_ctx: int = 131072
@@ -283,7 +283,7 @@ cp .env.example .env
 ```bash
 # Pull required models
 ollama pull qwen3:14b
-ollama pull nemotron-3-nano:4b
+ollama pull gemma4:e2b
 
 # Check models
 ollama list
