@@ -82,6 +82,11 @@ class OllamaClient:
         return "gemma4" in model_lower or "gemma-4" in model_lower
 
     @property
+    def is_granite4(self) -> bool:
+        """Check if the primary model is a granite4 variant."""
+        return "granite4" in self.model.lower()
+
+    @property
     def llm(self) -> ChatOllama:
         """Get or create primary LLM instance."""
         if self._llm is None:
@@ -112,10 +117,10 @@ class OllamaClient:
     _NO_THINK_PREFIX = "/no_think\n"
 
     def _prepare_system_prompt(self, system_prompt: str) -> str:
-        """Prepend Harmony preamble for gpt-oss; strip /no_think for gemma4."""
+        """Prepend Harmony preamble for gpt-oss; strip /no_think for gemma4/granite4."""
         if self.is_gpt_oss:
             return _HARMONY_PREAMBLE + system_prompt
-        if self.is_gemma4 and system_prompt.startswith(self._NO_THINK_PREFIX):
+        if (self.is_gemma4 or self.is_granite4) and system_prompt.startswith(self._NO_THINK_PREFIX):
             return system_prompt[len(self._NO_THINK_PREFIX):]
         return system_prompt
 

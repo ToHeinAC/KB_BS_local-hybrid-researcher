@@ -17,7 +17,7 @@ class Settings(BaseSettings):
     # Ollama Configuration
     ollama_base_url: str = "http://localhost:11434"
     ollama_model: str = "gemma4:e4b"
-    ollama_fallback_model: str = "gemma4:e2b"
+    ollama_fallback_model: str = "granite4.1:3b"
     default_embedding_model: str = "Qwen/Qwen3-Embedding-0.6B"
     ollama_temperature: float = 0.0
     # Critical: 128K context for dual 4090s

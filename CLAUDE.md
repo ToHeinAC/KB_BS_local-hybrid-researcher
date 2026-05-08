@@ -144,7 +144,7 @@ The enhanced iterative HITL system provides intelligent query refinement through
 | Component | Technology |
 |-----------|------------|
 | Framework | LangChain v1.0+, LangGraph v1.0+ |
-| LLM | Ollama (runtime-selectable via UI depth selector: gemma4:e4b / gemma4:e2b / qwen3:14b / gpt-oss:20b / qwen3:30b; default: gemma4:e4b) |
+| LLM | Ollama (runtime-selectable via UI depth selector: gemma4:e4b / granite4.1:3b / qwen3:14b / gpt-oss:20b / qwen3:30b; default: gemma4:e4b) |
 | Embeddings | Qwen/Qwen3-Embedding-0.6B via HuggingFace |
 | Vector DB | ChromaDB (local persistent) |
 | Orchestration | LangGraph StateGraph (TypedDict state) |
@@ -163,7 +163,7 @@ cp .env.example .env  # Edit .env if needed
 
 # Pull required Ollama models (for LLM generation)
 ollama pull gemma4:e4b          # Default model
-ollama pull gemma4:e2b               # Fallback model
+ollama pull granite4.1:3b            # Fallback/einfach model
 # Note: Embeddings use Qwen/Qwen3-Embedding-0.6B via HuggingFace
 # (downloaded automatically on first run, requires GPU)
 
@@ -264,7 +264,7 @@ The `src/prompts/__init__.py` uses **PEP 562 `__getattr__`** for runtime-dynamic
 - Consumers use `from src import prompts` then `prompts.X` (module-level access, not `from src.prompts import X`)
 - This enables switching models at runtime (via the UI depth selector) without restarting
 
-The `model_family` property returns `"gpt-oss"` when `ollama_model.startswith("gpt-oss")`, `"gemma4"` when `"gemma4"` or `"gemma-4"` is found in the lowercased model string (case-insensitive substring match, covers `gemma4:e4b`), else `"qwen"`. Both `"gemma4"` and `"qwen"` resolve to the Qwen prompt set.
+The `model_family` property returns `"gpt-oss"` when `ollama_model.startswith("gpt-oss")`, `"gemma4"` when `"gemma4"` or `"gemma-4"` is found in the lowercased model string (case-insensitive substring match, covers `gemma4:e4b`), else `"qwen"`. Both `"gemma4"` and `"qwen"` resolve to the Qwen prompt set. `granite4.1` falls through to `"qwen"` and also uses the Qwen prompt set.
 Both variants export **identical constant names** (48 total).
 
 **Consumer pattern** (used in `nodes.py`, `tools.py`, `hitl_service.py`):
@@ -297,10 +297,11 @@ Adapted for Harmony format conventions:
 - **JSON tag extraction**: `_extract_json_from_tags()` regex-extracts content between `<json>` and `</json>` tags as fallback when structured output parsing fails
 - **Temperature**: `ChatOllama` instances use `settings.ollama_temperature` (configurable, default `0.0`)
 
-### OllamaClient Adaptations for gemma4
+### OllamaClient Adaptations for gemma4 and granite4
 
-- **`/no_think` stripping**: `_prepare_system_prompt()` removes `/no_think` tokens from system prompts for gemma4 models (Qwen3-specific directive not supported by Gemma)
-- Prompt set: uses the Qwen prompt set unchanged (no separate prompt files needed)
+- **`/no_think` stripping**: `_prepare_system_prompt()` removes `/no_think` tokens from system prompts for gemma4 and granite4 models (Qwen3-specific directive not supported by those models). Detected via `is_gemma4` / `is_granite4` properties (case-insensitive substring match on model name).
+- Prompt set: both use the Qwen prompt set unchanged (no separate prompt files needed)
+- `granite4.1` `model_family` resolves to `"qwen"` (falls through the gpt-oss / gemma4 checks)
 
 For specific prompt rules, see @docs/prompts-design.md [docs/prompts-design.md](docs/prompts-design.md).
 

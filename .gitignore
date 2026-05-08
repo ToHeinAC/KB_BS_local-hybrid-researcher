@@ -54,3 +54,6 @@ htmlcov/
 
 # Examples for Coding references etc.
 examples/
+
+# Data folder
+#data/

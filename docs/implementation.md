@@ -280,7 +280,7 @@ is now attached to each `NestedChunk` and propagated through the pipeline — ze
   - `src/agents/tools.py`: 6 prompt constants, added `reset_ollama_client()`
   - `src/services/hitl_service.py`: 14 prompt constants, added `reset_ollama_client()`
 - [x] **UI depth selector** (`src/ui/app.py`):
-  - `st.selectbox` in "Erweiterte Einstellungen" with 5 options: basic (gemma4:e4b), einfach (gemma4:e2b), standard (qwen3:14b), erhöht (gpt-oss:20b), tief (qwen3:30b)
+  - `st.selectbox` in "Erweiterte Einstellungen" with 5 options: basic (gemma4:e4b), einfach (granite4.1:3b), standard (qwen3:14b), erhöht (gpt-oss:20b), tief (qwen3:30b)
   - Disabled during active research (`workflow_phase == "research"`)
   - `_apply_research_depth()` coordinator: updates `settings.ollama_model`, calls `reset_ollama_client()` on all 3 modules, clears `@st.cache_resource` for HITLService and OllamaClient
 - [x] **Session state** (`src/ui/state.py`): Added `research_depth` field (default: `"basic (gemma4:e4b)"`)
@@ -323,6 +323,13 @@ Replaces verbose inline `[Document.pdf, Page N]` citations with sequential `[1]`
 - [x] **`src/services/ollama_client.py`**: `is_gemma4` property likewise uses case-insensitive check
 - [x] **`src/ui/state.py`**: `research_depth` default set to `"basic (gemma4:e4b)"`
 - [x] **Tests**: `TestGemma4E4BSupport` class (4 tests) in `tests/test_prompt_routing.py`
+
+### Phase 6.15b: Depth Selector — einfach swapped to granite4.1:3b
+
+- [x] **`src/ui/app.py`**: `"einfach (gemma4:e2b)"` → `"einfach (granite4.1:3b)"` in `DEPTH_OPTIONS` and `_DEPTH_TO_MODEL`
+- [x] **`src/config.py`**: `ollama_fallback_model` default changed from `"gemma4:e2b"` to `"granite4.1:3b"`
+- [x] **`src/services/ollama_client.py`**: added `is_granite4` property (case-insensitive `"granite4"` substring check); `_prepare_system_prompt()` now strips `/no_think` for both `is_gemma4` and `is_granite4` (Qwen3-specific directive not supported by Granite)
+- `granite4.1` `model_family` resolves to `"qwen"` (falls through gpt-oss/gemma4 checks) → uses Qwen prompt set; Granite chat template (`<|start_of_role|>...<|end_of_role|>`) is handled by Ollama server-side, no code changes needed
 
 ### Phase 9: Remote Access via Cloudflare Tunnel
 
