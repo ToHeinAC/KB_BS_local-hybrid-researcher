@@ -90,6 +90,7 @@ DEPTH_OPTIONS = [
     "standard (qwen3:14b)",
     "erhöht (gpt-oss:20b)",
     "tief (qwen3:30b)",
+    "specialized (north-mini-code-1.0)",
 ]
 _DEPTH_TO_MODEL = {
     "basic (gemma4:e4b)": "gemma4:e4b",
@@ -97,6 +98,7 @@ _DEPTH_TO_MODEL = {
     "standard (qwen3:14b)": "qwen3:14b",
     "erhöht (gpt-oss:20b)": "gpt-oss:20b",
     "tief (qwen3:30b)": "qwen3:30b",
+    "specialized (north-mini-code-1.0)": "north-mini-code-1.0",
 }
 
 LICENSE_FILE = Path(__file__).parent.parent.parent / "assets" / "LICENCE"

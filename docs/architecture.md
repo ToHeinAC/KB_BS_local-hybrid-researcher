@@ -452,6 +452,7 @@ The "Erweiterte Einstellungen" expander in the sidebar contains a selectbox for 
 | standard (qwen3:14b) | `qwen3:14b` | qwen | |
 | erhöht (gpt-oss:20b) | `gpt-oss:20b` | gpt-oss | |
 | tief (qwen3:30b) | `qwen3:30b` | qwen | |
+| specialized (north-mini-code-1.0) | `north-mini-code-1.0` | qwen | |
 
 On change, `_apply_research_depth()`:
 1. Sets `settings.ollama_model` to the new model name

@@ -144,7 +144,7 @@ The enhanced iterative HITL system provides intelligent query refinement through
 | Component | Technology |
 |-----------|------------|
 | Framework | LangChain v1.0+, LangGraph v1.0+ |
-| LLM | Ollama (runtime-selectable via UI depth selector: gemma4:e4b / granite4.1:3b / qwen3:14b / gpt-oss:20b / qwen3:30b; default: gemma4:e4b) |
+| LLM | Ollama (runtime-selectable via UI depth selector: gemma4:e4b / granite4.1:3b / qwen3:14b / gpt-oss:20b / qwen3:30b / north-mini-code-1.0; default: gemma4:e4b) |
 | Embeddings | Qwen/Qwen3-Embedding-0.6B via HuggingFace |
 | Vector DB | ChromaDB (local persistent) |
 | Orchestration | LangGraph StateGraph (TypedDict state) |
@@ -247,7 +247,7 @@ KB_BS_local-hybrid-researcher/
 4. **Fully Local**: Ollama-only, no external API calls (exception: optional Tavily web search, disabled by default)
 5. **Free GPU & Reset**: Unloads Ollama model (`keep_alive=0`), clears all `@st.cache_resource` caches, runs `torch.cuda.empty_cache()`, resets session — server stays alive (Cloudflare tunnel preserved)
 6. **Reference Following**: Deep rabbithole traversal with hybrid detection (regex+LLM), document registry scoping, relevance filtering, and database-selection propagation (broad fallback searches respect `selected_database` from the UI)
-7. **Runtime Model Selection**: UI depth selector in sidebar ("Erweiterte Einstellungen") with 5 levels — prompts auto-adapt via dynamic routing, all cached clients reset on switch; `settings.ollama_model` always synced with UI selection on every render (fixes stale `.env` model shown in GPU widget)
+7. **Runtime Model Selection**: UI depth selector in sidebar ("Erweiterte Einstellungen") with 6 levels — prompts auto-adapt via dynamic routing, all cached clients reset on switch; `settings.ollama_model` always synced with UI selection on every render (fixes stale `.env` model shown in GPU widget)
 8. **Document Browser**: "Dokumente anzeigen" button in "Wissensdatenbank" sidebar panel opens a native `@st.dialog` modal listing all unique PDF filenames in the selected ChromaDB database (metadata-only query via `ChromaDBClient.get_document_names()`, no embeddings loaded)
 
 
@@ -264,7 +264,7 @@ The `src/prompts/__init__.py` uses **PEP 562 `__getattr__`** for runtime-dynamic
 - Consumers use `from src import prompts` then `prompts.X` (module-level access, not `from src.prompts import X`)
 - This enables switching models at runtime (via the UI depth selector) without restarting
 
-The `model_family` property returns `"gpt-oss"` when `ollama_model.startswith("gpt-oss")`, `"gemma4"` when `"gemma4"` or `"gemma-4"` is found in the lowercased model string (case-insensitive substring match, covers `gemma4:e4b`), else `"qwen"`. Both `"gemma4"` and `"qwen"` resolve to the Qwen prompt set. `granite4.1` falls through to `"qwen"` and also uses the Qwen prompt set.
+The `model_family` property returns `"gpt-oss"` when `ollama_model.startswith("gpt-oss")`, `"gemma4"` when `"gemma4"` or `"gemma-4"` is found in the lowercased model string (case-insensitive substring match), else `"qwen"`. Both `"gemma4"` and `"qwen"` resolve to the Qwen prompt set; `granite4.1` and `north-mini-code-1.0` also fall through to `"qwen"`.
 Both variants export **identical constant names** (48 total).
 
 **Consumer pattern** (used in `nodes.py`, `tools.py`, `hitl_service.py`):
