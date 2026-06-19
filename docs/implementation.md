@@ -421,3 +421,16 @@ Two sidebar improvements in `src/ui/app.py` and `src/services/chromadb_client.py
   - `test_route_to_generate_todo_with_phase`
   - `test_decision_without_hitl_active_routes_to_process_hitl_todo`
 
+### Phase 10: GUI Login Gate
+
+Role-free login screen in front of the Streamlit app, inspired by the sibling project `KB_BS_local-wiki-he` (stripped of its roles / per-DB access / admin UI).
+
+- [x] **`src/ui/auth.py`** (new): self-contained auth layer + login UI
+  - `USERS_JSON_PATH` → gitignored `data/users.json`; `_DEFAULT_USERS` = `{"T. Hein": "#BrAIn1", "Gast": "2026_BrAIn"}` (seed-only plaintext, hashed immediately)
+  - `_hash()` uses stdlib `hashlib.pbkdf2_hmac("sha256", …, 200_000)` with a per-user random salt — no new dependency (reference repo used `bcrypt`)
+  - `ensure_seeded()` (idempotent — no-op if file exists), `verify()` (`hmac.compare_digest`), `is_authenticated()`, `current_user()`, `logout()`, `render_login()` (German centered `st.form`)
+- [x] **`src/ui/app.py`**: gate in `main()` immediately after `st.set_page_config()` (`ensure_seeded()` + `if not auth.is_authenticated(): render_login(); return`); sidebar "Angemeldet als …" caption + "Abmelden" button in `render_sidebar()`
+- [x] **Auth state isolation**: stored in top-level `st.session_state["auth_user"]`, NOT on the `SessionState` dataclass, so `reset_session_state()` (safe-exit / new research) does not log the user out
+- [x] **`.gitignore`**: `data/users.json` (seeded password hashes never committed)
+- [x] **Tests** (`tests/test_auth.py`): 7 tests — seeding (+ idempotency), correct/wrong/unknown credentials, hash-not-plaintext storage, distinct salts
+

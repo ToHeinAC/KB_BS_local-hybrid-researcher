@@ -400,6 +400,10 @@ for state in graph.stream(input_state, config, stream_mode="values"):
 
 HITL checkpoints are supported via a persisted `thread_id` stored in session state and reused when resuming.
 
+### Login Gate (GUI Authentication)
+
+A role-free login screen (`src/ui/auth.py`) gates `main()` immediately after `st.set_page_config()` and before any other rendering (`if not auth.is_authenticated(): auth.render_login(); return`). Credentials live in a gitignored JSON store (`data/users.json`), seeded on first run via `ensure_seeded()` with salted PBKDF2-SHA256 hashes (stdlib, no extra dependency); `verify()` uses `hmac.compare_digest`. Auth state lives in a top-level `st.session_state["auth_user"]` key — NOT on the `SessionState` dataclass — so `reset_session_state()` ("Free GPU & Reset" / "Neue Recherche") does not log the user out. A sidebar "Abmelden" button calls `auth.logout()` (pops the key + `reset_session_state()` + `st.rerun()`). Seed users: T. Hein, Gast.
+
 ### UI Data Flow for Chat-Based HITL
 
 The chat-based HITL (`render_chat_hitl`) runs independently from the LangGraph:
@@ -477,23 +481,7 @@ Live GPU temp/fan/load + elapsed research time via Tornado route injection (`/_a
 
 ### Remote Access (Cloudflare Tunnel)
 
-The `login/` directory provides remote access via Cloudflare quick tunnels:
-
-```
-┌──────────────────────────────────────────────────────────────────┐
-│  Remote User                                                      │
-│  ↓ (HTTPS via *.trycloudflare.com)                               │
-├──────────────────────────────────────────────────────────────────┤
-│  cloudflared tunnel (port 8522)    cloudflared tunnel (port 8511)│
-│  ↓                                  ↓                            │
-│  Launcher App (login/launcher_app.py)  Main Streamlit App        │
-│  Port 8522                              Port 8511                │
-│  ├─ Password gate (LAUNCHER_PASSWORD)                            │
-│  ├─ Start/Stop/Restart controls                                  │
-│  ├─ Process monitoring (psutil)                                  │
-│  └─ Log viewer                                                   │
-└──────────────────────────────────────────────────────────────────┘
-```
+The `login/` directory provides remote access via Cloudflare quick tunnels: two tunnels expose the password-gated launcher (`login/launcher_app.py`, port 8522 — `LAUNCHER_PASSWORD` gate, start/stop/restart controls, psutil monitoring, log viewer) and the main Streamlit app (port 8511) over temporary `*.trycloudflare.com` HTTPS URLs.
 
 **Key files:**
 - `login/launcher_app.py` — password-gated Streamlit control panel

@@ -18,8 +18,10 @@ ollama pull granite4.1:3b        # Fallback/einfach model
 # Note: Embeddings use HuggingFace Qwen/Qwen3-Embedding-0.6B
 # (downloaded automatically on first run)
 
-# Run UI (local)
+# Run UI (local) — a login screen gates the app
 streamlit run src/ui/app.py --server.port 8511
+# Default users (seeded on first run into the gitignored data/users.json):
+#   T. Hein / #BrAIn1   |   Gast / 2026_BrAIn
 
 # Remote access via Cloudflare Tunnel
 export LAUNCHER_PASSWORD="your-password"
@@ -48,6 +50,7 @@ export LAUNCHER_PASSWORD="your-password"
 - **Language Enforcement**: All 17 content-bearing prompts enforce `{language}`, with validation and retry on mismatch.
 - **Pre-Synthesis Drift Detection**: Filters irrelevant accumulated context before synthesis.
 - **Transparent Chunk Filtering**: Guarantees minimum chunks per task (3 primary, 2 secondary) even if below relevance threshold; backfilled chunks marked with ⚠️ badge to maintain transparency while preventing silent suppression of retrieval results.
+- **GUI Login Gate**: Role-free login screen in front of the app (`src/ui/auth.py`). Credentials live in a gitignored JSON store (`data/users.json`), seeded on first run with salted PBKDF2-SHA256 password hashes (stdlib, no extra dependency). Auth state is kept separate from the research session so "Free GPU & Reset" / "Neue Recherche" do not log the user out; a sidebar "Abmelden" button logs out.
 - **Full Human-In-The-Loop**: Checkpoints for query refinement, task list approval, and final result verification.
 - **Privacy-First & Local**: Powered by Ollama and local ChromaDB, ensuring all research data stays on your machine.
 - **Numbered Citation Transformation**: Inline `[Document.pdf, Page N]` citations are post-processed into sequential `[1]`, `[2]`, … markers with an appended reference list. PDFs open directly in the browser via the `/_api/pdf` Tornado route (same injection pattern as the GPU widget).

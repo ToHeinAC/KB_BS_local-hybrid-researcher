@@ -93,17 +93,17 @@ The system now uses **tiered context classification** to prevent query drift and
 
 **Key Features:**
 - **Query Anchor**: Immutable reference to original intent created in `hitl_finalize`
-- **Preserved Quotes**: Verbatim extraction of legal/technical language
+- **Preserved Quotes**: Verbatim extraction of legal/technical text
 - **Task Summaries**: Per-task structured summaries with relevance scoring
-- **Drift Detection**: Pre-synthesis filtering warns when >30% of context is irrelevant
-- **Chunk Backfill**: Guarantees minimum chunks per task (3 primary, 2 secondary) even if below relevance threshold; backfilled chunks marked with ⚠️ badge for transparency
-- **Task Summary Reranking**: Deterministic sort by `relevance_to_query` before synthesis; `[Rank: N/total]` / `[Relevance: N/100]` headers in formatted summaries
-- **Reference Provenance**: Nested chunks carry parent document + surrounding context; reranker penalises off-topic parent context; `[via ref "..."]` header for traceability
+- **Drift Detection**: Pre-synthesis filtering warns when >30% of context is off-topic
+- **Chunk Backfill**: Guarantees minimum chunks per task (3 primary, 2 secondary) even if below threshold; backfilled chunks marked with ⚠️ badge
+- **Task Summary Reranking**: Deterministic sort by `relevance_to_query` before synthesis; `[Rank: N/total]` / `[Relevance: N/100]` headers
+- **Reference Provenance**: Nested chunks carry parent document + surrounding context; reranker penalises off-topic parent context; `[via ref "..."]` header
 - **Batch Chunk Reranking**: `_rerank_task_chunks()` uses batch LLM scoring with precision/recall strategies, cross-batch normalization, and hard-filtering below `reranker_min_score`
-- **Resilient Task Summaries**: `_generate_task_summary()` degrades gracefully (strict `TaskSummaryOutput` → lenient `TaskSummarySimple` → prose → keyword fallback), avoiding `"Completed task: …"` placeholders. See @docs/architecture.md
-- **Optional Web Search**: Tavily API (Phase 3.10) — LLM builds query from gaps, summarizes with `[Title](URL)` citations + contradiction detection; strictly separated from KB synthesis; disabled by default, user-enabled per session
+- **Resilient Task Summaries**: `_generate_task_summary()` degrades gracefully (strict `TaskSummaryOutput` → lenient `TaskSummarySimple` → prose → keyword fallback). See @docs/architecture.md
+- **Optional Web Search**: Tavily API (Phase 3.10) — LLM builds query from gaps, summarizes with `[Title](URL)` citations + contradiction detection; strictly separated from KB synthesis; disabled by default
 - **Language Enforcement**: Strict single-language output with retry on mismatch
-- **Numbered Citations**: `numberify_citations()` replaces inline `[Doc.pdf, Page N]` with sequential `[1]`, `[2]`, … + reference list with `/_api/pdf` Tornado-served PDF links
+- **Numbered Citations**: `numberify_citations()` replaces inline `[Doc.pdf, Page N]` with sequential `[1]`, `[2]`, … + reference list with `/_api/pdf` PDF links
 
 ### Agentic Decision Points
 
@@ -229,7 +229,7 @@ KB_BS_local-hybrid-researcher/
 │   ├── models/            # Pydantic data models
 │   ├── prompts/           # LLM prompt constants (model-conditional: hitl.py/hitl_gpt.py, etc.)
 │   ├── services/          # ChromaDB, Ollama, PDF
-│   └── ui/                # Streamlit app (incl. gpu_widget.py for live GPU stats + elapsed timer)
+│   └── ui/                # Streamlit app (auth.py login gate; gpu_widget.py live GPU stats + timer)
 ├── tests/                 # Pytest tests
 └── kb/                    # Knowledge base (pre-existing)
     ├── database/          # ChromaDB collections
@@ -247,9 +247,10 @@ KB_BS_local-hybrid-researcher/
 3. **Structured JSON Outputs**: All LLM responses via Pydantic + `json_mode`
 4. **Fully Local**: Ollama-only, no external API calls (exception: optional Tavily web search, disabled by default)
 5. **Free GPU & Reset**: Unloads Ollama model (`keep_alive=0`), clears all `@st.cache_resource` caches, runs `torch.cuda.empty_cache()`, resets session — server stays alive (Cloudflare tunnel preserved)
-6. **Reference Following**: Deep rabbithole traversal with hybrid detection (regex+LLM), document registry scoping, relevance filtering, and database-selection propagation (broad fallback searches respect `selected_database` from the UI)
-7. **Runtime Model Selection**: UI depth selector in sidebar ("Erweiterte Einstellungen") with 6 levels — prompts auto-adapt via dynamic routing, all cached clients reset on switch; `settings.ollama_model` always synced with UI selection on every render (fixes stale `.env` model shown in GPU widget)
-8. **Document Browser**: "Dokumente anzeigen" button in "Wissensdatenbank" sidebar panel opens a native `@st.dialog` modal listing all unique PDF filenames in the selected ChromaDB database (metadata-only query via `ChromaDBClient.get_document_names()`, no embeddings loaded)
+6. **Reference Following**: Deep rabbithole traversal with hybrid detection (regex+LLM), document registry scoping, relevance filtering, and database-selection propagation
+7. **Runtime Model Selection**: UI depth selector in sidebar with 6 levels — prompts auto-adapt via dynamic routing, all cached clients reset on switch; `settings.ollama_model` synced with UI selection on every render
+8. **Document Browser**: "Dokumente anzeigen" button in "Wissensdatenbank" sidebar opens a `@st.dialog` modal listing all unique PDF filenames in the selected database (metadata-only via `ChromaDBClient.get_document_names()`)
+9. **GUI Login Gate**: Role-free login (`src/ui/auth.py`) gates `main()`; credentials in gitignored `data/users.json` seeded on first run with salted PBKDF2-SHA256 hashes (users: T. Hein, Gast); auth state kept off `SessionState` (top-level `st.session_state["auth_user"]`) so "Free GPU & Reset"/"Neue Recherche" don't log out; sidebar "Abmelden" button
 
 
 ## Prompt Management

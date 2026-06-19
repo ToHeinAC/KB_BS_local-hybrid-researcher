@@ -36,6 +36,7 @@ from src.ui.components.task_rendering import (
     render_tiered_chunks,
 )
 from src.ui.components.todo_display import render_messages
+from src.ui import auth
 from src.ui.state import (
     add_message,
     get_current_phase,
@@ -465,6 +466,11 @@ def render_sidebar():
 
         st.divider()
 
+        # Account
+        st.caption(f"Angemeldet als **{auth.current_user()}**")
+        if st.button("Abmelden", key="logout_btn", use_container_width=True):
+            auth.logout()
+
         # Safe exit button
         render_safe_exit()
 
@@ -492,6 +498,12 @@ def main():
         layout="wide",
         initial_sidebar_state="expanded",
     )
+
+    # Login gate (must come after set_page_config, before any other rendering)
+    auth.ensure_seeded()
+    if not auth.is_authenticated():
+        auth.render_login()
+        return
 
     # Header
     render_header()
