@@ -337,6 +337,24 @@ Replaces verbose inline `[Document.pdf, Page N]` citations with sequential `[1]`
 - `north-mini-code-1.0` `model_family` resolves to `"qwen"` (no `gpt-oss`/`gemma4` match) → uses Qwen prompt set; no prompt-routing, config-default, or session-default changes needed (`research_depth` default stays `"basic (gemma4:e4b)"`)
 - Model must be available in Ollama (`ollama pull` / `ollama list`) for the selection to run
 
+### Phase 3.14: Resilient Task Summaries (Graceful Degradation)
+
+Fixes inconsistent per-task output (most tasks rendered as `"Completed task: <task>"` with no
+findings) on small/code-specialized models. Root cause: `_generate_task_summary()` had a single
+strict-schema attempt — any `TaskSummaryOutput` parse failure (schema mismatch like
+`relevance_score: "60%"`, missing required field, unrepairable truncation) fell straight to the
+useless placeholder. Model-agnostic fix; Tier 1 unchanged for already-working models.
+
+- [x] **`src/models/results.py`**: new `TaskSummarySimple` (4 fields: `summary` required, `key_findings`, `gaps`, `relevance_score`) with a `field_validator(mode="before")` coercing loose `relevance_score` inputs (`"60%"`, `"60"`, `60.0` → 60; junk → 50; clamped 0-100)
+- [x] **`src/prompts/research.py`** + **`research_gpt.py`**: new `TASK_SUMMARY_SIMPLE_PROMPT_{SYSTEM,HUMAN}` (Qwen markdown + gpt-oss `<json>`-tag variants), auto-collected by PEP 562 routing — name parity verified (54 constants per set)
+- [x] **`src/agents/nodes.py`**: `_generate_task_summary()` wraps Tier 1 in try/except; delegates failures to new `_generate_task_summary_degraded()` helper:
+  - Tier 2: retry `generate_structured_messages(..., TaskSummarySimple)`, map → full dict
+  - Tier 3: `generate_messages()` plain-text prose summary (no JSON)
+  - Last resort: keyword-overlap relevance + `"Completed task:"` placeholder only if all 3 LLM calls raise
+- [x] **Tests** (`tests/test_agents.py`): updated total-failure test (now requires all tiers to fail); added Tier 2 degradation, Tier 3 prose fallback, and loose-`relevance_score` coercion tests
+
+**344 tests total, all passing.**
+
 ### Phase 9: Remote Access via Cloudflare Tunnel
 
 - [x] **`login/launcher_app.py`** (new): Password-gated Streamlit control panel on port 8522

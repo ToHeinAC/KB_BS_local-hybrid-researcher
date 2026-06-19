@@ -535,15 +535,17 @@ class TestTaskSummaryHitlSmry:
 
         assert result["relevance_to_query"] == 0.85
 
-    def test_task_summary_falls_back_to_keyword_on_llm_error(self):
-        """On LLM failure, falls back to _calculate_task_relevance."""
+    def test_task_summary_falls_back_to_keyword_on_total_llm_error(self):
+        """When all tiers fail, falls back to _calculate_task_relevance + placeholder."""
         from unittest.mock import MagicMock, patch
 
         from src.agents.nodes import _generate_task_summary
         from src.models.query import ToDoItem
 
         mock_client = MagicMock()
+        # All three LLM paths fail (strict schema, simple schema, prose).
         mock_client.generate_structured_messages.side_effect = Exception("LLM error")
+        mock_client.generate_messages.side_effect = Exception("LLM error")
 
         task = ToDoItem(id=1, task="Test task", context="ctx")
         anchor = {
@@ -562,6 +564,83 @@ class TestTaskSummaryHitlSmry:
         # Should use keyword fallback, not crash
         assert 0.0 <= result["relevance_to_query"] <= 1.0
         assert result["summary"].startswith("Completed task:")
+
+    def test_task_summary_degrades_to_simple_schema(self):
+        """Strict schema failure → Tier 2 simple schema produces a real summary."""
+        from unittest.mock import MagicMock, patch
+
+        from src.agents.nodes import _generate_task_summary
+        from src.models.query import ToDoItem
+        from src.models.results import TaskSummaryOutput, TaskSummarySimple
+
+        simple = TaskSummarySimple(
+            summary="Echte Zusammenfassung [StrlSchG.pdf, Page 0]",
+            key_findings=["Grenzwert 1 mSv/Jahr [StrlSchG.pdf, Page 0]"],
+            gaps=["Keine konkreten Radionuklide"],
+            relevance_score=80,
+        )
+
+        def _structured(system, human, model, **kwargs):
+            if model is TaskSummaryOutput:
+                raise Exception("strict schema mismatch")
+            assert model is TaskSummarySimple
+            return simple
+
+        mock_client = MagicMock()
+        mock_client.generate_structured_messages.side_effect = _structured
+
+        task = ToDoItem(id=2, task="Test task", context="ctx")
+        anchor = {"original_query": "Q", "key_entities": [], "detected_language": "de"}
+
+        with patch("src.agents.nodes.get_ollama_client", return_value=mock_client):
+            result = _generate_task_summary(
+                task=task, task_primary=[], task_secondary=[],
+                task_tertiary=[], preserved_quotes=[],
+                query_anchor=anchor, hitl_smry="",
+            )
+
+        assert result["summary"] == simple.summary
+        assert not result["summary"].startswith("Completed task:")
+        assert result["key_findings"] == simple.key_findings
+        assert result["gaps"] == simple.gaps
+        assert result["relevance_to_query"] == 0.80
+        # generate_messages (prose tier) must NOT be reached
+        mock_client.generate_messages.assert_not_called()
+
+    def test_task_summary_prose_fallback_when_both_schemas_fail(self):
+        """Both structured tiers fail → Tier 3 prose summary (not placeholder)."""
+        from unittest.mock import MagicMock, patch
+
+        from src.agents.nodes import _generate_task_summary
+        from src.models.query import ToDoItem
+
+        mock_client = MagicMock()
+        mock_client.generate_structured_messages.side_effect = Exception("schema fail")
+        mock_client.generate_messages.return_value = "Eine lesbare Prosa-Zusammenfassung."
+
+        task = ToDoItem(id=3, task="Test task", context="ctx")
+        anchor = {"original_query": "Q", "key_entities": [], "detected_language": "de"}
+
+        with patch("src.agents.nodes.get_ollama_client", return_value=mock_client):
+            result = _generate_task_summary(
+                task=task, task_primary=[], task_secondary=[],
+                task_tertiary=[], preserved_quotes=[],
+                query_anchor=anchor, hitl_smry="",
+            )
+
+        assert result["summary"] == "Eine lesbare Prosa-Zusammenfassung."
+        assert not result["summary"].startswith("Completed task:")
+        mock_client.generate_messages.assert_called_once()
+
+    def test_task_summary_simple_coerces_loose_relevance_score(self):
+        """TaskSummarySimple coerces '60%' / '60' / 60.0 to an int 0-100."""
+        from src.models.results import TaskSummarySimple
+
+        assert TaskSummarySimple(summary="s", relevance_score="60%").relevance_score == 60
+        assert TaskSummarySimple(summary="s", relevance_score="60").relevance_score == 60
+        assert TaskSummarySimple(summary="s", relevance_score=60.0).relevance_score == 60
+        assert TaskSummarySimple(summary="s", relevance_score="n/a").relevance_score == 50
+        assert TaskSummarySimple(summary="s", relevance_score=150).relevance_score == 100
 
 
     def test_task_summary_system_prompt_has_no_markdown_fences(self):

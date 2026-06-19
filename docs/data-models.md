@@ -435,6 +435,28 @@ class TaskSummaryOutput(BaseModel):
     relevance_score: int = 50              # LLM-scored relevance to original query (0-100)
 ```
 
+### TaskSummarySimple (NEW)
+
+Minimal, lenient fallback schema for `_generate_task_summary()` graceful degradation
+(Tier 2). Used when the strict `TaskSummaryOutput` fails to parse — common with small or
+code-specialized models that emit schema-mismatched JSON (e.g. `relevance_score` as `"60%"`).
+Only `summary` is required; `relevance_score` coerces loose inputs.
+
+```python
+class TaskSummarySimple(BaseModel):
+    """Minimal, lenient per-task summary schema for graceful degradation."""
+    summary: str                           # Task synthesis text (required)
+    key_findings: list[str] = []           # Findings with [Document.pdf, Page N] citations
+    gaps: list[str] = []                   # Identified gaps or limitations
+    relevance_score: int = 50              # 0-100; coerced & clamped
+
+    @field_validator("relevance_score", mode="before")
+    @classmethod
+    def _coerce_relevance_score(cls, v):
+        # "60", 60.0, "60%", "score: 60" → 60; junk → 50; clamped 0-100
+        ...
+```
+
 ### RelevanceScoreOutput (NEW)
 
 ```python

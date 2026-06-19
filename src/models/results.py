@@ -1,8 +1,9 @@
 """Result and report models."""
 
+import re
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class VectorResult(BaseModel):
@@ -317,6 +318,45 @@ class TaskSummaryOutput(BaseModel):
         le=100,
         description="Relevance of findings to the original query (0-100)"
     )
+
+
+class TaskSummarySimple(BaseModel):
+    """Minimal, lenient per-task summary schema for graceful degradation.
+
+    Used as a Tier-2 retry when the strict ``TaskSummaryOutput`` fails to parse
+    (common with small/code-specialized models that emit schema-mismatched JSON,
+    e.g. ``relevance_score`` as ``"60%"``). Only ``summary`` is required; the
+    relevance score coerces loosely and defaults to 50 on any failure.
+    """
+
+    summary: str = Field(description="Task synthesis text")
+    key_findings: list[str] = Field(
+        default_factory=list,
+        description="Findings with [Document.pdf, Page N] citations"
+    )
+    gaps: list[str] = Field(
+        default_factory=list,
+        description="Identified gaps or limitations"
+    )
+    relevance_score: int = Field(
+        default=50,
+        description="Relevance of findings to the original query (0-100)"
+    )
+
+    @field_validator("relevance_score", mode="before")
+    @classmethod
+    def _coerce_relevance_score(cls, v: object) -> int:
+        """Coerce loose inputs ("60", 60.0, "60%", "score: 60") to a 0-100 int."""
+        if isinstance(v, bool):
+            return 50
+        if isinstance(v, (int, float)):
+            num = int(v)
+        elif isinstance(v, str):
+            match = re.search(r"-?\d+", v)
+            num = int(match.group()) if match else 50
+        else:
+            return 50
+        return max(0, min(100, num))
 
 
 class RelevanceScoreOutput(BaseModel):

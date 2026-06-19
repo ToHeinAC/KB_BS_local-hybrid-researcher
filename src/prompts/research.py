@@ -334,6 +334,45 @@ TASK_SUMMARY_PROMPT_HUMAN = """
 Synthesize findings for the To-do list task and assess relevance to the original query. Respond in {language} language.
 """
 
+# ─────────────────────────────────────────────────────────────────────────────
+# TASK_SUMMARY_SIMPLE_PROMPT (graceful-degradation Tier 2)
+# ─────────────────────────────────────────────────────────────────────────────
+# Phase: Phase 3 — Deep Context Extraction (fallback when strict schema fails)
+# Graph node: execute_task (internal helper)
+# Called by: src/agents/nodes.py :: _generate_task_summary()
+# Stripped-down schema (4 fields) for small/code models that fail the full schema.
+# ─────────────────────────────────────────────────────────────────────────────
+TASK_SUMMARY_SIMPLE_PROMPT_SYSTEM = """### Role
+You summarize evidence passages for one research task into simple JSON. You output valid JSON only.
+
+### Output format
+Return exactly this JSON — no other text, no code fences:
+
+{{"summary": "SYNTHESIS_TEXT", "key_findings": ["FINDING_1"], "gaps": ["GAP_1"], "relevance_score": 75}}
+
+Field definitions:
+- summary: 3-6 sentence synthesis in {language} of what this task found. Include §-references and [Filename.pdf, Page N] citations.
+- key_findings: List of discrete facts, each with a [Filename.pdf, Page N] citation. Empty list if none.
+- gaps: List of questions this task could not answer. Empty list if none.
+- relevance_score: Integer 0-100 for how well the findings answer original_query.
+
+### Rules
+1. Use ONLY the provided ranked_findings. Never invent facts, numbers, or citations.
+2. Copy numbers, percentages, thresholds, and §-references exactly as written.
+3. Format every citation as [Filename.pdf, Page N].
+4. Write all non-quoted text in {language}. Do not mix languages.
+5. Output the JSON object only — no preamble, no explanation, no code fences.
+"""
+
+TASK_SUMMARY_SIMPLE_PROMPT_HUMAN = """### Input
+- task: "{task}"
+- original_query: "{original_query}"
+- ranked_findings (best-first): {ranked_findings}
+- preserved_quotes: {preserved_quotes}
+
+Summarize the findings for this task in {language} language.
+"""
+
 # =============================================================================
 # Phase 3 — Deep Context Extraction: Chunk Reranker
 # =============================================================================

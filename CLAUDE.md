@@ -97,12 +97,13 @@ The system now uses **tiered context classification** to prevent query drift and
 - **Task Summaries**: Per-task structured summaries with relevance scoring
 - **Drift Detection**: Pre-synthesis filtering warns when >30% of context is irrelevant
 - **Chunk Backfill**: Guarantees minimum chunks per task (3 primary, 2 secondary) even if below relevance threshold; backfilled chunks marked with ⚠️ badge for transparency
-- **Task Summary Reranking**: Deterministic sort by `relevance_to_query` before synthesis; `[Rank: N/total]` / `[Relevance: N/100]` headers visible in formatted summaries
-- **Reference Provenance**: Nested chunks carry parent document + surrounding context of the reference; reranker penalises off-topic parent context; `[via ref "..."]` header in formatted findings for traceability
-- **Batch Chunk Reranking**: `_rerank_task_chunks()` uses batch LLM scoring (~3-4 calls for 20 chunks) with precision/recall strategies, cross-batch normalization, and hard-filtering below `reranker_min_score`
-- **Optional Web Search**: Tavily API integration (Phase 3.10) — LLM generates search query from gaps, summarizes results with `[Title](URL)` citations, detects contradictions against KB findings; strictly separated from KB synthesis; disabled by default, user-enabled per session
+- **Task Summary Reranking**: Deterministic sort by `relevance_to_query` before synthesis; `[Rank: N/total]` / `[Relevance: N/100]` headers in formatted summaries
+- **Reference Provenance**: Nested chunks carry parent document + surrounding context; reranker penalises off-topic parent context; `[via ref "..."]` header for traceability
+- **Batch Chunk Reranking**: `_rerank_task_chunks()` uses batch LLM scoring with precision/recall strategies, cross-batch normalization, and hard-filtering below `reranker_min_score`
+- **Resilient Task Summaries**: `_generate_task_summary()` degrades gracefully (strict `TaskSummaryOutput` → lenient `TaskSummarySimple` → prose → keyword fallback), avoiding `"Completed task: …"` placeholders. See @docs/architecture.md
+- **Optional Web Search**: Tavily API (Phase 3.10) — LLM builds query from gaps, summarizes with `[Title](URL)` citations + contradiction detection; strictly separated from KB synthesis; disabled by default, user-enabled per session
 - **Language Enforcement**: Strict single-language output with retry on mismatch
-- **Numbered Citations**: `numberify_citations()` replaces inline `[Doc.pdf, Page N]` with sequential `[1]`, `[2]`, … + appended reference list with PDF links served via `/_api/pdf` Tornado route
+- **Numbered Citations**: `numberify_citations()` replaces inline `[Doc.pdf, Page N]` with sequential `[1]`, `[2]`, … + reference list with `/_api/pdf` Tornado-served PDF links
 
 ### Agentic Decision Points
 
@@ -265,7 +266,7 @@ The `src/prompts/__init__.py` uses **PEP 562 `__getattr__`** for runtime-dynamic
 - This enables switching models at runtime (via the UI depth selector) without restarting
 
 The `model_family` property returns `"gpt-oss"` when `ollama_model.startswith("gpt-oss")`, `"gemma4"` when `"gemma4"` or `"gemma-4"` is found in the lowercased model string (case-insensitive substring match), else `"qwen"`. Both `"gemma4"` and `"qwen"` resolve to the Qwen prompt set; `granite4.1` and `north-mini-code-1.0` also fall through to `"qwen"`.
-Both variants export **identical constant names** (48 total).
+Both variants export **identical constant names** (54 total).
 
 **Consumer pattern** (used in `nodes.py`, `tools.py`, `hitl_service.py`):
 ```python
@@ -299,9 +300,8 @@ Adapted for Harmony format conventions:
 
 ### OllamaClient Adaptations for gemma4 and granite4
 
-- **`/no_think` stripping**: `_prepare_system_prompt()` removes `/no_think` tokens from system prompts for gemma4 and granite4 models (Qwen3-specific directive not supported by those models). Detected via `is_gemma4` / `is_granite4` properties (case-insensitive substring match on model name).
-- Prompt set: both use the Qwen prompt set unchanged (no separate prompt files needed)
-- `granite4.1` `model_family` resolves to `"qwen"` (falls through the gpt-oss / gemma4 checks)
+- **`/no_think` stripping**: `_prepare_system_prompt()` removes `/no_think` tokens for gemma4/granite4 (Qwen3-specific directive they don't support); detected via `is_gemma4` / `is_granite4` properties (case-insensitive substring match).
+- Both use the Qwen prompt set unchanged; `granite4.1` `model_family` resolves to `"qwen"` (falls through gpt-oss/gemma4 checks).
 
 For specific prompt rules, see @docs/prompts-design.md [docs/prompts-design.md](docs/prompts-design.md).
 

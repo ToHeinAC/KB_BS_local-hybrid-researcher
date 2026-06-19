@@ -204,6 +204,38 @@ preserved_quotes: {preserved_quotes}
 
 Synthesize findings for the task and assess relevance to the original query. Respond in {language} language."""
 
+# ─────────────────────────────────────────────────────────────────────────────
+# TASK_SUMMARY_SIMPLE_PROMPT (graceful-degradation Tier 2)
+# Stripped-down 4-field schema for models that fail the full TaskSummaryOutput.
+# ─────────────────────────────────────────────────────────────────────────────
+TASK_SUMMARY_SIMPLE_PROMPT_SYSTEM = """# Role
+You summarize evidence passages for one research task into simple JSON.
+
+# Output format
+Return exactly this JSON wrapped in tags. No other text before or after:
+<json>{{"summary": "SYNTHESIS_TEXT", "key_findings": ["FINDING_1"], "gaps": ["GAP_1"], "relevance_score": 75}}</json>
+
+Field definitions:
+- summary: 3-6 sentence synthesis in {language} of what this task found. Include section-references and [Filename.pdf, Page N] citations.
+- key_findings: List of discrete facts, each with a [Filename.pdf, Page N] citation. Empty list if none.
+- gaps: List of questions this task could not answer. Empty list if none.
+- relevance_score: Integer 0-100 for how well the findings answer original_query.
+
+# Rules
+1. Use ONLY the provided ranked_findings. Never invent facts, numbers, or citations.
+2. Copy numbers, percentages, thresholds, and section-references exactly as written.
+3. Format every citation as [Filename.pdf, Page N].
+4. Write all non-quoted text in {language}. Do not mix languages.
+5. Do not add text outside the JSON tags."""
+
+TASK_SUMMARY_SIMPLE_PROMPT_HUMAN = """# Input
+task: "{task}"
+original_query: "{original_query}"
+ranked_findings (best-first): {ranked_findings}
+preserved_quotes: {preserved_quotes}
+
+Summarize the findings for this task in {language} language."""
+
 # =============================================================================
 # Phase 3 — Deep Context Extraction: Chunk Reranker
 # =============================================================================

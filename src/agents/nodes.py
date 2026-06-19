@@ -45,6 +45,7 @@ from src.models.results import (
     Source,
     SynthesisOutputEnhanced,
     TaskSummaryOutput,
+    TaskSummarySimple,
     WebSearchSummaryOutput,
 )
 from src import prompts
@@ -2187,6 +2188,7 @@ def _generate_task_summary(
     )
 
     client = get_ollama_client()
+    unique_sources = list(set(sources))
     try:
         result = client.generate_structured_messages(
             ts_system, ts_human, TaskSummaryOutput,
@@ -2199,27 +2201,94 @@ def _generate_task_summary(
             "gaps": result.gaps,
             "irrelevant_findings": result.irrelevant_findings,
             "preserved_quotes": preserved_quotes,
-            "sources": list(set(sources)),
+            "sources": unique_sources,
             "relevance_to_query": result.relevance_score / 100.0,
         }
     except Exception as e:
-        logger.warning(f"Failed to generate task summary: {e}")
-        # Fallback to keyword overlap when LLM fails
-        fallback_score = _calculate_task_relevance(
-            task_text=task.task,
+        logger.warning(f"Strict task summary failed: {e}. Degrading to simple schema.")
+        return _generate_task_summary_degraded(
+            task=task,
+            ranked_text=ranked_text,
+            quotes_text=quotes_text,
+            preserved_quotes=preserved_quotes,
+            sources=unique_sources,
             original_query=original_query,
+            language=language,
             key_entities=query_anchor.get("key_entities", []),
+        )
+
+
+def _generate_task_summary_degraded(
+    task: ToDoItem,
+    ranked_text: str,
+    quotes_text: str,
+    preserved_quotes: list[dict],
+    sources: list[str],
+    original_query: str,
+    language: str,
+    key_entities: list[str],
+) -> dict:
+    """Graceful-degradation path when the strict task summary schema fails.
+
+    Tier 2: retry with the minimal/lenient ``TaskSummarySimple`` schema.
+    Tier 3: plain-text prose summary so a real summary is always produced.
+    Last resort: keyword-overlap relevance with whatever summary was obtained.
+    """
+    client = get_ollama_client()
+    base_summary = f"Completed task: {task.task}"
+    fallback_score = _calculate_task_relevance(
+        task_text=task.task,
+        original_query=original_query,
+        key_entities=key_entities,
+    )
+
+    s_system = prompts.TASK_SUMMARY_SIMPLE_PROMPT_SYSTEM.format(language=language)
+    s_human = prompts.TASK_SUMMARY_SIMPLE_PROMPT_HUMAN.format(
+        task=task.task,
+        original_query=original_query,
+        ranked_findings=ranked_text or "No findings available",
+        preserved_quotes=quotes_text,
+        language=language,
+    )
+
+    # Tier 2: minimal lenient schema
+    try:
+        simple = client.generate_structured_messages(
+            s_system, s_human, TaskSummarySimple,
         )
         return {
             "task_id": task.id,
             "task_text": task.task,
-            "summary": f"Completed task: {task.task}",
-            "key_findings": [],
-            "gaps": [],
+            "summary": simple.summary,
+            "key_findings": simple.key_findings,
+            "gaps": simple.gaps,
+            "irrelevant_findings": [],
             "preserved_quotes": preserved_quotes,
-            "sources": list(set(sources)),
-            "relevance_to_query": fallback_score,
+            "sources": sources,
+            "relevance_to_query": simple.relevance_score / 100.0,
         }
+    except Exception as e:
+        logger.warning(f"Simple task summary schema failed: {e}. Trying prose fallback.")
+
+    # Tier 3: plain-text prose summary (no JSON)
+    try:
+        prose = client.generate_messages(s_system, s_human)
+        if prose and prose.strip():
+            base_summary = prose.strip()
+    except Exception as e:
+        logger.warning(f"Prose task summary fallback failed: {e}. Using placeholder.")
+
+    return {
+        "task_id": task.id,
+        "task_text": task.task,
+        "summary": base_summary,
+        "key_findings": [],
+        "gaps": [],
+        "irrelevant_findings": [],
+        "preserved_quotes": preserved_quotes,
+        "sources": sources,
+        "relevance_to_query": fallback_score,
+    }
 
 
 def _calculate_task_relevance(

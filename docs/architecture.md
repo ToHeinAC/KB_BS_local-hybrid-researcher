@@ -337,62 +337,56 @@ LLM generates `num_tasks` ToDoItems from `QueryAnalysis` + `hitl_smry` (clamped 
 
 For each task: multi-query (3) → vector search → dedup → extract info + quotes → classify Tier 1/2/3 → reference detection → agentic gate (`ReferenceDecision`) → scoped resolution → classify nested chunks → convergence check → task summary (0-100 relevance score).
 
-Output: ResearchContext + tiered context (primary/secondary/tertiary) + task_summaries + preserved_quotes.
+Output: ResearchContext + tiered context + task_summaries + preserved_quotes.
+
+**Resilient task summary (graceful degradation)**: `_generate_task_summary()` never collapses a task to a `"Completed task: …"` placeholder. On `generate_structured_messages()` failure it delegates to `_generate_task_summary_degraded()`: Tier 1 strict `TaskSummaryOutput` (unchanged) → Tier 2 lenient `TaskSummarySimple` (4 fields; `relevance_score` coerces `"60%"`/`"60"`/`60.0`→60, junk→50, clamped 0–100 via `field_validator`) → Tier 3 plain-text prose via `generate_messages()` → keyword placeholder only if all 3 LLM calls raise. Model-agnostic; fixes small/code models (e.g. `north-mini-code-1.0`) that emit schema-mismatched JSON. Prompts: `TASK_SUMMARY_SIMPLE_PROMPT_{SYSTEM,HUMAN}` (Qwen + gpt-oss variants).
 
 ### Phase 3.5: Pre-Synthesis Relevance Validation + Backfill
 
 1. **validate_relevance node**: Scores accumulated context against query_anchor
-2. **Drift Detection**: Filters items below relevance threshold (0.5 for primary, 0.4 secondary, 0.3 tertiary)
-3. **Chunk Backfill** (NEW): Guarantees minimum chunks per task even if below threshold:
-   - Primary context: minimum 3 chunks (configurable via `PRIMARY_MIN_CHUNKS`)
-   - Secondary context: minimum 2 chunks (configurable via `SECONDARY_MIN_CHUNKS`)
-   - Backfilled chunks marked with `backfilled=True` flag + reason for transparency
-   - Top-scoring rejected chunks selected when backfill needed
+2. **Drift Detection**: Filters items below relevance threshold (0.5 primary, 0.4 secondary, 0.3 tertiary)
+3. **Chunk Backfill**: Guarantees minimum chunks per task even if below threshold — primary min 3 (`PRIMARY_MIN_CHUNKS`), secondary min 2 (`SECONDARY_MIN_CHUNKS`); top-scoring rejected chunks marked `backfilled=True` + reason for transparency
 4. **Warning Log**: Logs when >30% of accumulated context is filtered as drift
 
-Output: Filtered tiered context with guaranteed minimums, ready for reranking
+Output: Filtered tiered context with guaranteed minimums.
 
 ### Phase 3.8: Reference Provenance
 
-Nested chunks carry parent document + surrounding context of the reference (reuses `surrounding_window` from the agentic gate — zero extra LLM calls). Stored via `create_tiered_context_entry()` when `depth > 0`. Downstream: reranker penalises off-topic parent context (−20–40 pts), task summariser caps at score 49. See [docs/mindmap_rabbithole_provenance.md](mindmap_rabbithole_provenance.md).
+Nested chunks carry parent document + surrounding context of the reference (reuses `surrounding_window` from the agentic gate — zero extra LLM calls). Stored via `create_tiered_context_entry()` when `depth > 0`. Downstream: reranker penalises off-topic parent context (−20–40 pts), task summariser caps at score 49. See [mindmap_rabbithole_provenance.md](mindmap_rabbithole_provenance.md).
 
 ### Phase 3.6: Task Summary Reranking
 
-1. **rerank_task_summaries node**: Deterministic sort — no LLM call
-2. **Sort key**: descending `relevance_to_query` float; ascending `task_id` breaks ties
-3. **Rank stamping**: adds `rank` int (1 = most relevant) to each summary dict
-4. **Low-relevance warning**: logs task IDs with `relevance_to_query < 0.3`
-5. **_format_task_summaries()**: renders each header as `--- Task N: ... [Rank: N/total] [Relevance: N/100] ---`
-6. **Synthesis prompt rule**: tasks with Relevance ≥70/100 = primary evidence; ≤30/100 = supplementary context only
+1. **rerank_task_summaries node**: Deterministic sort (no LLM call) — descending `relevance_to_query`, ascending `task_id` breaks ties
+2. **Rank stamping**: adds `rank` int (1 = most relevant); logs task IDs with `relevance_to_query < 0.3`
+3. **_format_task_summaries()**: renders header `--- Task N: ... [Rank: N/total] [Relevance: N/100] ---`
+4. **Synthesis prompt rule**: Relevance ≥70/100 = primary evidence; ≤30/100 = supplementary only
 
-Output: Sorted task_summaries with rank metadata, ready for synthesis
+Output: Sorted task_summaries with rank metadata.
 
 ### Phase 3.9: Batch Chunk Reranking
 
-Batch LLM scoring (~3-4 calls for 20 chunks) with precision/recall strategies. Round-robin batching (`reranker_batch_size=6`) → cross-batch zero-mean normalization → hard-filter below `reranker_min_score` (default 4) → raw 1-5 mapped to 0-100 via `SCORE_TO_100`. Fallback on LLM error: `raw_score = round(relevance_score * 5)`.
+Batch LLM scoring (~3-4 calls for 20 chunks) with precision/recall strategies. Round-robin batching (`reranker_batch_size=6`) → cross-batch zero-mean normalization → hard-filter below `reranker_min_score` (default 4) → raw 1-5 mapped to 0-100 via `SCORE_TO_100`. Fallback on error: `raw_score = round(relevance_score * 5)`.
 
 ### Phase 3.10: Optional Web Search (Tavily API)
 
-Runs only when user enables web search via the GUI checkbox. Inserted between `rerank_task_summaries` and `synthesize` in the graph.
+Runs only when the user enables web search via the GUI checkbox; inserted between `rerank_task_summaries` and `synthesize`.
 
 1. **Guard**: Returns `{}` immediately if `enable_web_search` is `False`
-2. **Query generation**: LLM generates one concise search query (4-8 keywords) from `key_findings` + `gaps` across task summaries via `WEB_SEARCH_QUERY_PROMPT`
-3. **Tavily API call**: `tavily_search(query)` POSTs to `https://api.tavily.com/search`, returns raw result dicts
-4. **Result formatting**: `format_tavily_results()` converts to `WebResult` instances; `format_results_for_prompt()` builds numbered text blocks
-5. **LLM summarization**: `WEB_SEARCH_SUMMARIZE_PROMPT` → `WebSearchSummaryOutput` with `[Title](URL)` citations and contradiction detection against KB `key_findings`
-6. **Contradiction notice**: If contradictions found, prepended as `**Widersprüche**` (de) / `**Contradictions**` (en) block
+2. **Query generation**: LLM builds one query (4-8 keywords) from `key_findings` + `gaps` via `WEB_SEARCH_QUERY_PROMPT`
+3. **Tavily API call**: `tavily_search(query)` POSTs to `https://api.tavily.com/search`, returns raw dicts
+4. **Formatting**: `format_tavily_results()` → `WebResult` instances; `format_results_for_prompt()` builds numbered blocks
+5. **LLM summarization**: `WEB_SEARCH_SUMMARIZE_PROMPT` → `WebSearchSummaryOutput` with `[Title](URL)` citations + contradiction detection vs KB `key_findings`
+6. **Contradiction notice**: if found, prepended as `**Widersprüche**` (de) / `**Contradictions**` (en) block
 
-**Strict separation**: Web summary is stored in `web_search_summary` state field and appended in `attribute_sources()` as a distinct markdown section (`### Ergänzende Webrecherche` / `### Supplementary Web Research`). It is **never** passed into the `synthesize()` prompt.
-
-Output: `web_search_results` (list of WebResult dicts), `web_search_summary` (formatted markdown)
+**Strict separation**: Web summary is stored in `web_search_summary` and appended in `attribute_sources()` as a distinct section (`### Ergänzende Webrecherche` / `### Supplementary Web Research`); **never** passed into `synthesize()`. Output: `web_search_results`, `web_search_summary`.
 
 ### Phase 4: Query-Anchored Synthesis + Quality Assurance
 
-`SYNTHESIS_PROMPT_ENHANCED` → markdown deep report from task summaries + hitl_smry. Language enforcement via `generate_structured_with_language()`. Optional quality check (0-500, 5 dimensions). Agentic remediation: if score < 375 and `synthesis_retry_count < 1`, `QUALITY_REMEDIATION_PROMPT` → `QualityRemediationDecision(accept|retry)` → retry appends `quality_remediation_focus` to prompt (max 1 retry).
+`SYNTHESIS_PROMPT_ENHANCED` → markdown deep report from task summaries + hitl_smry. Language enforcement via `generate_structured_with_language()`. Optional quality check (0-500, 5 dims). Agentic remediation: if score < 375 and `synthesis_retry_count < 1`, `QUALITY_REMEDIATION_PROMPT` → `QualityRemediationDecision(accept|retry)` → retry appends `quality_remediation_focus` (max 1 retry).
 
 ### Phase 5: Source Attribution + Numbered Citations
 
-`attribute_sources()` builds `FinalReport`. `numberify_citations(answer, language)` replaces `[Doc.pdf, Page N]` patterns with sequential `[N]` markers + appended `### Quellenverzeichnis/References` block with `/_api/pdf` links. `ensure_pdf_route()` injects the Tornado PDF handler once (path validated to `kb/` dir).
+`attribute_sources()` builds `FinalReport`. `numberify_citations(answer, language)` replaces `[Doc.pdf, Page N]` with sequential `[N]` markers + a `### Quellenverzeichnis/References` block with `/_api/pdf` links. `ensure_pdf_route()` injects the Tornado PDF handler once (path validated to `kb/`).
 
 ## Streamlit Runtime Model
 

@@ -143,7 +143,7 @@ def __getattr__(name: str) -> str:
 
 **Consumer pattern**: Consumers use `from src import prompts` then `prompts.X` (module-level attribute access), not `from src.prompts import X` (which would bind at import time and miss runtime model changes).
 
-All gpt-oss files export **identical constant names** as their Qwen counterparts (48 total).
+All gpt-oss files export **identical constant names** as their Qwen counterparts (54 total).
 
 ### HITL Summary output sections (reference)
 
