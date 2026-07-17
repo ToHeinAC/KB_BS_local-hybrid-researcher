@@ -38,5 +38,10 @@ echo ""
 echo "To access remotely, run ./login/start-quick-tunnels.sh first"
 echo ""
 
-# Start the launcher
-uv run streamlit run login/launcher_app.py --server.port 8522 --server.headless true
+# Start the launcher.
+# --server.baseUrlPath="" is load-bearing: we cd'd into the project root above,
+# so the launcher inherits .streamlit/config.toml, whose baseUrlPath = "brain"
+# is meant for the *app* (which nginx serves at /brain/). Without this override
+# the launcher would answer at :8522/brain/ and 404 at :8522/.
+uv run streamlit run login/launcher_app.py --server.port 8522 --server.headless true \
+  --server.baseUrlPath=""

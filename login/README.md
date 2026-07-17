@@ -20,17 +20,29 @@ export LAUNCHER_PASSWORD="your-secure-password"
 
 ## Port Assignments
 
-| Service | Port | Purpose |
-|---------|------|---------|
-| Launcher | 8522 | Password-gated control panel |
-| Main App | 8511 | Hybrid Researcher Streamlit app |
+| Service | Port | Path | Purpose |
+|---------|------|------|---------|
+| Launcher | 8522 | `/` | Password-gated control panel |
+| Main App | 8511 | `/brain/` | Hybrid Researcher Streamlit app |
 
-## How Quick Tunnels Work
+The main app sets `baseUrlPath = "brain"` in `.streamlit/config.toml`, matching
+the nginx path that publishes it at `https://ai.brenk.com/brain/`. It therefore
+answers **only** under `/brain/` — `http://localhost:8511/` returns 404.
+
+The launcher is the exception. `start-launcher.sh` cd's to the project root, so
+it would inherit that same config; it passes `--server.baseUrlPath=""` to undo
+it and stay at its own root. Don't drop that flag, or the launcher moves to
+`:8522/brain/`.
+
+## How Quick Tunnels Work (retired)
+
+The nginx reverse proxy replaced these; they are kept as a fallback.
 
 - `start-quick-tunnels.sh` creates two temporary Cloudflare tunnels
 - Each gets a random `*.trycloudflare.com` URL (changes on every restart)
 - URLs are saved to `/tmp/hybrid-launcher-url.txt` and `/tmp/hybrid-app-url.txt`
-- The launcher reads these files to display clickable links
+- The launcher reads these files to display clickable links, appending `/brain/`
+  to the app's URL — the tunnel points at the port root, where the app 404s
 
 ## Stopping
 

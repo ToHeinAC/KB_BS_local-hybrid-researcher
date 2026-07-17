@@ -1,10 +1,12 @@
 """Live GPU stats widget via Tornado route injection.
 
-Injects a ``/_api/gpu`` handler into Streamlit's own Tornado server.
-The sidebar renders an ``st.components.v1.html()`` snippet whose JS fetches
-the relative URL ``/_api/gpu`` every 1 s.  Because the iframe inherits the
-parent page's origin (``allow-same-origin``), this works over SSH tunnels and
-any remote access method — no cross-origin or sandbox issues.
+Injects an ``_api/gpu`` handler into Streamlit's own Tornado server, under
+Streamlit's configured base path (see ``base_path``). The sidebar renders an
+``st.components.v1.html()`` snippet whose JS fetches ``./_api/gpu`` every 1 s.
+Because the iframe inherits the parent page's origin (``allow-same-origin``) and
+its base URL, this works over SSH tunnels, behind the reverse proxy's
+``/brain/`` path, and by any other remote access method — no cross-origin or
+sandbox issues.
 
 Tornado's I/O loop runs independently of Streamlit's script-runner thread,
 so updates keep flowing even while ``graph.stream()`` blocks for 30 s+.
@@ -21,6 +23,8 @@ import time
 
 import streamlit as st
 import streamlit.components.v1 as components
+
+from src.ui.components.base_path import base_path
 
 logger = logging.getLogger(__name__)
 
@@ -103,6 +107,8 @@ def _inject_gpu_route() -> bool:
             return False
         tornado_app = apps[0]
 
+        route_path = f"{base_path()}/_api/gpu"
+
         # Guard against double-registration.
         # add_handlers() writes to default_router, so check there.
         for rule in tornado_app.default_router.rules:
@@ -112,7 +118,7 @@ def _inject_gpu_route() -> bool:
             for sub_rule in getattr(target, "rules", []):
                 matcher = getattr(sub_rule, "matcher", None)
                 if matcher and hasattr(matcher, "regex"):
-                    if "/_api/gpu" in matcher.regex.pattern:
+                    if route_path in matcher.regex.pattern:
                         return True  # already registered
 
         class GPUStatsHandler(tornado.web.RequestHandler):
@@ -133,8 +139,8 @@ def _inject_gpu_route() -> bool:
                     is_running = _timer["end"] is None
                 self.write(json.dumps({"gpus": gpus, "elapsed": elapsed, "is_running": is_running}))
 
-        tornado_app.add_handlers(".*", [(r"/_api/gpu", GPUStatsHandler)])
-        logger.info("Injected /_api/gpu Tornado route for GPU widget")
+        tornado_app.add_handlers(".*", [(route_path, GPUStatsHandler)])
+        logger.info("Injected %s Tornado route for GPU widget", route_path)
         return True
 
     except Exception:
@@ -151,7 +157,7 @@ def _ensure_gpu_route() -> bool:
 
 
 # ---------------------------------------------------------------------------
-# HTML/JS template (fetches relative /_api/gpu)
+# HTML/JS template (fetches _api/gpu relative to the page)
 # ---------------------------------------------------------------------------
 
 def _gpu_html(model: str) -> str:
@@ -162,7 +168,10 @@ def _gpu_html(model: str) -> str:
 </div>
 <script>
 function fetchGPU() {{
-  fetch("/_api/gpu")
+  // Relative, not "/_api/gpu": behind the reverse proxy the page is served at
+  // /brain/, and a root-absolute URL would escape that prefix. This srcdoc
+  // iframe resolves relative URLs against the parent page.
+  fetch("./_api/gpu")
     .then(r => r.json())
     .then(data => {{
       const gpus = data.gpus || [];

@@ -386,7 +386,7 @@ Runs only when the user enables web search via the GUI checkbox; inserted betwee
 
 ### Phase 5: Source Attribution + Numbered Citations
 
-`attribute_sources()` builds `FinalReport`. `numberify_citations(answer, language)` replaces `[Doc.pdf, Page N]` with sequential `[N]` markers + a `### Quellenverzeichnis/References` block with `/_api/pdf` links. `ensure_pdf_route()` injects the Tornado PDF handler once (path validated to `kb/`).
+`attribute_sources()` builds `FinalReport`. `numberify_citations(answer, language)` replaces `[Doc.pdf, Page N]` with sequential `[N]` markers + a `### Quellenverzeichnis/References` block with relative `_api/pdf` links (registered under `server.baseUrlPath`; see `src/ui/components/base_path.py`). `ensure_pdf_route()` injects the Tornado PDF handler once (path validated to `kb/`).
 
 ## Streamlit Runtime Model
 
@@ -471,7 +471,7 @@ A **"Dokumente anzeigen"** button below the embedding caption opens a native `@s
 
 ### GPU Widget (Sidebar)
 
-Live GPU temp/fan/load + elapsed research time via Tornado route injection (`/_api/gpu`), updating every 1s independently of Streamlit's script-runner thread.
+Live GPU temp/fan/load + elapsed research time via Tornado route injection (`_api/gpu`, under `server.baseUrlPath`), updating every 1s independently of Streamlit's script-runner thread.
 
 - **`_ensure_gpu_route()`**: One-time injection via `gc.get_objects()` → `tornado_app.add_handlers()` with double-injection guard
 - **`render_gpu_sidebar()`**: `components.v1.html()` with JS polling; color-coded thresholds (temp 70/80°C, load 50/80%)

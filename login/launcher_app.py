@@ -20,6 +20,8 @@ st.set_page_config(
 ADMIN_PASSWORD = os.getenv("LAUNCHER_PASSWORD", "changeme123")
 APP_PORT = 8511
 LAUNCHER_PORT = 8522
+# Must match server.baseUrlPath in .streamlit/config.toml and the nginx path.
+APP_BASE_PATH = "brain"
 PROJECT_DIR = "/home/he/ai/dev/langgraph/KB_BS_local-hybrid-researcher"
 APP_COMMAND = "uv run streamlit run src/ui/app.py --server.port 8511 --server.headless true"
 APP_LOG = "/tmp/hybrid_researcher_app.log"
@@ -32,9 +34,15 @@ APP_URL_FILE = "/tmp/hybrid-app-url.txt"
 # --- Tunnel URL helpers -------------------------------------------------------
 
 def get_tunnel_urls() -> tuple[str, str]:
-    """Read current tunnel URLs from env vars or saved files."""
+    """Read current tunnel URLs from env vars or saved files.
+
+    The app's URLs carry APP_BASE_PATH: the app sets baseUrlPath in
+    .streamlit/config.toml, so it answers at /brain/ and 404s at its root. The
+    launcher itself is served at the root (start-launcher.sh overrides the
+    inherited config), so its own URL is untouched.
+    """
     launcher_url = os.getenv("LAUNCHER_URL", f"http://localhost:{LAUNCHER_PORT}")
-    app_url = os.getenv("MAIN_APP_URL", f"http://localhost:{APP_PORT}")
+    app_url = os.getenv("MAIN_APP_URL", f"http://localhost:{APP_PORT}/{APP_BASE_PATH}/")
 
     for path, setter in [(LAUNCHER_URL_FILE, "launcher"), (APP_URL_FILE, "app")]:
         if os.path.exists(path):
@@ -45,7 +53,9 @@ def get_tunnel_urls() -> tuple[str, str]:
                     if setter == "launcher":
                         launcher_url = url
                     else:
-                        app_url = url
+                        # The tunnel points at the app's port root; the app lives
+                        # one level in.
+                        app_url = f"{url.rstrip('/')}/{APP_BASE_PATH}/"
             except OSError:
                 pass
 

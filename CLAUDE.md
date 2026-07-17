@@ -66,7 +66,7 @@ Classical RAG lacks deep contextual understanding and cannot follow inter-docume
 ├────────────────────────────────────────────────────────────────────┤
 │  Phase 5: Source Attribution + Numbered Citations                   │
 │  Add citations → numberify_citations() → [N] references + PDF links │
-│  PDF served via /_api/pdf Tornado route (pdf_route.py)             │
+│  PDF served via _api/pdf Tornado route (pdf_route.py)              │
 └────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -103,7 +103,7 @@ The system now uses **tiered context classification** to prevent query drift and
 - **Resilient Task Summaries**: `_generate_task_summary()` degrades gracefully (strict `TaskSummaryOutput` → lenient `TaskSummarySimple` → prose → keyword fallback). See @docs/architecture.md
 - **Optional Web Search**: Tavily API (Phase 3.10) — LLM builds query from gaps, summarizes with `[Title](URL)` citations + contradiction detection; strictly separated from KB synthesis; disabled by default
 - **Language Enforcement**: Strict single-language output with retry on mismatch
-- **Numbered Citations**: `numberify_citations()` replaces inline `[Doc.pdf, Page N]` with sequential `[1]`, `[2]`, … + reference list with `/_api/pdf` PDF links
+- **Numbered Citations**: `numberify_citations()` replaces inline `[Doc.pdf, Page N]` with sequential `[1]`, `[2]`, … + reference list with relative `_api/pdf` PDF links (base-path safe)
 
 ### Agentic Decision Points
 
@@ -170,6 +170,10 @@ ollama pull granite4.1:3b            # Fallback/einfach model
 
 # Run Streamlit UI (local access)
 uv run streamlit run src/ui/app.py --server.port 8511 --server.headless false
+# Open http://localhost:8511/brain/ — the port root 404s. .streamlit/config.toml
+# sets baseUrlPath = "brain" to match the nginx path serving
+# https://ai.brenk.com/brain/. Change one, change both — and note that
+# src/ui/components/base_path.py places the injected _api/* routes accordingly.
 
 # Or run via CLI
 python -m src.main --ui --port 8511

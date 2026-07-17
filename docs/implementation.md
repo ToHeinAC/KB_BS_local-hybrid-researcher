@@ -200,10 +200,10 @@ is now attached to each `NestedChunk` and propagated through the pipeline — ze
 - [x] German localization, layout fixes
 
 ### Phase 6.10: Live GPU Widget (Sidebar)
-- [x] **Tornado route injection** (`src/ui/components/gpu_widget.py`): `/_api/gpu` endpoint serving live `nvidia-smi` stats as JSON
+- [x] **Tornado route injection** (`src/ui/components/gpu_widget.py`): `_api/gpu` endpoint serving live `nvidia-smi` stats as JSON, registered under `server.baseUrlPath`
 - [x] **gc-based discovery**: `gc.get_objects()` finds the live `tornado.web.Application` (Streamlit ≥1.53 removed `Server.get_current()`)
 - [x] **Double-injection guard**: Checks `default_router.rules` (where `add_handlers` writes) to prevent duplicate registration
-- [x] **Sidebar rendering**: `components.v1.html()` with JS polling `/_api/gpu` every 1s; fixed-width monospace layout
+- [x] **Sidebar rendering**: `components.v1.html()` with JS polling `./_api/gpu` (relative — survives the /brain/ proxy prefix) every 1s; fixed-width monospace layout
 - [x] **Color coding**: Temp (green <70°C, orange <80°C, red ≥80°C), Load (green <50%, orange <80%, red ≥80%)
 - [x] **Graceful degradation**: No GPU / no `nvidia-smi` → widget not rendered, no errors
 - [x] **Why not `@st.fragment`**: Fragments queue on the same script-runner thread and block during `graph.stream()`; Tornado I/O loop is independent
@@ -211,7 +211,7 @@ is now attached to each `NestedChunk` and propagated through the pipeline — ze
 ### Phase 6.11: Elapsed Research Time in GPU Widget
 - [x] **Module-level timing state** (`gpu_widget.py`): `_research_start_time` / `_research_end_time` (float | None) — safe for single-user local app
 - [x] **Three public setters**: `set_research_start()`, `set_research_end()`, `reset_research_timer()` — called from `app.py`
-- [x] **Updated `/_api/gpu` response**: `{"gpus": [...], "elapsed": int|null, "is_running": bool}` (backward-compatible within widget)
+- [x] **Updated `_api/gpu` response**: `{"gpus": [...], "elapsed": int|null, "is_running": bool}` (backward-compatible within widget)
 - [x] **JS rendering**: `t: Xs...` in green (`#21c354`) while running; `t: Xs` in grey (`#aaa`) when done; line hidden before first approval
 - [x] **Lifecycle hooks in `app.py`**:
   - `set_research_start()` — called right after todo approval (`_resume_with_decision`)
@@ -299,7 +299,7 @@ Replaces verbose inline `[Document.pdf, Page N]` citations with sequential `[1]`
   - Regex `_CITATION_RE` matches `[*.pdf, Page N]`, `[*.pdf, Seite N]`, `[*.pdf]`; negative lookahead avoids markdown links
   - Assigns numbers in reading order; same `(doc_name.lower(), page)` key reuses same number
   - Replaces right-to-left (preserves string offsets)
-  - Appends `### Quellenverzeichnis` / `### References` block with `[N] Doc.pdf, Page X — [PDF öffnen](/_api/pdf?path=...)` lines
+  - Appends `### Quellenverzeichnis` / `### References` block with `[N] Doc.pdf, Page X — [PDF öffnen](_api/pdf?path=...)` lines
 - [x] **`resolve_pdf_path(doc_name)`** (`src/agents/tools.py`):
   - Scans `kb/*__db_inserted/` folders (exact match, then case-insensitive fallback)
   - Returns absolute path string or `None`; used by `numberify_citations()` to build PDF links

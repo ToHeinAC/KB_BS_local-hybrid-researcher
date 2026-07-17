@@ -164,7 +164,10 @@ class TestNumberifyCitations:
             result, citations = numberify_citations(text)
 
         assert "PDF öffnen" in result
-        assert "/_api/pdf?path=" in result
+        # Relative on purpose — a root-absolute link would escape the reverse
+        # proxy's /brain/ prefix. See src/ui/components/base_path.py.
+        assert "(_api/pdf?path=" in result
+        assert "(/_api/pdf?path=" not in result
         assert "file://" not in result
 
     def test_numberify_empty_string(self):

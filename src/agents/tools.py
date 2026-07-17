@@ -1100,7 +1100,10 @@ def numberify_citations(
         if pdf_path:
             from urllib.parse import quote
             encoded = quote(pdf_path, safe="")
-            link = f"[{num}] {doc}{page_str} — [{open_label}](/_api/pdf?path={encoded})"
+            # Relative, not "/_api/pdf": behind the reverse proxy the page is
+            # served at /brain/, and a root-absolute link would escape that
+            # prefix. pdf_route.py registers the handler under the same prefix.
+            link = f"[{num}] {doc}{page_str} — [{open_label}](_api/pdf?path={encoded})"
         else:
             link = f"[{num}] {doc}{page_str}"
         ref_lines.append(link)

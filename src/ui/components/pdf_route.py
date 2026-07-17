@@ -1,8 +1,11 @@
 """PDF serving via Tornado route injection.
 
-Injects a ``/_api/pdf`` handler into Streamlit's Tornado server so that
+Injects an ``_api/pdf`` handler into Streamlit's Tornado server so that
 PDF links in the citation list open in the browser instead of being blocked
 by the ``file://`` security restriction.
+
+The route is registered under Streamlit's base path (see ``base_path``); the
+citation links in ``src/agents/tools.py`` are relative and resolve to it.
 
 Uses the same gc-based Tornado discovery pattern as ``gpu_widget.py``.
 """
@@ -13,6 +16,8 @@ from pathlib import Path
 from urllib.parse import unquote
 
 import streamlit as st
+
+from src.ui.components.base_path import base_path
 
 logger = logging.getLogger(__name__)
 
@@ -30,7 +35,7 @@ def _get_kb_base() -> Path:
 
 
 def _inject_pdf_route() -> bool:
-    """Inject ``/_api/pdf`` into Streamlit's Tornado app. Returns success."""
+    """Inject the PDF route into Streamlit's Tornado app. Returns success."""
     try:
         import tornado.web
 
@@ -43,6 +48,8 @@ def _inject_pdf_route() -> bool:
             return False
         tornado_app = apps[0]
 
+        route_path = f"{base_path()}/_api/pdf"
+
         # Double-injection guard
         for rule in tornado_app.default_router.rules:
             target = getattr(rule, "target", None)
@@ -51,7 +58,7 @@ def _inject_pdf_route() -> bool:
             for sub_rule in getattr(target, "rules", []):
                 matcher = getattr(sub_rule, "matcher", None)
                 if matcher and hasattr(matcher, "regex"):
-                    if "/_api/pdf" in matcher.regex.pattern:
+                    if route_path in matcher.regex.pattern:
                         return True  # already registered
 
         kb_base = _get_kb_base()
@@ -86,8 +93,8 @@ def _inject_pdf_route() -> bool:
                 with open(requested, "rb") as f:
                     self.write(f.read())
 
-        tornado_app.add_handlers(".*", [(r"/_api/pdf", PDFHandler)])
-        logger.info("Injected /_api/pdf Tornado route for PDF serving")
+        tornado_app.add_handlers(".*", [(route_path, PDFHandler)])
+        logger.info("Injected %s Tornado route for PDF serving", route_path)
         return True
 
     except Exception:

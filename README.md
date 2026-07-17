@@ -20,14 +20,42 @@ ollama pull granite4.1:3b        # Fallback/einfach model
 
 # Run UI (local) — a login screen gates the app
 streamlit run src/ui/app.py --server.port 8511
+# Then open http://localhost:8511/brain/  — the port root 404s, see "Public access"
 # Default users (seeded on first run into the gitignored data/users.json):
 #   T. Hein / #BrAIn1   |   Gast / 2026_BrAIn
 
-# Remote access via Cloudflare Tunnel
+# Remote access via Cloudflare Tunnel (retired — see "Public access" below)
 export LAUNCHER_PASSWORD="your-password"
 ./login/start-quick-tunnels.sh   # Creates temporary public HTTPS URLs
 ./login/start-launcher.sh        # Password-gated launcher on port 8522
 ```
+
+## Public access
+
+BrAIn is served at **<https://ai.brenk.com/brain/>** by an nginx reverse proxy,
+which terminates TLS and maps that path onto port 8511. The URL is permanent.
+
+`.streamlit/config.toml` sets `baseUrlPath = "brain"` to match the proxy path.
+The two must agree or the app renders blank: Streamlit's asset links are
+relative, and without the base path they resolve at the site root. As a
+consequence the app answers **only** under `/brain/`; its port root 404s.
+
+This app injects two routes of its own, `_api/gpu` and `_api/pdf`. Streamlit
+prefixes only its *own* routes, so both injectors read the base path from
+`src/ui/components/base_path.py` and register under the same prefix, while the
+browser side stays relative (`./_api/gpu`, `_api/pdf?path=`). Change
+`baseUrlPath`, and both follow.
+
+The launcher (port 8522) is deliberately *not* under a base path —
+`start-launcher.sh` passes `--server.baseUrlPath=""` to undo the config it
+inherits from the project root.
+
+Proxy config and full reasoning: `local_app-orchestrator/deploy/ai.brenk.com.conf`
+and its `docs/reverse-proxy.md`. The app directory at <https://ai.brenk.com/>
+links here.
+
+The Cloudflare quick tunnels in `login/` are superseded but kept as a fallback.
+The URLs they print point at the port root and 404 — append `/brain/`.
 
 ## Features
 
@@ -53,13 +81,13 @@ export LAUNCHER_PASSWORD="your-password"
 - **GUI Login Gate**: Role-free login screen in front of the app (`src/ui/auth.py`). Credentials live in a gitignored JSON store (`data/users.json`), seeded on first run with salted PBKDF2-SHA256 password hashes (stdlib, no extra dependency). Auth state is kept separate from the research session so "Free GPU & Reset" / "Neue Recherche" do not log the user out; a sidebar "Abmelden" button logs out.
 - **Full Human-In-The-Loop**: Checkpoints for query refinement, task list approval, and final result verification.
 - **Privacy-First & Local**: Powered by Ollama and local ChromaDB, ensuring all research data stays on your machine.
-- **Numbered Citation Transformation**: Inline `[Document.pdf, Page N]` citations are post-processed into sequential `[1]`, `[2]`, … markers with an appended reference list. PDFs open directly in the browser via the `/_api/pdf` Tornado route (same injection pattern as the GPU widget).
+- **Numbered Citation Transformation**: Inline `[Document.pdf, Page N]` citations are post-processed into sequential `[1]`, `[2]`, … markers with an appended reference list. PDFs open directly in the browser via the `_api/pdf` Tornado route (same injection pattern as the GPU widget), registered under the app's base path and linked relatively so it survives the `/brain/` reverse-proxy prefix.
 - **Persistent Results View**: Completed report page shows HITL conversation, task summaries with findings/gaps, and per-task tiered chunk expanders (primary/secondary/tertiary) with full original vector DB text + LLM extraction alongside the final answer.
 - **Retrieval History Panel**: Real-time display of vector search results during HITL with chunk details.
 - **Remote Access via Cloudflare Tunnel**: Password-protected launcher app (`login/`) with start/stop/restart controls, accessible via temporary `*.trycloudflare.com` quick tunnel URLs. Coexists safely with other tunnels. See `login/README.md`.
 - **Database Selection**: Choose specific knowledge base collections or search all.
 - **Cached Service Clients**: Fast UI reloads via `@st.cache_resource` for ChromaDB/Ollama clients.
-- **Live GPU Widget**: Sidebar shows real-time GPU temp/fan/load + elapsed research time via Tornado route injection (`/_api/gpu`), updating every 1s even during blocking `graph.stream()` calls. Timer starts at todo approval, freezes on report completion, resets on new session. Color-coded thresholds for temp, load, and elapsed time. Graceful degradation when no GPU is available.
+- **Live GPU Widget**: Sidebar shows real-time GPU temp/fan/load + elapsed research time via Tornado route injection (`_api/gpu`, under the app's base path), updating every 1s even during blocking `graph.stream()` calls. Timer starts at todo approval, freezes on report completion, resets on new session. Color-coded thresholds for temp, load, and elapsed time. Graceful degradation when no GPU is available.
 
 ## Documentation
 

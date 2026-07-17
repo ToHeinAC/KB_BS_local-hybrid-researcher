@@ -1,0 +1,13 @@
+[server]
+# Served under https://ai.brenk.com/brain/ by the nginx reverse proxy. This must
+# match the proxy's path, or the app renders blank: Streamlit's asset links are
+# relative, and without the base path they resolve at the site root.
+# src/ui/components/base_path.py reads this value so the injected _api/gpu and
+# _api/pdf routes land under the same prefix — change one, and they follow.
+baseUrlPath = "brain"
+# Overrides enableXsrfProtection = false in ~/.streamlit/config.toml, for this
+# app only. That global default was harmless behind a rotating tunnel URL; this
+# app now has a permanent public URL and a sign-in.
+enableXsrfProtection = true
+# The port deliberately stays on the command line (--server.port 8511): the
+# launcher and the tunnel scripts find the process by matching that flag.
