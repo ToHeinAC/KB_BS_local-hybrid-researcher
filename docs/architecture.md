@@ -479,19 +479,22 @@ Live GPU temp/fan/load + elapsed research time via Tornado route injection (`_ap
 - **Response**: `{"gpus": [...], "elapsed": int|null, "is_running": bool}`
 - **Why Tornado**: I/O loop is independent — `@st.fragment(run_every=...)` blocks during `graph.stream()`
 
-### Remote Access (Cloudflare Tunnel)
+### Remote Access
 
-The `login/` directory provides remote access via Cloudflare quick tunnels: two tunnels expose the password-gated launcher (`login/launcher_app.py`, port 8522 — `LAUNCHER_PASSWORD` gate, start/stop/restart controls, psutil monitoring, log viewer) and the main Streamlit app (port 8511) over temporary `*.trycloudflare.com` HTTPS URLs.
+Preference order: (1) permanent nginx `/brain/` reverse proxy (see README.md "Public access"),
+(2) `tunnel.sh` — a no-account quick-tunnel fallback, (3) `login/` password-gated launcher — legacy fallback.
 
-**Key files:**
-- `login/launcher_app.py` — password-gated Streamlit control panel
-- `login/start-quick-tunnels.sh` — creates two quick tunnels (temporary URLs)
-- `login/start-launcher.sh` — starts the launcher via `uv run`
-- `login/cloudflared-config.yml` — template for persistent tunnel (requires domain)
+**`tunnel.sh`** (repo root): starts the app on 8511 (if not running) + `cloudflared tunnel --url
+http://localhost:8511`, both `setsid nohup`-detached; `./tunnel.sh stop` kills both by exact
+command-line pattern. Moves aside `~/.cloudflared/` named-tunnel config/creds before starting
+(forces quick-tunnel mode), restores after capturing the URL. Detached watchdog kills the tunnel
+once `lsof -ti:8511` goes empty, using the tunnel's PID as an argument (not pattern-matched, so it
+can't self-match). Printed URL gets `/brain/` appended. Logs: `/tmp/hybrid-researcher-*.log`.
 
-**Tunnel coexistence:** Scripts use targeted `pkill` by port URL to avoid killing other tunnels (e.g., `brain-nw1`). URL files are project-specific (`/tmp/hybrid-*-url.txt`).
-
-**Quick tunnels vs. persistent:** Quick tunnels generate temporary `*.trycloudflare.com` URLs. For permanent URLs, a Cloudflare-managed domain is required (see `login/README.md` for upgrade path).
+`login/` provides remote access the same way: a password-gated launcher (`login/launcher_app.py`,
+port 8522) + the main app, over temporary `*.trycloudflare.com` URLs via `start-quick-tunnels.sh` /
+`start-launcher.sh`. Scripts use targeted `pkill` by port to avoid killing unrelated tunnels (e.g.
+`brain-nw1`). `login/cloudflared-config.yml` templates a persistent named tunnel (needs a domain).
 
 ### Graph Entry Point Routing
 

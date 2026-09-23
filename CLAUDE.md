@@ -184,10 +184,13 @@ python -m src.main --query "Was sind die Grenzwerte für Strahlenexposition?"
 # Run tests
 pytest tests/ -v
 
-# Remote access via Cloudflare Tunnel (see login/README.md)
+# Simplest remote access: one-script Cloudflare Quick Tunnel, no account/password (./tunnel.sh stop to stop)
+./tunnel.sh
+
+# Fallback: password-gated launcher + quick tunnels (see login/README.md), superseded by nginx /brain/
 export LAUNCHER_PASSWORD="your-password"
-./login/start-quick-tunnels.sh   # Terminal 1: creates temporary public URLs
-./login/start-launcher.sh        # Terminal 2: password-gated launcher on port 8522
+./login/start-quick-tunnels.sh
+./login/start-launcher.sh
 ```
 
 ## Key Configuration
@@ -212,6 +215,7 @@ Edit `.env` for your setup:
 ```
 KB_BS_local-hybrid-researcher/
 ├── CLAUDE.md              # This file
+├── tunnel.sh              # One-script Cloudflare Quick Tunnel (start/stop app + tunnel, detached)
 ├── docs/                  # Detailed documentation
 │   ├── architecture.md    # Full system design
 │   ├── agent-design.md    # ReAct + LangGraph patterns
@@ -264,51 +268,23 @@ All callers use `OllamaClient.generate_structured_messages()` or `generate_messa
 
 ### Dynamic Prompt Routing (Runtime Model Switching)
 
-The `src/prompts/__init__.py` uses **PEP 562 `__getattr__`** for runtime-dynamic prompt resolution:
-- Both Qwen and gpt-oss prompt sets are eagerly loaded into `_qwen_prompts` / `_gptoss_prompts` dicts at import time
-- `__getattr__(name)` checks `settings.model_family` **at access time** and returns from the correct dict
-- Consumers use `from src import prompts` then `prompts.X` (module-level access, not `from src.prompts import X`)
-- This enables switching models at runtime (via the UI depth selector) without restarting
+`src/prompts/__init__.py` uses **PEP 562 `__getattr__`**: both Qwen and gpt-oss prompt sets are
+eagerly loaded into dicts at import time; `__getattr__(name)` resolves from the correct dict based
+on `settings.model_family` **at access time**, so consumers must use `from src import prompts` +
+`prompts.X` (never `from src.prompts import X`, which binds at import time). This enables runtime
+model switching via the UI depth selector, with no restart. `model_family` returns `"gpt-oss"` if
+`ollama_model.startswith("gpt-oss")`, `"gemma4"` on a case-insensitive `"gemma4"`/`"gemma-4"`
+substring match, else `"qwen"` (covers `granite4.1`, `north-mini-code-1.0` too — both prompt sets
+export identical constant names). `reset_ollama_client()` in each consumer module (`nodes.py`,
+`tools.py`, `hitl_service.py`) clears cached `OllamaClient` instances on model switch, called by
+`_apply_research_depth()` in `app.py`.
 
-The `model_family` property returns `"gpt-oss"` when `ollama_model.startswith("gpt-oss")`, `"gemma4"` when `"gemma4"` or `"gemma-4"` is found in the lowercased model string (case-insensitive substring match), else `"qwen"`. Both `"gemma4"` and `"qwen"` resolve to the Qwen prompt set; `granite4.1` and `north-mini-code-1.0` also fall through to `"qwen"`.
-Both variants export **identical constant names** (54 total).
-
-**Consumer pattern** (used in `nodes.py`, `tools.py`, `hitl_service.py`):
-```python
-from src import prompts
-system = prompts.SYNTHESIS_PROMPT_ENHANCED_SYSTEM.format(language=lang)
-```
-
-**Singleton reset**: Each consumer module exposes `reset_ollama_client()` to clear cached `OllamaClient` instances when the model changes. Called by `_apply_research_depth()` in `app.py`.
-
-### Qwen Prompt Format (hitl.py, research.py, synthesis.py)
-
-Two SYSTEM prompt formats co-exist (see `docs/prompts-design.md` for full rules):
-- **XML tag format** (`<role>`, `<output_format>`, `<constraints>`, `<content_rules>`, `<input_definitions>`, `<example>`): used by the 5 synthesis/summary prompts (`SYNTHESIS_PROMPT_ENHANCED_SYSTEM`, `SYNTHESIS_PROMPT_SYSTEM`, `QUERY_ASSESSMENT_PROMPT_SYSTEM`, `HITL_SUMMARY_PROMPT_SYSTEM`, `TASK_SUMMARY_PROMPT_SYSTEM`). Output format is placed 2nd so the LLM sees the schema before the rules.
-- **Markdown section format** (`### Role / ### Goal / ### Rules / ### Output format`): used by all other prompts.
-
-### gpt-oss Prompt Format (hitl_gpt.py, research_gpt.py, synthesis_gpt.py)
-
-Adapted for Harmony format conventions:
-- **`# Role` / `# Goal` / `# Rules`**: Top-level markdown headers (not `###` or XML tags)
-- **Flat numbered rules**: No nested sub-lists (a, b, c) — everything at one level
-- **`<json>...</json>` wrapper tags**: Structured output prompts instruct the model to wrap JSON in `<json>` tags
-- **No `/no_think`**: Qwen3-specific directives removed
-- **Output-only examples**: Trimmed input portions (~200 tokens saved per prompt)
-- **`{language}` placeholder**: Retained in all content-bearing prompts (unchanged from Qwen variants)
-
-### OllamaClient Adaptations for gpt-oss
-
-- **Harmony preamble**: `_prepare_system_prompt()` prepends `"You are a helpful assistant.\nReasoning: high\n---\n"` for gpt-oss models
-- **JSON tag extraction**: `_extract_json_from_tags()` regex-extracts content between `<json>` and `</json>` tags as fallback when structured output parsing fails
-- **Temperature**: `ChatOllama` instances use `settings.ollama_temperature` (configurable, default `0.0`)
-
-### OllamaClient Adaptations for gemma4 and granite4
-
-- **`/no_think` stripping**: `_prepare_system_prompt()` removes `/no_think` tokens for gemma4/granite4 (Qwen3-specific directive they don't support); detected via `is_gemma4` / `is_granite4` properties (case-insensitive substring match).
-- Both use the Qwen prompt set unchanged; `granite4.1` `model_family` resolves to `"qwen"` (falls through gpt-oss/gemma4 checks).
-
-For specific prompt rules, see @docs/prompts-design.md [docs/prompts-design.md](docs/prompts-design.md).
+Qwen prompts use one of two SYSTEM formats (XML-tag for the 5 synthesis/summary prompts, markdown
+`### Role/Goal/Rules` for the rest); gpt-oss prompts use Harmony conventions (`# Role` headers,
+flat numbered rules, `<json>...</json>` wrapper tags, no `/no_think`). `OllamaClient` adapts per
+family: Harmony preamble + `<json>` tag extraction for gpt-oss; `/no_think` stripping for
+gemma4/granite4 (`is_gemma4`/`is_granite4`, case-insensitive). Full rules, both format specs, and
+prompt-writing guidance: [docs/prompts-design.md](docs/prompts-design.md) @docs/prompts-design.md.
 
 ## Documentation
 

@@ -54,8 +54,12 @@ Proxy config and full reasoning: `local_app-orchestrator/deploy/ai.brenk.com.con
 and its `docs/reverse-proxy.md`. The app directory at <https://ai.brenk.com/>
 links here.
 
-The Cloudflare quick tunnels in `login/` are superseded but kept as a fallback.
-The URLs they print point at the port root and 404 — append `/brain/`.
+For ad-hoc remote access without nginx, `./tunnel.sh` starts the app and a
+Cloudflare Quick Tunnel in one command (no account, no password gate); `./tunnel.sh stop`
+tears both down. It also prints a URL with `/brain/` appended.
+
+The password-gated launcher + quick tunnels in `login/` are superseded but kept as a
+further fallback. The URLs they print point at the port root and 404 — append `/brain/`.
 
 ## Features
 

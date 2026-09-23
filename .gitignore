@@ -60,3 +60,6 @@ examples/
 
 # Login credential store (seeded with password hashes — never commit)
 data/users.json
+
+# graft's local graph cache — regenerable, not committed (run `graft build`).
+graft/
